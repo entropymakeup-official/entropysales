@@ -1618,9 +1618,15 @@ let _currentInvId=null;
 
 // 버킷이 private이므로 클릭 시점에 서명 URL(5분 유효)을 생성해 새 탭으로 연다
 async function openStoredFile(bucket,path){
+  // 클릭 직후 동기적으로 빈 창을 먼저 열어 팝업 차단을 피하고, 서명 URL이 준비되면 그 창을 이동시킨다
+  const w=window.open('','_blank');
   const{data,error}=await sb.storage.from(bucket).createSignedUrl(path,300);
-  if(error||!data?.signedUrl){toast('❌ 파일 열기 실패: '+(error?.message||'권한 없음'));return;}
-  window.open(data.signedUrl,'_blank','noopener');
+  if(error||!data?.signedUrl){
+    if(w)w.close();
+    toast('❌ 파일 열기 실패: '+(error?.message||'권한 없음'));return;
+  }
+  if(w){w.opener=null;w.location.href=data.signedUrl;}
+  else{window.open(data.signedUrl,'_blank','noopener');} // 창이 차단된 경우 재시도
 }
 // documents 행에서 스토리지 경로 추출 (신규: file_path / 레거시: public URL에서 경로 파싱)
 function docStoragePath(d){
