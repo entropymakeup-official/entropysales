@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="style.css?v=2026090403"/>
+<link rel="stylesheet" href="style.css?v=2026090404"/>
 </head>
 <body>
   </div>
@@ -198,7 +198,7 @@
   <div class="mhd"><h2>RSP LIST 업로드 → 제품 상세 동기화</h2><button class="btn btn-sm" onclick="cm('m-rsp')"><i class="ti ti-x"></i></button></div>
   <div class="mbody" style="overflow:auto;flex:1">
     <div id="rsp-drop" onclick="document.getElementById('rsp-file').click()"
-      ondragover="event.preventDefault();this.style.borderColor='var(--blue)'" ondragleave="this.style.borderColor='var(--border2)'"
+      ondragover="event.preventDefault();this.style.borderColor='#2563EB'" ondragleave="this.style.borderColor='var(--border2)'"
       ondrop="event.preventDefault();this.style.borderColor='var(--border2)';handleRspFile(event.dataTransfer.files[0])"
       style="border:1.5px dashed var(--border2);border-radius:var(--radius);padding:22px;text-align:center;cursor:pointer;color:var(--text2);font-size:12px">
       <i class="ti ti-file-spreadsheet" style="font-size:22px;display:block;margin-bottom:6px;color:var(--green)"></i>
@@ -581,6 +581,6 @@
   </div>
 </div>
 </div>
-<script src="app.js?v=2026090403"></script>
+<script src="app.js?v=2026090404"></script>
 </body>
 </html>

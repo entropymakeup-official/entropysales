@@ -4071,7 +4071,8 @@ function printCustReport(){
       for (var m = 0; m < MAP.length; m++) {
         if (MAP[m][0].test(h)) {
           var key = MAP[m][1];
-          var mul = (SIZE_KEYS[key] && /\(CM\)/.test(h)) ? 10 : 1;
+          // 규격은 헤더 단위 표기를 믿지 않고 원본 숫자 그대로 저장 (ENTROPY 시트가 '(cm)'로 적혀 있지만 실제 값은 mm)
+          var mul = 1;
           cols.push({ idx: idx, key: key, type: MAP[m][2], mul: mul });
           return;
         }
@@ -4165,7 +4166,7 @@ const PD_NUM=v=>(v===null||v===undefined||v==='')?'-':Number(v).toLocaleString('
 const PD_KRW=v=>(v===null||v===undefined||v==='')?'-':'₩'+Math.round(Number(v)).toLocaleString('ko-KR');
 const PD_PCT=v=>(v===null||v===undefined||v==='')?'-':(Number(v)*100).toFixed(0)+'%';
 const PD_TXT=v=>(v===null||v===undefined||String(v).trim()==='')?'<span style="color:var(--text3)">-</span>':esc(String(v));
-const PD_BRAND_COLOR={ENTROPY:'var(--blue)',MORANDI:'var(--purple)',DAISO:'var(--amber)',GWP:'var(--green)'};
+const PD_BRAND_COLOR={ENTROPY:'#2563EB',MORANDI:'var(--purple)',DAISO:'var(--amber)',GWP:'var(--green)'};
 function pdBrandBadge(b){return `<span class="badge" style="background:${PD_BRAND_COLOR[b]||'var(--text3)'};color:#fff">${esc(b||'-')}</span>`;}
 function pdBase(bc){return String(bc||'').replace(/-\d{2}$/,'');} // 접미사 제거 (주문 매칭용)
 
@@ -4276,7 +4277,7 @@ function pdDetailHtml(p,forPrint){
   </div>
   ${pdSection('제품 정보','ti-info-circle',
       pdRow('스킨 타입',PD_TXT(p.skin_type))+pdRow('기능성 화장품',PD_TXT(p.functional))
-    + pdRow('사용 부위',PD_TXT(p.used_room))+pdRow('제품 중량 (g)',PD_NUM(p.product_volume_g))
+    + pdRow('사용 방법',PD_TXT(p.used_room),true)+pdRow('제품 중량 (g)',PD_NUM(p.product_volume_g))
     + pdRow('제품 규격 (W×D×H)',pdDim(p.size_w,p.size_d,p.size_h))+pdRow('유통/사용기한',PD_TXT(p.expiry)))}
   ${pdSection('성분 · 규제 정보','ti-flask',
       pdRow('전성분',PD_TXT(p.ingredients),true)
