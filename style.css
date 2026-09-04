@@ -233,3 +233,6 @@ tr:hover td{background:var(--bg3)}
 .xg tr:hover td{background:rgba(37,99,235,0.03)}
 .xg tr td.selected,.xg tr:hover td.selected{background:rgba(37,99,235,0.12)}
 
+
+/* 비활성 버튼 (RSP 업로드 반영 등) */
+.btn:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}

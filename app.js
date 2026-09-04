@@ -4359,8 +4359,8 @@ function handleRspFile(file){
           <div class="kpi" style="padding:8px 12px;flex:1"><div class="lbl">동일</div><div class="val" style="font-size:16px;color:var(--text3)">${same}</div></div>
         </div>
         <div style="margin-bottom:8px">${sheetLine}</div>
-        ${newProducts.length?`<div style="margin-bottom:8px"><b>제품 목록에 없는 제품 ${newProducts.length}개</b> → 반영 시 <code>products</code>에도 등록됩니다 ${newProducts.filter(r=>r.retail_krw===null).length?`<span class="badge bg-amber">가격 미정 ${newProducts.filter(r=>r.retail_krw===null).length}개는 0원으로 등록</span>`:''}
-          <div style="font-size:11px;color:var(--text2);margin-top:4px;max-height:90px;overflow:auto">${newProducts.map(r=>`${esc(r.barcode)} ${esc(r.name_kr||'')}`).join('<br>')}</div></div>`:''}
+        ${newProducts.length?`<div style="margin-bottom:8px"><b>제품 목록에 없는 제품 ${newProducts.length}개</b> → 가격이 있는 ${newProducts.filter(r=>r.retail_krw!==null).length}개는 <code>products</code>에도 등록 ${newProducts.filter(r=>r.retail_krw===null).length?`<span class="badge bg-amber">가격 미정 ${newProducts.filter(r=>r.retail_krw===null).length}개는 등록 보류 (가격 확정 후 재업로드)</span>`:''}
+          <div style="font-size:11px;color:var(--text2);margin-top:4px;max-height:90px;overflow:auto">${newProducts.map(r=>`${esc(r.barcode)} ${esc(r.name_kr||'')}${r.retail_krw===null?' <span style="color:var(--amber)">(가격 미정·보류)</span>':''}`).join('<br>')}</div></div>`:''}
         ${priceDiffs.length?`<div style="margin-bottom:8px"><b>소비자가 변경 ${priceDiffs.length}개</b> → 반영 시 <code>products.price</code> 갱신
           <div style="font-size:11px;color:var(--text2);margin-top:4px;max-height:90px;overflow:auto">${priceDiffs.map(d=>`${esc(d.barcode)} ${esc(d.name||'')} : ${PD_KRW(d.from)} → <b>${PD_KRW(d.to)}</b>`).join('<br>')}</div></div>`:`<div style="margin-bottom:8px;color:var(--text3)">소비자가 변경 없음</div>`}
         ${parsed.suffixMap.length?`<div style="margin-bottom:8px"><b>공유 바코드 → 접미사 자동 부여 ${parsed.suffixMap.length}건</b>
@@ -4383,9 +4383,11 @@ async function confirmRspUpload(){
       if(error)throw error;
     }
     // products 동기화: 신규 등록 + 소비자가 갱신 (+ 비어있던 영문명/입수량 보완)
-    const{newProducts,priceDiffs}=_rspPreview.stats;
+    const{priceDiffs}=_rspPreview.stats;
+    // 가격 미정(retail_krw null) 신제품은 products 등록 보류 — 0원 제품이 매출 집계를 깨는 것을 방지
+    const newProducts=_rspPreview.stats.newProducts.filter(r=>r.retail_krw!==null);
     if(newProducts.length){
-      const ins=newProducts.map(r=>({barcode:r.barcode,name:r.name_kr||r.barcode,name_eng:r.name_us||'',price:r.retail_krw||0,cat:'',status:'',cartoon:r.carton_take_in||0,inbox:r.inbox_take_in||0}));
+      const ins=newProducts.map(r=>({barcode:r.barcode,name:r.name_kr||r.barcode,name_eng:r.name_us||'',price:r.retail_krw,cat:'',status:'',cartoon:r.carton_take_in||0,inbox:r.inbox_take_in||0}));
       const{data,error}=await sb.from('products').insert(ins).select();
       if(error)throw error;if(data)_products.push(...data);
     }
