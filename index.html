@@ -1616,6 +1616,19 @@ function exportInvoices(){
 // ── 인보이스 서류 첨부 ──
 let _currentInvId=null;
 
+// 버킷이 private이므로 클릭 시점에 서명 URL(5분 유효)을 생성해 새 탭으로 연다
+async function openStoredFile(bucket,path){
+  const{data,error}=await sb.storage.from(bucket).createSignedUrl(path,300);
+  if(error||!data?.signedUrl){toast('❌ 파일 열기 실패: '+(error?.message||'권한 없음'));return;}
+  window.open(data.signedUrl,'_blank','noopener');
+}
+// documents 행에서 스토리지 경로 추출 (신규: file_path / 레거시: public URL에서 경로 파싱)
+function docStoragePath(d){
+  if(d?.file_path)return d.file_path;
+  const m=(d?.file_url||'').match(/\/object\/public\/documents\/(.+)$/);
+  return m?decodeURIComponent(m[1]):null;
+}
+
 async function loadInvDocs(invId){
   _currentInvId=invId;
   const el=document.getElementById('inv-doc-list');if(!el)return;
@@ -1628,12 +1641,11 @@ async function loadInvDocs(invId){
     updateInvFileIcon(invId);
     if(!files.length){el.innerHTML='<span style="color:var(--text3)">첨부 파일 없음</span>';return;}
     el.innerHTML=files.map(f=>{
-      const {data:urlData}=sb.storage.from('invoice-docs').getPublicUrl(invId+'/'+f.name);
-      const url=urlData?.publicUrl||'';
       const displayName=f.metadata?.originalName||f.name;
+      const p=encodeURIComponent(invId+'/'+f.name);
       return`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:0.5px solid var(--border)">
         <i class="ti ti-file" style="color:var(--purple)"></i>
-        <a href="${url}" target="_blank" style="flex:1;color:var(--text);font-size:11px;text-decoration:none">${displayName}</a>
+        <a href="#" onclick="openStoredFile('invoice-docs',decodeURIComponent('${p}'));return false" style="flex:1;color:var(--text);font-size:11px;text-decoration:none">${displayName}</a>
         <span class="alink" style="color:var(--red);font-size:10px" onclick="deleteInvDoc('${invId}','${f.name}')">삭제</span>
       </div>`;
     }).join('');
@@ -1795,13 +1807,12 @@ function updateInvFileIcon(id){
     if(['zip','rar','7z'].includes(ext))return'ti-file-zip';
     return'ti-file';
   }
-  const publicBase='https://qqmhxnwmasamkqsbnrvw.supabase.co/storage/v1/object/public/invoice-docs/';
   const items=files.map(f=>{
-    const url=publicBase+id+'/'+encodeURIComponent(f.name);
+    const p=encodeURIComponent(id+'/'+f.name);
     const icon=fileIcon(f.name);
     const ext=(f.name.split('.').pop()||'').toUpperCase();
     const extColor={'PDF':'#DC2626','XLSX':'#059669','XLS':'#059669','CSV':'#059669','DOC':'#2563EB','DOCX':'#2563EB','JPG':'#EA580C','JPEG':'#EA580C','PNG':'#EA580C','ZIP':'#7C3AED','RAR':'#7C3AED','7Z':'#7C3AED'}[ext]||'var(--text2)';
-    return`<a class="inv-file-item" href="${url}" target="_blank" onclick="event.stopPropagation()">
+    return`<a class="inv-file-item" href="#" onclick="event.stopPropagation();event.preventDefault();openStoredFile('invoice-docs',decodeURIComponent('${p}'))">
       <i class="ti ${icon}" style="color:${extColor}"></i>
       <span style="overflow:hidden;text-overflow:ellipsis;max-width:200px">${f.name}</span>
     </a>`;
@@ -3760,8 +3771,8 @@ function filterDocs(){
           return`<tr>
             <td><span class="file-chip" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;display:inline-flex">
               <i class="ti ti-file" style="font-size:12px;color:var(--purple);flex-shrink:0"></i>
-              ${d.file_url
-                ?`<a href="${d.file_url}" target="_blank" style="color:var(--purple);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.name}">${d.name} <i class="ti ti-external-link" style="font-size:10px"></i></a>`
+              ${docStoragePath(d)
+                ?`<a href="#" onclick="openStoredFile('documents',decodeURIComponent('${encodeURIComponent(docStoragePath(d))}'));return false" style="color:var(--purple);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.name}">${d.name} <i class="ti ti-external-link" style="font-size:10px"></i></a>`
                 :`<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.name}">${d.name}</span>`}
             </span></td>
             <td style="font-size:11px">${d.customer||'-'}</td>
@@ -3807,7 +3818,7 @@ function editDoc(id){
   document.getElementById('d-type').value=d.type||'기타';
   _docFile=null;
   const lbl=document.getElementById('d-file-name');
-  if(lbl)lbl.textContent=d.file_url?'📄 현재 파일 유지 (새 파일 선택 시 교체)':'클릭하거나 끌어다 놓으세요';
+  if(lbl)lbl.textContent=docStoragePath(d)?'📄 현재 파일 유지 (새 파일 선택 시 교체)':'클릭하거나 끌어다 놓으세요';
   const dp=document.getElementById('d-upload-progress');if(dp){dp.textContent='';dp.style.display='none';}
   om('m-doc');
 }
@@ -3836,8 +3847,8 @@ async function saveDoc(){
     // upsert:true 로 같은 이름 파일 덮어쓰기 허용
     const{data:upData,error:upErr}=await sb.storage.from('documents').upload(path,file,{upsert:true});
     if(upErr){alert('파일 업로드 실패: '+upErr.message);if(prog)prog.style.display='none';return;}
-    const{data:urlData}=sb.storage.from('documents').getPublicUrl(path);
-    fileUrl=urlData?.publicUrl||null;
+    // 서명 URL 방식: public URL은 저장하지 않고 경로(file_path)만 저장
+    fileUrl=null;
     filePath=path;
     if(prog)prog.textContent='업로드 완료!';
   }
