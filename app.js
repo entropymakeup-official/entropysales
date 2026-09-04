@@ -142,9 +142,9 @@ function closeSidebar(){
 function go(page){
   document.querySelectorAll('.ni').forEach(el=>el.classList.remove('active'));
   const n=document.getElementById('nav-'+page);if(n)n.classList.add('active');
-  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',tax:'세금계산서',customers:'거래처 마스터',docs:'서류 관리',products:'제품 목록',calendar:'달력'};
+  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',tax:'세금계산서',customers:'거래처 마스터',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
   document.getElementById('page-title').textContent=titles[page]||page;
-  ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,customers:renderCustomers,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis})[page]?.();
+  ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,customers:renderCustomers,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
 
 
@@ -3986,3 +3986,417 @@ function printCustReport(){
 }
 
 
+
+
+// ═══ RSP 파서 (rsp_parser.js) ═══
+// RSP LIST.xlsx 파서 — node(테스트)와 브라우저(app.js) 공용, 순수 함수
+// 사용: parseRspWorkbook(workbook, XLSX) -> { rows, suffixMap, warnings, sheets }
+(function (root) {
+  'use strict';
+
+  // 헤더 정규화: 공백 압축, 전각괄호→반각, 대문자
+  function normHeader(h) {
+    return String(h || '').replace(/\s+/g, ' ').replace(/（/g, '(').replace(/）/g, ')').trim().toUpperCase();
+  }
+
+  // [헤더 패턴, 저장 키, 타입]  타입: text | num | int
+  var MAP = [
+    [/^REF\.?$/, 'barcode', 'text'],
+    [/^NAME \(KR\)/, 'name_kr', 'text'],
+    [/^NAME \(US\)/, 'name_us', 'text'],
+    [/^RETAIL PRICE \(KRW\)/, 'retail_krw', 'num'],
+    [/^RETAIL PRICE \(BY NATION\)/, 'retail_nation', 'num'],
+    [/^DC RANGE-MAX \(RATE\)/, 'dc_max_rate', 'num'],
+    [/^DC RANGE-MAX \(PRICE\)/, 'dc_max_price', 'num'],
+    [/^VOLUME$/, 'volume', 'text'],
+    [/^SKIN TYPE/, 'skin_type', 'text'],
+    [/기능성/, 'functional', 'text'],
+    [/^USED ROOM/, 'used_room', 'text'],
+    [/주의사항/, 'caution', 'text'],
+    [/품질보증/, 'warranty', 'text'],
+    [/^INGREDIENTS/, 'ingredients', 'text'],
+    [/제조업자/, 'manufacturer', 'text'],
+    [/책임판매업자/, 'distributor', 'text'],
+    [/제조국/, 'origin', 'text'],
+    [/유통기한|사용기한/, 'expiry', 'text'],
+    [/소비자상담|전화번호/, 'phone', 'text'],
+    [/^PRODUCT VOLUME/, 'product_volume_g', 'num'],
+    [/^PRODUCT SIZE-W/, 'size_w', 'num'],
+    [/^PRODUCT SIZE-D/, 'size_d', 'num'],
+    [/^PRODUCT SIZE-H/, 'size_h', 'num'],
+    [/^CARTOON VOLUME/, 'carton_volume_kg', 'num'],
+    [/^CARTOON SIZE-W/, 'carton_w', 'num'],
+    [/^CARTOON SIZE-H/, 'carton_h', 'num'],
+    [/^CARTOON SIZE-D/, 'carton_d', 'num'],
+    [/^CARTOON TAKE IN/, 'carton_take_in', 'int'],
+    [/^IN-BOX SIZE-W/, 'inbox_w', 'num'],
+    [/^IN-BOX SIZE-H/, 'inbox_h', 'num'],
+    [/^IN-BOX SIZE-D/, 'inbox_d', 'num'],
+    [/^IN-BOX VOLUME/, 'inbox_volume_kg', 'num'],
+    [/^IN-BOX TAKE IN/, 'inbox_take_in', 'int']
+  ];
+  var SIZE_KEYS = { size_w: 1, size_d: 1, size_h: 1, carton_w: 1, carton_h: 1, carton_d: 1, inbox_w: 1, inbox_h: 1, inbox_d: 1 };
+  var ALL_KEYS = MAP.map(function (m) { return m[1]; }).concat(['brand', 'source_sheet']);
+
+  function toNum(v, isInt) {
+    if (v === null || v === undefined) return null;
+    var s = String(v).replace(/[₩,%\s]/g, '').trim();
+    if (s === '' || s === '-' || s.toUpperCase() === 'N/A') return null;
+    var n = Number(s);
+    if (!isFinite(n)) return null;
+    return isInt ? Math.round(n) : n;
+  }
+  function toText(v) {
+    if (v === null || v === undefined) return null;
+    var s = String(v).trim();
+    return s === '' ? null : s;
+  }
+  function isBarcode(s) { return /^\d{8,14}$/.test(String(s || '').trim()); }
+
+  // 헤더 행 찾기: 정규화 셀 중 REF 가 있는 첫 행 (앞 6행 내)
+  function findHeaderRow(rows) {
+    for (var i = 0; i < Math.min(rows.length, 6); i++) {
+      var cells = (rows[i] || []).map(normHeader);
+      if (cells.some(function (c) { return /^REF\.?$/.test(c); })) return i;
+    }
+    return -1;
+  }
+
+  // 컬럼 인덱스 → {key,type,mul} 매핑 (cm 표기 규격은 ×10 → mm)
+  function buildColMap(headerCells) {
+    var cols = [];
+    headerCells.forEach(function (raw, idx) {
+      var h = normHeader(raw);
+      if (!h) return;
+      for (var m = 0; m < MAP.length; m++) {
+        if (MAP[m][0].test(h)) {
+          var key = MAP[m][1];
+          var mul = (SIZE_KEYS[key] && /\(CM\)/.test(h)) ? 10 : 1;
+          cols.push({ idx: idx, key: key, type: MAP[m][2], mul: mul });
+          return;
+        }
+      }
+    });
+    return cols;
+  }
+
+  function parseSheet(ws, sheetName, XLSX, warnings) {
+    var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    var hIdx = findHeaderRow(rows);
+    if (hIdx < 0) { warnings.push(sheetName + ': REF 헤더를 찾지 못해 건너뜀'); return []; }
+    var cols = buildColMap(rows[hIdx]);
+    var haveKeys = {}; cols.forEach(function (c) { haveKeys[c.key] = true; });
+    if (!haveKeys.barcode) { warnings.push(sheetName + ': 바코드 컬럼 없음'); return []; }
+    var out = [];
+    for (var r = hIdx + 1; r < rows.length; r++) {
+      var row = rows[r] || [];
+      var rec = {};
+      ALL_KEYS.forEach(function (k) { rec[k] = null; });
+      cols.forEach(function (c) {
+        var v = row[c.idx];
+        if (c.type === 'text') rec[c.key] = toText(v);
+        else { var n = toNum(v, c.type === 'int'); rec[c.key] = (n === null ? null : n * c.mul); }
+      });
+      if (!isBarcode(rec.barcode)) {
+        if (rec.name_kr) warnings.push(sheetName + ' 행 ' + (r + 1) + ': 바코드 없음/형식 오류 (' + rec.name_kr + ') → 제외');
+        continue;
+      }
+      rec.barcode = String(rec.barcode).trim();
+      // 할인율이 30 처럼 %로 적힌 경우 0.30 으로
+      if (rec.dc_max_rate !== null && rec.dc_max_rate > 1 && rec.dc_max_rate <= 100) rec.dc_max_rate = rec.dc_max_rate / 100;
+      rec.brand = sheetName;
+      rec.source_sheet = sheetName;
+      out.push(rec);
+    }
+    return out;
+  }
+
+  // 시트 내 공유 바코드 → 접미사(-01/-02…): 제품명에 (NN 이 있으면 그 번호, 없으면 등장 순서
+  function applySuffixes(sheetRows, suffixMap) {
+    var groups = {};
+    sheetRows.forEach(function (r) { (groups[r.barcode] = groups[r.barcode] || []).push(r); });
+    Object.keys(groups).forEach(function (bc) {
+      var g = groups[bc];
+      if (g.length < 2) return;
+      var used = {};
+      g.forEach(function (r, i) {
+        var m = String(r.name_kr || '').match(/\((\d{2})/);
+        var suf = m ? m[1] : String(i + 1).padStart(2, '0');
+        if (used[suf]) suf = String(i + 1).padStart(2, '0');
+        used[suf] = true;
+        var nb = bc + '-' + suf;
+        suffixMap.push({ orig: bc, new: nb, name: r.name_kr, sheet: r.source_sheet });
+        r.barcode = nb;
+      });
+    });
+  }
+
+  function parseRspWorkbook(wb, XLSX) {
+    var warnings = [], suffixMap = [], sheets = {}, rows = [];
+    wb.SheetNames.forEach(function (name) {
+      var sr = parseSheet(wb.Sheets[name], name, XLSX, warnings);
+      applySuffixes(sr, suffixMap);
+      sheets[name] = sr.length;
+      rows = rows.concat(sr);
+    });
+    // 시트 간 중복(같은 바코드가 두 시트에) 은 경고만
+    var seen = {};
+    rows.forEach(function (r) { if (seen[r.barcode]) warnings.push('시트 간 중복 바코드: ' + r.barcode + ' (' + seen[r.barcode] + ' / ' + r.source_sheet + ')'); else seen[r.barcode] = r.source_sheet; });
+    return { rows: rows, suffixMap: suffixMap, warnings: warnings, sheets: sheets };
+  }
+
+  var api = { parseRspWorkbook: parseRspWorkbook, RSP_KEYS: ALL_KEYS };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.RSP = api;
+})(typeof window !== 'undefined' ? window : this);
+
+// ═══════════════════════════════════════════════════════════════
+// 제품별 분석 (RSP 제품 상세) + RSP LIST 업로드 동기화
+//  - 데이터: public.product_details (바코드 PK, RSP 34필드), 화면 진입 시에만 로드
+//  - 파서: window.RSP.parseRspWorkbook (rsp_parser, 아래에 포함)
+// ═══════════════════════════════════════════════════════════════
+let _pd=null;          // product_details 캐시
+let _pdSelected='';    // 선택된 바코드
+let _pdBrand='';       // 브랜드 필터
+let _pdQuery='';       // 검색어
+let _rspPreview=null;  // 업로드 미리보기 {rows,suffixMap,warnings,sheets,stats}
+
+const PD_NUM=v=>(v===null||v===undefined||v==='')?'-':Number(v).toLocaleString('ko-KR');
+const PD_KRW=v=>(v===null||v===undefined||v==='')?'-':'₩'+Math.round(Number(v)).toLocaleString('ko-KR');
+const PD_PCT=v=>(v===null||v===undefined||v==='')?'-':(Number(v)*100).toFixed(0)+'%';
+const PD_TXT=v=>(v===null||v===undefined||String(v).trim()==='')?'<span style="color:var(--text3)">-</span>':esc(String(v));
+const PD_BRAND_COLOR={ENTROPY:'var(--blue)',MORANDI:'var(--purple)',DAISO:'var(--amber)',GWP:'var(--green)'};
+function pdBrandBadge(b){return `<span class="badge" style="background:${PD_BRAND_COLOR[b]||'var(--text3)'};color:#fff">${esc(b||'-')}</span>`;}
+function pdBase(bc){return String(bc||'').replace(/-\d{2}$/,'');} // 접미사 제거 (주문 매칭용)
+
+async function loadProductDetails(force){
+  if(_pd&&!force)return _pd;
+  const{data,error}=await sb.from('product_details').select('*').order('brand').order('name_kr');
+  if(error){toast('❌ 제품 상세 로드 실패: '+error.message);_pd=[];return _pd;}
+  _pd=data||[];return _pd;
+}
+
+async function renderProductAnalysis(){
+  const el=document.getElementById('content');
+  el.innerHTML=loading();
+  await loadProductDetails();
+  const brands=[...new Set(_pd.map(p=>p.brand).filter(Boolean))].sort();
+  el.innerHTML=`
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <input id="pd-q" placeholder="제품명 / 영문명 / 바코드 검색" value="${esc(_pdQuery)}" oninput="_pdQuery=this.value;_pdSelected='';buildProductList()"
+      style="font-size:12px;padding:7px 12px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg2);color:var(--text);min-width:260px"/>
+    <select id="pd-brand" onchange="_pdBrand=this.value;_pdSelected='';buildProductList()" style="font-size:12px;padding:7px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg2);color:var(--text)">
+      <option value="">전체 브랜드</option>${brands.map(b=>`<option value="${esc(b)}" ${b===_pdBrand?'selected':''}>${esc(b)}</option>`).join('')}
+    </select>
+    <span id="pd-count" style="font-size:11px;color:var(--text3)"></span>
+    <button class="btn" onclick="openRspUpload()" style="margin-left:auto"><i class="ti ti-upload"></i> RSP 업로드</button>
+    <button class="btn btn-primary" id="pd-print" onclick="printProductSheet()" ${_pdSelected?'':'disabled'}><i class="ti ti-printer"></i> 제품 시트 인쇄</button>
+  </div>
+  <div id="pd-body"></div>`;
+  if(!_pd.length){
+    document.getElementById('pd-body').innerHTML=`<div class="card"><div class="est"><i class="ti ti-package"></i>RSP 제품 상세 데이터가 아직 없습니다<br><small style="font-size:10px;margin-top:4px;display:block">우측 상단 <b>RSP 업로드</b>로 RSP LIST.xlsx를 올리면 4개 시트가 자동으로 반영됩니다</small></div></div>`;
+    return;
+  }
+  if(_pdSelected&&_pd.find(p=>p.barcode===_pdSelected))showProductDetail(_pdSelected);
+  else buildProductList();
+}
+
+function pdFiltered(){
+  const q=_pdQuery.trim().toLowerCase();
+  return _pd.filter(p=>(!_pdBrand||p.brand===_pdBrand)&&(!q||[p.name_kr,p.name_us,p.barcode].some(v=>String(v||'').toLowerCase().includes(q))));
+}
+
+function buildProductList(){
+  const body=document.getElementById('pd-body');if(!body)return;
+  const list=pdFiltered();
+  const cnt=document.getElementById('pd-count');if(cnt)cnt.textContent=`${list.length}개 제품`;
+  const pb=document.getElementById('pd-print');if(pb)pb.disabled=true;
+  if(!list.length){body.innerHTML=`<div class="card"><div class="est">검색 결과 없음</div></div>`;return;}
+  body.innerHTML=`<div class="card"><div class="tw"><table>
+    <thead><tr><th>브랜드</th><th>바코드</th><th>제품명 (KR)</th><th>제품명 (US)</th><th style="text-align:right">소비자가</th><th style="text-align:right">국가별가</th><th style="text-align:right">최대할인</th><th>용량</th><th style="text-align:right">카톤/인박스</th></tr></thead>
+    <tbody>${list.map(p=>`<tr style="cursor:pointer" onclick="showProductDetail('${esc(p.barcode)}')">
+      <td>${pdBrandBadge(p.brand)}</td>
+      <td style="font-family:monospace;font-size:11px">${esc(p.barcode)}</td>
+      <td style="font-weight:600">${PD_TXT(p.name_kr)}</td>
+      <td style="font-size:11px;color:var(--text2)">${PD_TXT(p.name_us)}</td>
+      <td style="text-align:right">${PD_KRW(p.retail_krw)}</td>
+      <td style="text-align:right">${PD_NUM(p.retail_nation)}</td>
+      <td style="text-align:right;font-size:11px">${p.dc_max_rate!==null&&p.dc_max_rate!==undefined?PD_PCT(p.dc_max_rate)+' <span style="color:var(--text3)">/ '+PD_KRW(p.dc_max_price)+'</span>':'-'}</td>
+      <td style="font-size:11px;white-space:pre-line">${PD_TXT(p.volume)}</td>
+      <td style="text-align:right;font-size:11px">${PD_NUM(p.carton_take_in)} / ${PD_NUM(p.inbox_take_in)}</td>
+    </tr>`).join('')}</tbody></table></div></div>`;
+}
+
+// 제품별 판매 요약 (invoice_items 바코드 기준, 접미사 제품은 원바코드 매칭도 포함)
+function pdSales(bc){
+  const base=pdBase(bc);
+  const its=_items.filter(i=>{const b=String(i.barcode||'').trim();return b===bc||(bc!==base&&b===base);});
+  const paid=its.filter(i=>i.sales_type==='Paid');
+  const qty=paid.reduce((a,i)=>a+(i.qty||0),0);
+  const rev=paid.reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
+  const focQty=its.filter(i=>['FOC','GWP','Sample'].includes(i.sales_type)).reduce((a,i)=>a+(i.qty||0),0);
+  const invIds=new Set(its.map(i=>i.invoice_id));
+  const invs=_invoices.filter(v=>invIds.has(v.id));
+  const custs=new Set(invs.map(v=>v.customer).filter(Boolean));
+  const last=invs.map(v=>v.order_date).filter(Boolean).sort().pop()||null;
+  const avg=qty?rev/qty:null;
+  return{qty,rev,focQty,custCount:custs.size,last,avg,lines:its.length};
+}
+
+function pdRow(label,val,full){return `<div style="${full?'grid-column:1/-1;':''}padding:7px 0;border-bottom:0.5px solid var(--border);display:grid;grid-template-columns:${full?'140px 1fr':'110px 1fr'};gap:10px;align-items:start"><div style="font-size:11px;color:var(--text3)">${label}</div><div style="font-size:12px;${full?'white-space:pre-wrap;line-height:1.55':''}">${val}</div></div>`;}
+function pdSection(title,icon,rowsHtml){return `<div class="card" style="margin-bottom:12px"><div class="card-hd"><h3><i class="ti ${icon}" style="margin-right:6px;color:var(--text2)"></i>${title}</h3></div><div style="display:grid;grid-template-columns:1fr 1fr;column-gap:24px">${rowsHtml}</div></div>`;}
+function pdDim(w,d,h){return (w||d||h)?`${PD_NUM(w)} × ${PD_NUM(d)} × ${PD_NUM(h)} mm`:'-';}
+
+function pdDetailHtml(p,forPrint){
+  const s=pdSales(p.barcode);
+  const dcLine=p.dc_max_rate!==null&&p.dc_max_rate!==undefined?`${PD_PCT(p.dc_max_rate)} 까지 → 최저 ${PD_KRW(p.dc_max_price)}`:'-';
+  const belowFloor=(s.avg!==null&&p.dc_max_price&&s.avg<Number(p.dc_max_price));
+  return `
+  <div class="card" style="margin-bottom:12px">
+    <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:260px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">${pdBrandBadge(p.brand)}<span style="font-family:monospace;font-size:11px;color:var(--text2)">${esc(p.barcode)}</span></div>
+        <div style="font-size:18px;font-weight:700">${PD_TXT(p.name_kr)}</div>
+        <div style="font-size:12px;color:var(--text2)">${PD_TXT(p.name_us)}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(110px,1fr));gap:8px">
+        <div class="kpi" style="padding:10px"><div class="lbl">소비자가 (KRW)</div><div class="val" style="font-size:15px">${PD_KRW(p.retail_krw)}</div></div>
+        <div class="kpi" style="padding:10px"><div class="lbl">국가별 소비자가</div><div class="val" style="font-size:15px">${PD_NUM(p.retail_nation)}</div></div>
+        <div class="kpi" style="padding:10px"><div class="lbl">최대 할인</div><div class="val" style="font-size:12px;line-height:1.4">${dcLine}</div></div>
+        <div class="kpi" style="padding:10px"><div class="lbl">용량</div><div class="val" style="font-size:12px;white-space:pre-line;line-height:1.4">${PD_TXT(p.volume)}</div></div>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding-top:10px;border-top:0.5px solid var(--border);display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:var(--text2)">
+      <span><b style="color:var(--text)">누적 판매</b> ${PD_NUM(s.qty)}개 · ${PD_KRW(s.rev)}</span>
+      <span><b style="color:var(--text)">평균 판매단가</b> ${s.avg!==null?PD_KRW(s.avg):'-'} ${belowFloor?'<span class="badge bg-red" style="margin-left:4px">최대할인가 하회</span>':''}</span>
+      <span><b style="color:var(--text)">무상(FOC/GWP/Sample)</b> ${PD_NUM(s.focQty)}개</span>
+      <span><b style="color:var(--text)">구매 거래처</b> ${s.custCount}곳</span>
+      <span><b style="color:var(--text)">마지막 발주</b> ${s.last||'-'}</span>
+    </div>
+  </div>
+  ${pdSection('제품 정보','ti-info-circle',
+      pdRow('스킨 타입',PD_TXT(p.skin_type))+pdRow('기능성 화장품',PD_TXT(p.functional))
+    + pdRow('사용 부위',PD_TXT(p.used_room))+pdRow('제품 중량 (g)',PD_NUM(p.product_volume_g))
+    + pdRow('제품 규격 (W×D×H)',pdDim(p.size_w,p.size_d,p.size_h))+pdRow('유통/사용기한',PD_TXT(p.expiry)))}
+  ${pdSection('성분 · 규제 정보','ti-flask',
+      pdRow('전성분',PD_TXT(p.ingredients),true)
+    + pdRow('사용 시 주의사항',PD_TXT(p.caution),true)
+    + pdRow('품질보증기준',PD_TXT(p.warranty),true)
+    + pdRow('제조업자',PD_TXT(p.manufacturer))+pdRow('책임판매업자',PD_TXT(p.distributor))
+    + pdRow('제조국',PD_TXT(p.origin))+pdRow('소비자상담',PD_TXT(p.phone)))}
+  ${pdSection('물류 규격','ti-truck',
+      pdRow('카톤 규격 (W×H×D)',pdDim(p.carton_w,p.carton_h,p.carton_d))+pdRow('카톤 중량 (kg)',PD_NUM(p.carton_volume_kg))
+    + pdRow('카톤 입수 (EA)',PD_NUM(p.carton_take_in))+pdRow('인박스 입수 (EA)',PD_NUM(p.inbox_take_in))
+    + pdRow('인박스 규격 (W×H×D)',pdDim(p.inbox_w,p.inbox_h,p.inbox_d))+pdRow('인박스 중량 (kg)',PD_NUM(p.inbox_volume_kg)))}
+  ${forPrint?'':`<div style="font-size:10px;color:var(--text3);text-align:right">RSP 시트: ${esc(p.source_sheet||'-')} · 갱신 ${p.updated_at?String(p.updated_at).slice(0,16).replace('T',' '):'-'}</div>`}`;
+}
+
+function showProductDetail(bc){
+  const p=_pd.find(x=>x.barcode===bc);if(!p)return;
+  _pdSelected=bc;
+  const pb=document.getElementById('pd-print');if(pb)pb.disabled=false;
+  const body=document.getElementById('pd-body');if(!body)return;
+  body.innerHTML=`<div style="margin-bottom:10px"><span class="alink" onclick="_pdSelected='';buildProductList()"><i class="ti ti-arrow-left"></i> 제품 목록</span></div>`+pdDetailHtml(p,false);
+  body.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function printProductSheet(){
+  const p=_pd.find(x=>x.barcode===_pdSelected);if(!p){toast('제품을 먼저 선택하세요');return;}
+  const css=[...document.styleSheets].map(ss=>{try{return [...ss.cssRules].map(r=>r.cssText).join('\n');}catch(e){return '';}}).join('\n');
+  const w=window.open('','_blank');if(!w){toast('팝업이 차단되었습니다');return;}
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(p.name_kr||'제품 시트')}</title><style>${css}
+    body{background:#fff;padding:18px;user-select:text}.card{box-shadow:none;border:0.5px solid #ccd}.kpi{border:0.5px solid #dde}
+    @media print{body{padding:0}@page{size:A4;margin:12mm}.print-btn{display:none}}</style></head><body>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:11px;color:#667">Entropy Makeup · 제품 상세 시트 · ${today()}</div><button class="btn btn-primary print-btn" onclick="window.print()">인쇄</button></div>
+    ${pdDetailHtml(p,true)}</body></html>`);
+  w.document.close();
+}
+
+// ─── RSP 업로드 ───
+function openRspUpload(){
+  _rspPreview=null;
+  const pv=document.getElementById('rsp-preview');if(pv)pv.innerHTML='';
+  const cb=document.getElementById('rsp-confirm');if(cb)cb.disabled=true;
+  const fi=document.getElementById('rsp-file');if(fi)fi.value='';
+  om('m-rsp');
+}
+
+function handleRspFile(file){
+  if(!file)return;
+  const pv=document.getElementById('rsp-preview');
+  pv.innerHTML=`<div class="loading"><i class="ti ti-loader"></i>파일 분석 중... (${(file.size/1024/1024).toFixed(1)}MB — 이미지가 포함된 파일은 수십 초 걸릴 수 있습니다)</div>`;
+  const reader=new FileReader();
+  reader.onerror=()=>{pv.innerHTML='<span style="color:var(--red)">파일을 읽을 수 없습니다.</span>';};
+  reader.onload=async e=>{
+    try{
+      await new Promise(r=>setTimeout(r,30)); // 로딩 표시가 그려질 틈
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellStyles:false,cellHTML:false});
+      const parsed=RSP.parseRspWorkbook(wb,XLSX);
+      await loadProductDetails();
+      const byBc={};_pd.forEach(p=>byBc[p.barcode]=p);
+      const prodBy={};_products.forEach(p=>{const b=String(p.barcode||'').trim();if(b)prodBy[b]=p;});
+      const CMP=RSP.RSP_KEYS.filter(k=>k!=='source_sheet');
+      let nw=0,chg=0,same=0;const priceDiffs=[],newProducts=[];
+      parsed.rows.forEach(r=>{
+        const cur=byBc[r.barcode];
+        if(!cur){nw++;}
+        else{
+          const changed=CMP.some(k=>{const a=cur[k],b=r[k];const na=(a===null||a===undefined||a==='')?null:(typeof b==='number'?Number(a):String(a));const nb=(b===null||b===undefined||b==='')?null:b;return na!==nb;});
+          changed?chg++:same++;
+        }
+        const prod=prodBy[r.barcode];
+        if(!prod)newProducts.push(r);
+        else if(r.retail_krw!==null&&Number(prod.price||0)!==Number(r.retail_krw))priceDiffs.push({barcode:r.barcode,name:r.name_kr,from:Number(prod.price||0),to:r.retail_krw});
+      });
+      parsed.stats={nw,chg,same,priceDiffs,newProducts};
+      _rspPreview=parsed;
+      const sheetLine=Object.entries(parsed.sheets).map(([s,n])=>`${pdBrandBadge(s)} ${n}개`).join(' &nbsp; ');
+      pv.innerHTML=`
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <div class="kpi" style="padding:8px 12px;flex:1"><div class="lbl">읽은 제품</div><div class="val" style="font-size:16px">${parsed.rows.length}</div></div>
+          <div class="kpi" style="padding:8px 12px;flex:1"><div class="lbl">상세 신규</div><div class="val" style="font-size:16px;color:var(--green)">${nw}</div></div>
+          <div class="kpi" style="padding:8px 12px;flex:1"><div class="lbl">상세 변경</div><div class="val" style="font-size:16px;color:var(--amber)">${chg}</div></div>
+          <div class="kpi" style="padding:8px 12px;flex:1"><div class="lbl">동일</div><div class="val" style="font-size:16px;color:var(--text3)">${same}</div></div>
+        </div>
+        <div style="margin-bottom:8px">${sheetLine}</div>
+        ${newProducts.length?`<div style="margin-bottom:8px"><b>제품 목록에 없는 제품 ${newProducts.length}개</b> → 반영 시 <code>products</code>에도 등록됩니다 ${newProducts.filter(r=>r.retail_krw===null).length?`<span class="badge bg-amber">가격 미정 ${newProducts.filter(r=>r.retail_krw===null).length}개는 0원으로 등록</span>`:''}
+          <div style="font-size:11px;color:var(--text2);margin-top:4px;max-height:90px;overflow:auto">${newProducts.map(r=>`${esc(r.barcode)} ${esc(r.name_kr||'')}`).join('<br>')}</div></div>`:''}
+        ${priceDiffs.length?`<div style="margin-bottom:8px"><b>소비자가 변경 ${priceDiffs.length}개</b> → 반영 시 <code>products.price</code> 갱신
+          <div style="font-size:11px;color:var(--text2);margin-top:4px;max-height:90px;overflow:auto">${priceDiffs.map(d=>`${esc(d.barcode)} ${esc(d.name||'')} : ${PD_KRW(d.from)} → <b>${PD_KRW(d.to)}</b>`).join('<br>')}</div></div>`:`<div style="margin-bottom:8px;color:var(--text3)">소비자가 변경 없음</div>`}
+        ${parsed.suffixMap.length?`<div style="margin-bottom:8px"><b>공유 바코드 → 접미사 자동 부여 ${parsed.suffixMap.length}건</b>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px;max-height:90px;overflow:auto">${parsed.suffixMap.map(m=>`${esc(m.orig)} → <b>${esc(m.new)}</b> ${esc(m.name||'')}`).join('<br>')}</div></div>`:''}
+        ${parsed.warnings.length?`<div style="color:var(--amber)"><b>경고 ${parsed.warnings.length}건</b><div style="font-size:11px;margin-top:4px;max-height:70px;overflow:auto">${parsed.warnings.map(esc).join('<br>')}</div></div>`:''}`;
+      document.getElementById('rsp-confirm').disabled=parsed.rows.length===0;
+    }catch(err){console.error(err);pv.innerHTML='<span style="color:var(--red)">분석 실패: '+esc(err.message)+'</span>';}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function confirmRspUpload(){
+  if(!_rspPreview||!_rspPreview.rows.length)return;
+  const btn=document.getElementById('rsp-confirm');btn.disabled=true;btn.textContent='반영 중...';
+  try{
+    const now=new Date().toISOString();
+    const rows=_rspPreview.rows.map(r=>({...r,updated_at:now}));
+    for(let i=0;i<rows.length;i+=50){
+      const{error}=await sb.from('product_details').upsert(rows.slice(i,i+50),{onConflict:'barcode'});
+      if(error)throw error;
+    }
+    // products 동기화: 신규 등록 + 소비자가 갱신 (+ 비어있던 영문명/입수량 보완)
+    const{newProducts,priceDiffs}=_rspPreview.stats;
+    if(newProducts.length){
+      const ins=newProducts.map(r=>({barcode:r.barcode,name:r.name_kr||r.barcode,name_eng:r.name_us||'',price:r.retail_krw||0,cat:'',status:'',cartoon:r.carton_take_in||0,inbox:r.inbox_take_in||0}));
+      const{data,error}=await sb.from('products').insert(ins).select();
+      if(error)throw error;if(data)_products.push(...data);
+    }
+    for(const d of priceDiffs){
+      const p=_products.find(x=>String(x.barcode||'').trim()===d.barcode);if(!p)continue;
+      const{error}=await sb.from('products').update({price:d.to}).eq('id',p.id);
+      if(error)throw error;p.price=d.to;
+    }
+    await loadProductDetails(true);
+    toast(`✅ RSP 반영 완료 — 상세 ${rows.length}개, 신규 제품 ${newProducts.length}개, 가격 갱신 ${priceDiffs.length}개`);
+    cm('m-rsp');_rspPreview=null;
+    renderProductAnalysis();
+  }catch(err){console.error(err);toast('❌ 반영 실패: '+err.message);btn.disabled=false;btn.innerHTML='<i class="ti ti-database-import"></i> DB에 반영';}
+}
