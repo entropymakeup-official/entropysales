@@ -1205,7 +1205,9 @@ function viewInv(id){
   om('m-inv-view');
 }
 
+let _savingInv = false;
 async function saveInv(){
+  if(_savingInv)return;
   const no=document.getElementById('inv-no').value.trim();
   const customer=document.getElementById('inv-cust-ro').value.trim();
   if(!no||!customer){alert('번호와 거래처는 필수입니다.');return;}
@@ -1217,29 +1219,40 @@ async function saveInv(){
   });
   const c=custByName(customer);
   const payload={no,customer,mgr:c?.mgr||'',order_date:document.getElementById('inv-odate').value||null,pay_date:document.getElementById('inv-pdate').value||null,ship_date:document.getElementById('inv-sdate').value||null,status:document.getElementById('inv-status').value,ship_status:document.getElementById('inv-ship').value,foc:parseFloat(document.getElementById('inv-foc').value)||0,note:document.getElementById('inv-note').value};
-  let invId;
-  if(_editInv){
-    await sb.from('invoices').update(payload).eq('id',_editInv.id);
-    await sb.from('invoice_items').delete().eq('invoice_id',_editInv.id);
-    invId=_editInv.id;
-    const idx=_invoices.findIndex(i=>i.id===_editInv.id);
-    if(idx>=0)_invoices[idx]={..._editInv,...payload};
-    _items=_items.filter(i=>i.invoice_id!==_editInv.id);
-  } else {
-    const {data}=await sb.from('invoices').insert(payload).select().single();
-    invId=data.id;
-    _invoices.unshift(data);
+  const editId=_editInv?.id??null;
+  const isNew=editId===null;
+  const btn=document.getElementById('inv-save-btn');
+  const oldLabel=btn?.textContent;
+  _savingInv=true;
+  if(btn){btn.disabled=true;btn.textContent='저장 중...';}
+  let saved=null;
+  try{
+    // One server transaction: never fall back to client-side delete/insert.
+    const {data,error}=await sb.rpc('save_invoice_atomic',{
+      p_id:isNew?null:String(editId),p_invoice:payload,p_items:items
+    });
+    if(error)throw error;
+    if(!data?.invoice?.id||!Array.isArray(data.items)){
+      throw new Error('저장 응답을 확인하지 못했습니다.');
+    }
+    saved=data;
+  }catch(error){
+    const reason=typeof error?.message==='string'?error.message:'통신 오류';
+    alert('저장 실패 또는 결과 확인 불가: '+reason+'\n입력 내용은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
+  }finally{
+    _savingInv=false;
+    if(btn){btn.disabled=false;btn.textContent=oldLabel;}
   }
-  if(items.length){
-    const rows=items.map(it=>({...it,invoice_id:invId,invoice_no:no}));
-    await sb.from('invoice_items').insert(rows);
-    _items.push(...rows.map((it,i)=>({...it,id:'tmp_'+Date.now()+'_'+i})));
-  }
+  if(!saved)return;
+  const invId=saved.invoice.id;
+  const idx=_invoices.findIndex(i=>String(i.id)===String(invId));
+  if(idx>=0)_invoices[idx]=saved.invoice;
+  else _invoices.unshift(saved.invoice);
+  _items=_items.filter(i=>String(i.invoice_id)!==String(invId)).concat(saved.items);
   cm('m-inv');
-  const isNew=!_editInv;
   renderInvoices();
   toast(isNew?'인보이스 생성! 거래명세서 다운로드 중...':'저장됐습니다!');
-  if(isNew)setTimeout(()=>downloadMeongse({..._invoices.find(i=>i.id===invId),items}),300);
+  if(isNew)setTimeout(()=>downloadMeongse({...saved.invoice,items:saved.items}),300);
 }
 async function delInv(id){if(!confirm('삭제하시겠습니까?'))return;await sb.from('invoice_items').delete().eq('invoice_id',id);await sb.from('invoices').delete().eq('id',id);_invoices=_invoices.filter(i=>i.id!==id);_items=_items.filter(i=>i.invoice_id!==id);renderInvoices();}
 
