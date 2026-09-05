@@ -4166,7 +4166,7 @@ const PD_NUM=v=>(v===null||v===undefined||v==='')?'-':Number(v).toLocaleString('
 const PD_KRW=v=>(v===null||v===undefined||v==='')?'-':'₩'+Math.round(Number(v)).toLocaleString('ko-KR');
 const PD_PCT=v=>(v===null||v===undefined||v==='')?'-':(Number(v)*100).toFixed(0)+'%';
 const PD_TXT=v=>(v===null||v===undefined||String(v).trim()==='')?'<span style="color:var(--text3)">-</span>':esc(String(v));
-const PD_BRAND_COLOR={ENTROPY:'#2563EB',MORANDI:'var(--purple)',DAISO:'var(--amber)',GWP:'var(--green)'};
+const PD_BRAND_COLOR={ENTROPY:'#2563EB',MORANDI:'#7C3AED',DAISO:'var(--amber)',GWP:'var(--green)'};
 function pdBrandBadge(b){return `<span class="badge" style="background:${PD_BRAND_COLOR[b]||'var(--text3)'};color:#fff">${esc(b||'-')}</span>`;}
 function pdBase(bc){return String(bc||'').replace(/-\d{2}$/,'');} // 접미사 제거 (주문 매칭용)
 
