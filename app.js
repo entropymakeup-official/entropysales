@@ -152,67 +152,40 @@ function go(page){
 // ─── DASHBOARD ───
 function renderDash(){
   document.getElementById('topbar-actions').innerHTML='<button class="btn" style="background:#4A154B;color:#fff;border-color:#4A154B" onclick="openWeeklyReport()"><i class="ti ti-brand-slack"></i> 기간별 보고서</button>';
-  const totalRev=_invoices.reduce((a,v)=>a+itemsRev(getInvItems(v.id)),0);
-  const paidRev=totalRev;// RAW 입력 즉시 Rev 반영
-  const totalFoc=_invoices.reduce((a,v)=>a+(parseFloat(v.foc)||0)+itemsByType(getInvItems(v.id),'FOC')+itemsByType(getInvItems(v.id),'GWP')+itemsByType(getInvItems(v.id),'Sample'),0);
-  const totalLost=_invoices.reduce((a,v)=>a+itemsByType(getInvItems(v.id),'Lost'),0);
-  const byCust={};_invoices.forEach(v=>{byCust[v.customer]=(byCust[v.customer]||0)+itemsRev(getInvItems(v.id));});
-  const custE=Object.entries(byCust).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  const byMgr={};_invoices.forEach(v=>{if(v.mgr)byMgr[v.mgr]=(byMgr[v.mgr]||0)+itemsRev(getInvItems(v.id));});
-  const mgrE=Object.entries(byMgr).sort((a,b)=>b[1]-a[1]);
+  const summary=DashboardModel.summarizeSupply(_invoices,_items,dashboardPeriod(),_customers);
+  _dashSnapshot=summary;
+  const totalRev=summary.revenue,totalFoc=summary.foc,totalLost=summary.lost;
+  const custE=Object.entries(summary.byCustomer).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const mgrE=Object.entries(summary.byManager).sort((a,b)=>b[1]-a[1]);
   const maxC=custE[0]?.[1]||1,maxM=mgrE[0]?.[1]||1;
-  // 월별 추이 데이터 (올해)
-  const yr=new Date().getFullYear().toString();
-  const months=Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0'));
-  const monthTotals={};
-  months.forEach(m=>{
-    monthTotals[m]=_invoices.filter(i=>(i.order_date||'').startsWith(yr)&&(i.order_date||'').slice(5,7)===m)
-      .reduce((a,v)=>a+itemsRev(getInvItems(v.id)),0);
-  });
+  const months=summary.months,monthTotals=summary.byMonth;
+  const yr=dashboardPeriod().start+' ~ '+dashboardPeriod().end;
 
   document.getElementById('content').innerHTML=`
-  <div class="kpi-grid">
-    <div class="kpi" style="background:linear-gradient(135deg,#1D4ED8,#2563EB);border-color:#2563EB"><div class="lbl" style="color:rgba(255,255,255,0.7)">총 Revenue</div><div class="val" style="color:#fff;font-size:22px">${fmt(totalRev)}</div></div>
-    <div class="kpi"><div class="lbl">FOC 비용</div><div class="val" style="color:var(--red)">${fmt(totalFoc)}</div><div class="sub">Rev 대비 ${totalRev>0?(totalFoc/totalRev*100).toFixed(1):0}%</div></div>
-    <div class="kpi"><div class="lbl">Lost 금액</div><div class="val" style="color:#993C1D">${fmt(totalLost)}</div></div>
+  ${dashboardControls(summary)}
+  <div class="kpi-grid dash-kpis">
+    ${dashboardMetricCard('revenue','공급가액 집계분',totalRev)}
+    ${dashboardMetricCard('foc','무료 제공 평가금액',totalFoc)}
+    ${dashboardMetricCard('pendingRevenue','세금 기준 확인 필요',summary.pendingRevenue,summary.pendingCount+'건 · 확인 사유 보기 →')}
+    ${dashboardMetricCard('lost','Lost 금액',totalLost)}
     <div class="kpi" id="dash-storage-kpi" style="cursor:pointer" onclick="runStorageCheck(this)" title="클릭해서 확인">
       <div class="lbl">Storage 사용량</div>
       <div class="val" style="font-size:14px" id="dash-storage-val"><span style="font-size:11px;color:var(--text3)">클릭해서 확인 →</span></div>
       <div style="height:4px;background:var(--bg2);border-radius:20px;overflow:hidden;margin-top:5px"><div id="dash-storage-bar" style="height:100%;border-radius:20px;background:var(--green);width:0%;transition:width .4s"></div></div>
       <div class="sub" id="dash-storage-sub" style="margin-top:3px"></div>
     </div>
-    ${(()=>{
-      const goal=_revenueGoal||0;
-      const pct=goal>0?Math.min(Math.round(totalRev/goal*100),100):0;
-      const barColor=pct>=100?'#2563EB':pct>=70?'#F59E0B':'#FBBF24';
-      return`<div class="kpi" style="background:linear-gradient(135deg,#FFFBEB,#FEF3C7);border:0.5px solid #FDE68A;position:relative;overflow:hidden">
-        <div style="position:absolute;top:0;right:0;width:3px;height:100%;background:#F59E0B;border-radius:0 8px 8px 0"></div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
-          <div class="lbl" style="color:#92400E">목표 매출</div>
-          <button onclick="openGoalEdit()" style="background:none;border:none;cursor:pointer;padding:0;color:#B45309;font-size:10px;display:flex;align-items:center;gap:2px"><i class="ti ti-pencil" style="font-size:11px"></i>수정</button>
-        </div>
-        <div class="val" style="color:#92400E;font-size:16px">${goal>0?fmt(goal):'<span style="font-size:12px;color:#B45309">목표 미설정</span>'}</div>
-        ${goal>0?`
-        <div style="height:4px;background:#FDE68A;border-radius:20px;overflow:hidden;margin-top:5px">
-          <div style="height:100%;border-radius:20px;background:${barColor};width:${pct}%;transition:width .4s"></div>
-        </div>
-        <div style="font-size:10px;color:#B45309;margin-top:3px;display:flex;justify-content:space-between">
-          <span>${pct}% 달성</span>
-          <span style="color:#D97706">${fmt(goal-totalRev>0?goal-totalRev:0)} 남음</span>
-        </div>`:''}
-      </div>`;
-    })()}
+    ${dashboardGoalCard()}
 
   </div>
   <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
     <div class="card">
-      <div class="card-hd"><h3>월별 매출 추이 — ${yr}</h3><span class="alink" onclick="go('monthly')">자세히 보기</span></div>
+      <div class="card-hd"><h3>월별 공급가액 집계분 — ${yr}</h3><span class="alink" onclick="go('monthly')">자세히 보기</span></div>
       <div style="padding:12px 16px">
         <div style="position:relative;width:100%;height:200px"><canvas id="dash-line-chart" role="img" aria-label="월별 매출 추이"></canvas></div>
       </div>
     </div>
     <div class="card">
-      <div class="card-hd"><h3>거래처 TOP5</h3></div>
+      <div class="card-hd"><h3>거래처 TOP5 · 공급가액 집계분 <small>(TOP5 합계 대비)</small></h3></div>
       <div style="padding:12px 16px;display:flex;align-items:center;gap:12px">
         <div style="position:relative;flex-shrink:0;width:176px;height:176px;padding:10px"><canvas id="dash-donut-chart" role="img" aria-label="거래처 TOP5 도넛"></canvas></div>
         <div id="dash-donut-legend" style="flex:1;min-width:0"></div>
@@ -220,10 +193,10 @@ function renderDash(){
     </div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-    <div class="card"><div class="card-hd"><h3>거래처별 매출</h3><span class="alink" onclick="go('monthly')">월별 보기</span></div>
-    <div style="padding:9px 13px">${custE.length?`<div class="bar-wrap">${custE.map(([k,v])=>`<div class="bar-row"><div class="bar-lbl">${k}</div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(v/maxC*100)}%;background:#1D4ED8"></div></div><div class="bar-val">${fmt(v)}</div></div>`).join('')}</div>`:'<div class="est"><i class="ti ti-chart-bar"></i>데이터 없음</div>'}</div></div>
-    <div class="card"><div class="card-hd"><h3>담당자별 매출</h3></div>
-    <div style="padding:9px 13px">${mgrE.length?`<div class="bar-wrap">${mgrE.map(([k,v])=>`<div class="bar-row" style="justify-content:center"><div class="bar-lbl" style="text-align:center">${k}</div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(v/maxM*100)}%;background:#2563EB"></div></div><div class="bar-val">${fmt(v)}</div></div>`).join('')}</div>`:'<div class="est"><i class="ti ti-users"></i>데이터 없음</div>'}</div></div>
+    <div class="card"><div class="card-hd"><h3>거래처별 공급가액 집계분</h3><span class="alink" onclick="go('monthly')">월별 보기</span></div>
+    <div style="padding:9px 13px">${custE.length?`<div class="bar-wrap">${custE.map(([k,v])=>`<div class="bar-row"><div class="bar-lbl">${esc(k)}</div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(v/maxC*100)}%;background:#1D4ED8"></div></div><div class="bar-val">${fmt(v)}</div></div>`).join('')}</div>`:'<div class="est"><i class="ti ti-chart-bar"></i>데이터 없음</div>'}</div></div>
+    <div class="card"><div class="card-hd"><h3>과거 담당자별 공급가액 집계분</h3></div>
+    <div style="padding:9px 13px">${mgrE.length?`<div class="bar-wrap">${mgrE.map(([k,v])=>`<div class="bar-row" style="justify-content:center"><div class="bar-lbl" style="text-align:center">${esc(k)}</div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(v/maxM*100)}%;background:#2563EB"></div></div><div class="bar-val">${fmt(v)}</div></div>`).join('')}</div>`:'<div class="est"><i class="ti ti-users"></i>데이터 없음</div>'}</div></div>
   </div>
 `;;
 
@@ -241,7 +214,7 @@ function renderDash(){
       if(window._dashLineChart)window._dashLineChart.destroy();
       window._dashLineChart=new Chart(lc,{
         type:'line',
-        data:{labels:months.map(m=>parseInt(m)+'월'),datasets:[{label:'매출',data:months.map(m=>monthTotals[m]||0),borderColor:'#2563EB',backgroundColor:'rgba(37,99,235,0.08)',borderWidth:2.5,pointBackgroundColor:'#2563EB',pointBorderColor:'#fff',pointBorderWidth:2,pointRadius:4,pointHoverRadius:8,pointHoverBackgroundColor:'#fff',pointHoverBorderColor:'#2563EB',pointHoverBorderWidth:3,fill:true,tension:0.4}]},
+        data:{labels:months.map(m=>m.replace('-', '/')),datasets:[{label:'매출',data:months.map(m=>monthTotals[m]||0),borderColor:'#2563EB',backgroundColor:'rgba(37,99,235,0.08)',borderWidth:2.5,pointBackgroundColor:'#2563EB',pointBorderColor:'#fff',pointBorderWidth:2,pointRadius:4,pointHoverRadius:8,pointHoverBackgroundColor:'#fff',pointHoverBorderColor:'#2563EB',pointHoverBorderWidth:3,fill:true,tension:0.4}]},
         options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16,right:8}},plugins:{legend:{display:false},tooltip:{...tooltipCfg,callbacks:{label:ctx=>'  '+fmt(ctx.raw)}}},scales:{x:{grid:{color:gridC,lineWidth:0.5},ticks:{color:textC,font:{size:11},autoSkip:false,maxRotation:0},border:{display:false}},y:{grid:{color:gridC,lineWidth:0.5},ticks:{color:textC,font:{size:10},callback:v=>v===0?'0':'₩'+(v>=1000000?(v/1000000).toFixed(0)+'M':(v/10000).toFixed(0)+'만')},border:{display:false}}}}
       });
     }
@@ -258,7 +231,7 @@ function renderDash(){
         data:{labels:top5.map(([k])=>k),datasets:[{data:top5.map(([,v])=>v),backgroundColor:COLORS.slice(0,top5.length),borderColor:isDark?'#8A9BBB':'#4A5B78',borderWidth:1,hoverOffset:8}]},
         options:{responsive:true,maintainAspectRatio:false,cutout:'62%',layout:{padding:10},plugins:{legend:{display:false},tooltip:{...tooltipCfg,callbacks:{label:ctx=>Math.round(ctx.raw/top5Total*100)+'%  '+fmt(ctx.raw)}}}}
       });
-      if(dl){dl.innerHTML=top5.map(([k,v],i)=>`<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px"><span style="width:8px;height:8px;border-radius:2px;background:${COLORS[i]};flex-shrink:0"></span><span style="color:${textC};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;margin-right:4px">${k}</span><span style="font-weight:600;font-size:11px;white-space:nowrap">${Math.round(v/top5Total*100)}%</span></div>`).join('');}
+      if(dl){dl.innerHTML=top5.map(([k,v],i)=>`<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px"><span style="width:8px;height:8px;border-radius:2px;background:${COLORS[i]};flex-shrink:0"></span><span style="color:${textC};flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;margin-right:4px">${esc(k)}</span><span style="font-weight:600;font-size:11px;white-space:nowrap">${(top5Total?Math.round(v/top5Total*100):0)}%</span></div>`).join('');}
     }
   },150);
 }
