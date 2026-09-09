@@ -1868,7 +1868,9 @@ function calcRmTotal(el){
   if(amtEl)amtEl.textContent='₩'+Math.round(amt).toLocaleString();
 }
 
+let _savingRaw=false;
 async function saveRawManual(){
+  if(_savingRaw)return;
   const cust=document.getElementById('rm-cust')?.value;
   const odate=document.getElementById('rm-date')?.value;
   const pdate=document.getElementById('rm-pdate')?.value||null;
@@ -1886,17 +1888,11 @@ async function saveRawManual(){
     // ── 수정 모드 ──
     const inv=_invoices.find(i=>i.id===editId);
     const c=custByName(cust);
-    await sb.from('invoices').update({customer:cust,mgr:c?.mgr||'',order_date:odate,pay_date:pdate,ship_date:sdate}).eq('id',editId);
-    await sb.from('invoice_items').delete().eq('invoice_id',editId);
-    const invNo=inv?.no||editId;
-    const itemRows=items.map(it=>({invoice_id:editId,invoice_no:invNo,name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}));
-    await sb.from('invoice_items').insert(itemRows);
-    const idx=_invoices.findIndex(i=>i.id===editId);
-    if(idx>=0)_invoices[idx]={..._invoices[idx],customer:cust,mgr:c?.mgr||'',order_date:odate,pay_date:pdate,ship_date:sdate};
-    _items=_items.filter(i=>i.invoice_id!==editId);
-    _items.push(...itemRows.map((it,i)=>({...it,id:'tmp_'+Date.now()+'_'+i})));
+    if(!inv){toast('수정할 주문을 찾을 수 없습니다. 목록을 다시 불러와 주세요.');return;}
+    const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:c?.mgr||'',order_date:odate,pay_date:pdate,ship_date:sdate},items);
+    if(!saved)return;
     window._editRawInvId=null;
-    toast(`수정 완료! ${invNo}`);
+    toast(`수정 완료! ${saved.invoice.no}`);
     cancelRawUpload();
     setTimeout(()=>{renderRaw();const c=document.getElementById('content');if(c)c.scrollTop=0;},300);
   } else {
@@ -1934,19 +1930,16 @@ function _showRawConfirmModal(){
 }
 
 async function confirmRawSave(){
+  if(_savingRaw)return;
   const {cust,c,invNo,odate,pdate,sdate,items}=window._pendingRaw||{};
   if(!invNo)return;
-  cm('m-raw-confirm');
-  const {data:invData,error}=await sb.from('invoices').insert({
+  const saved=await persistRawInvoice(null,{
     no:invNo,customer:cust,mgr:c?.mgr||'',
     order_date:odate,pay_date:pdate,ship_date:sdate,
-    status:'Ordered',ship_status:'준비중'
-  }).select().single();
-  if(error||!invData){toast('저장 오류: '+(error?.message||''));return;}
-  const itemRows=items.map(it=>({invoice_id:invData.id,invoice_no:invNo,name:it.name,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}));
-  await sb.from('invoice_items').insert(itemRows);
-  _invoices.unshift(invData);
-  _items.push(...itemRows.map((it,i)=>({...it,id:'tmp_'+Date.now()+'_'+i})));
+    status:'Ordered',ship_status:'준비중',foc:0,note:''
+  },items);
+  if(!saved)return;
+  cm('m-raw-confirm');
   window._pendingRaw=null;
   toast(`✅ ${invNo} 저장 완료! (${items.length}개 품목)`);
   cancelRawUpload();
@@ -1957,6 +1950,35 @@ async function confirmRawSave(){
     const content=document.getElementById('content');
     if(content)content.scrollTop=0;
   },300);
+}
+
+async function persistRawInvoice(id,invoice,items){
+  if(_savingRaw)return null;
+  _savingRaw=true;
+  const buttons=[...document.querySelectorAll('button[onclick="saveRawManual()"],button[onclick="confirmRawSave()"]')];
+  const states=buttons.map(button=>({button,disabled:button.disabled,html:button.innerHTML}));
+  buttons.forEach(button=>{button.disabled=true;button.textContent='저장 중...';});
+  try{
+    const {data,error}=await sb.rpc('save_invoice_atomic',{
+      p_id:id===null?null:String(id),p_invoice:invoice,
+      p_items:items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}))
+    });
+    if(error)throw error;
+    if(!data?.invoice?.id||!Array.isArray(data.items)||data.items.length!==items.length){
+      throw new Error('서버 저장 결과를 확인할 수 없습니다.');
+    }
+    const index=_invoices.findIndex(row=>row.id===data.invoice.id);
+    if(index>=0)_invoices[index]=data.invoice;else _invoices.unshift(data.invoice);
+    _items=_items.filter(row=>row.invoice_id!==data.invoice.id);
+    _items.push(...data.items);
+    return data;
+  }catch(error){
+    toast('저장 실패 또는 결과 확인 불가: '+(error?.message||String(error))+' — 입력은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
+    return null;
+  }finally{
+    _savingRaw=false;
+    states.forEach(({button,disabled,html})=>{button.disabled=disabled;button.innerHTML=html;});
+  }
 }
 
 // ── Excel 업로드 → RAW 저장 ──
@@ -2197,6 +2219,7 @@ function _showRawGroupItems(gi){
 }
 
 function cancelRawUpload(){
+  if(_savingRaw){toast('저장이 끝날 때까지 기다려 주세요.');return;}
   window._rawUploadData=null;
   window._editRawInvId=null;
   document.removeEventListener('keydown',xgKeydownGlobal);
