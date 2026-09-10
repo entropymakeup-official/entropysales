@@ -898,6 +898,7 @@ async function deleteInvDoc(invId,name){
 
 // ─── INVOICES ───
 function renderInvoices(){
+  loadDriveDocs();
   globalThis.invoiceSheetStatus?.refresh();
   document.getElementById('topbar-actions').innerHTML=`<button class="btn btn-primary" onclick="openNewInv()"><i class="ti ti-plus"></i> 직접 등록</button><button class="btn btn-green" onclick="exportInvoices()"><i class="ti ti-file-spreadsheet"></i> Excel 다운로드</button>`;
   document.getElementById('content').innerHTML=`
@@ -998,9 +999,11 @@ async function loadInvFileIcons(invIds){
 
 function updateInvFileIcon(id){
   const files=_invFileCache[id]||[];
+  const driveLinks=_driveRows.filter(d=>d.invoice_id===id&&DriveDocuments.urlFor(d));
+  const attachmentCount=files.length+driveLinks.length;
   const td=document.getElementById('inv-file-td-'+id);
   if(!td)return;
-  if(!files.length){
+  if(!attachmentCount){
     td.innerHTML='';
     return;
   }
@@ -1023,15 +1026,15 @@ function updateInvFileIcon(id){
       <i class="ti ${icon}" style="color:${extColor}"></i>
       <span style="overflow:hidden;text-overflow:ellipsis;max-width:200px">${f.name}</span>
     </a>`;
-  }).join('');
+  }).join('')+driveLinks.map(d=>`<a class="inv-file-item" href="${esc(DriveDocuments.urlFor(d))}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()"><i class="ti ti-brand-google-drive"></i><span>${esc(d.name)}</span></a>`).join('');
   td.className='inv-file-td';
   td.style.cssText='text-align:center;position:relative;cursor:pointer';
   td.setAttribute('onclick','event.stopPropagation()');
   td.innerHTML=`
     <i class="ti ti-paperclip" style="font-size:13px;color:var(--purple);font-weight:600"></i>
-    <span style="font-size:9px;font-weight:600;color:var(--purple);margin-left:1px">${files.length}</span>
+    <span style="font-size:9px;font-weight:600;color:var(--purple);margin-left:1px">${attachmentCount}</span>
     <div class="inv-file-pop">
-      <div style="padding:5px 10px 4px;font-size:10px;font-weight:600;color:var(--text2);border-bottom:0.5px solid var(--border)">첨부파일 ${files.length}개</div>
+      <div style="padding:5px 10px 4px;font-size:10px;font-weight:600;color:var(--text2);border-bottom:0.5px solid var(--border)">첨부파일 ${attachmentCount}개</div>
       ${items}
     </div>`;
 }
@@ -1263,6 +1266,8 @@ function viewInv(id){
   // 첨부 파일 목록 로드 (캐시 무효화 후)
   delete _invFileCache[id];
   loadInvDocs(id);
+  renderDriveDocs();
+  loadDriveDocs();
   om('m-inv-view');
 }
 
@@ -3166,17 +3171,124 @@ async function delSched(id){
 }
 
 // ─── DOCS ───
+// ─── DRIVE EVIDENCE ───
+let _driveRows=[],_driveState='unloaded',_driveError='',_driveReadSeq=0,_driveEpoch=0,_driveSaveTicket=null;
+const _driveRemoving=new Set();
+function resetDriveDocs(){
+  _driveEpoch++;_driveReadSeq++;_driveSaveTicket=null;_driveRemoving.clear();
+  _driveRows=[];_driveState='unloaded';_driveError='';
+  setDriveFormBusy(false);cm('m-drive-doc');
+  ['drive-name','drive-url','drive-invoice'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const error=document.getElementById('drive-error');if(error)error.textContent='';
+  renderDriveDocs();
+}
+function driveNotice(){
+  if(_driveState==='loading')return '<p class="drive-status" role="status">Drive 증빙 조회 중…</p>';
+  if(_driveState==='error')return '<p class="drive-status drive-error" role="status">'+esc(_driveError)+'</p>';
+  if(_driveState==='unloaded')return '<p class="drive-status">Drive 증빙을 조회해 주세요.</p>';
+  return '';
+}
+function driveRowsHtml(rows,showOrder){
+  const visible=rows.filter(d=>_invoices.some(i=>i.id===d.invoice_id));
+  if(!visible.length)return _driveState==='ready'?'<p class="drive-status">연결된 증빙 없음</p>':'';
+  return visible.map(d=>{
+    const inv=_invoices.find(i=>i.id===d.invoice_id),url=DriveDocuments.urlFor(d);
+    return `<div class="drive-row">
+      <i class="ti ti-brand-google-drive"></i>
+      <div class="drive-row-main">${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)} <i class="ti ti-external-link"></i></a>`:`<span>${esc(d.name)}</span>`}
+      <small>${esc(d.type)}${showOrder?` · <button class="drive-order-link" onclick="viewInv('${esc(inv.id)}')">${esc(inv.no)}</button> · ${esc(inv.customer)}`:''}</small></div>
+      <button class="btn btn-sm" ${_driveRemoving.has(d.id)?'disabled':''} onclick="removeDriveDoc('${esc(d.id)}')">연결 해제</button>
+    </div>`;
+  }).join('');
+}
+function renderDriveDocs(){
+  const docs=document.getElementById('docs-drive-list'),detail=document.getElementById('inv-drive-list');
+  if(docs){
+    const customer=document.getElementById('fd-c')?.value||'',type=document.getElementById('fd-t')?.value||'';
+    const rows=_driveRows.filter(d=>(!customer||_invoices.find(i=>i.id===d.invoice_id)?.customer===customer)&&(!type||d.type===type));
+    docs.innerHTML=driveNotice()+driveRowsHtml(rows,true);
+  }
+  if(detail){
+    const invoiceId=document.getElementById('m-inv-view')?.dataset.invoiceId;
+    detail.innerHTML=driveNotice()+driveRowsHtml(_driveRows.filter(d=>d.invoice_id===invoiceId),false);
+  }
+  _invoices.forEach(i=>updateInvFileIcon(i.id));
+}
+async function loadDriveDocs(){
+  const ticket=++_driveReadSeq,epoch=_driveEpoch;
+  _driveState='loading';_driveError='';renderDriveDocs();
+  try{
+    const rows=await DriveDocuments.list(sb);
+    if(ticket!==_driveReadSeq||epoch!==_driveEpoch)return;
+    _driveRows=rows;_driveState='ready';
+  }catch(_){
+    if(ticket!==_driveReadSeq||epoch!==_driveEpoch)return;
+    _driveState='error';_driveError='Drive 증빙을 불러오지 못했습니다. 다시 조회해 주세요.';
+  }
+  renderDriveDocs();
+}
+function openDriveDocModal(invoiceId=''){
+  if(_driveSaveTicket){toast('증빙을 저장 중입니다. 잠시 기다려 주세요.');return;}
+  const select=document.getElementById('drive-invoice');
+  select.innerHTML='<option value="">주문 선택</option>'+_invoices.map(i=>`<option value="${esc(i.id)}">${esc(i.no)} · ${esc(i.customer)}</option>`).join('');
+  select.value=invoiceId;
+  document.getElementById('drive-type').innerHTML=DriveDocuments.types.map(t=>`<option>${esc(t)}</option>`).join('');
+  document.getElementById('drive-name').value='';
+  document.getElementById('drive-url').value='';
+  document.getElementById('drive-error').textContent='';
+  setDriveFormBusy(false);om('m-drive-doc');
+}
+function setDriveFormBusy(busy){
+  document.querySelectorAll('#m-drive-doc input,#m-drive-doc select,#m-drive-doc button').forEach(el=>el.disabled=busy);
+  const button=document.getElementById('drive-save');
+  if(button){button.disabled=busy;button.textContent=busy?'연결 중…':'증빙 연결';}
+}
+async function saveDriveDoc(){
+  if(_driveSaveTicket)return;
+  const form={name:document.getElementById('drive-name').value,url:document.getElementById('drive-url').value,
+    invoice_id:document.getElementById('drive-invoice').value,type:document.getElementById('drive-type').value};
+  const ticket={},epoch=_driveEpoch;_driveSaveTicket=ticket;setDriveFormBusy(true);
+  document.getElementById('drive-error').textContent='';
+  try{
+    const row=await DriveDocuments.save(sb,form,_invoices);
+    if(epoch!==_driveEpoch)return;
+    _driveReadSeq++;_driveRows=[row,..._driveRows.filter(d=>d.id!==row.id)];_driveState='ready';_driveError='';
+    renderDriveDocs();cm('m-drive-doc');toast('Drive 증빙이 연결됐습니다.');
+    loadDriveDocs();
+  }catch(error){
+    if(epoch!==_driveEpoch)return;
+    document.getElementById('drive-error').textContent=error?.message||'저장 결과를 확인하지 못했습니다. 증빙 목록을 새로 조회해 주세요.';
+  }finally{
+    if(_driveSaveTicket===ticket){_driveSaveTicket=null;setDriveFormBusy(false);}
+  }
+}
+async function removeDriveDoc(id){
+  if(_driveRemoving.has(id)||!_driveRows.some(d=>d.id===id))return;
+  if(!confirm('이 주문의 증빙 연결을 해제할까요? Google Drive 원본 파일은 유지됩니다.'))return;
+  const epoch=_driveEpoch;_driveRemoving.add(id);renderDriveDocs();
+  try{
+    await DriveDocuments.remove(sb,id);
+    if(epoch!==_driveEpoch)return;
+    _driveReadSeq++;_driveRows=_driveRows.filter(d=>d.id!==id);_driveState='ready';_driveError='';
+    toast('증빙 연결이 해제됐습니다.');loadDriveDocs();
+  }catch(error){if(epoch===_driveEpoch)toast(error?.message||'연결 해제 실패. 목록을 다시 조회해 주세요.');}
+  finally{if(epoch===_driveEpoch){_driveRemoving.delete(id);renderDriveDocs();}}
+}
+// ─── END DRIVE EVIDENCE ───
 function renderDocs(){
   document.getElementById('topbar-actions').innerHTML=`<button class="btn btn-primary" onclick="openDocModal()"><i class="ti ti-plus"></i> 서류 등록</button>`;
   document.getElementById('content').innerHTML=`
   <div class="fb">
     <select id="fd-c" onchange="filterDocs()"><option value="">전체 거래처</option>${_customers.map(c=>`<option>${c.name}</option>`).join('')}</select>
-    <select id="fd-t" onchange="filterDocs()"><option value="">서류 종류 전체</option>${DOC_TYPES.map(t=>`<option>${t}</option>`).join('')}</select>
+    <select id="fd-t" onchange="filterDocs()"><option value="">서류 종류 전체</option>${[...new Set([...DOC_TYPES,...DriveDocuments.types])].map(t=>`<option>${t}</option>`).join('')}</select>
   </div>
+  <div class="card" style="margin-bottom:12px"><div class="card-hd"><h3>주문 Drive 증빙</h3><div><button class="btn btn-sm" onclick="loadDriveDocs()">다시 조회</button> <button class="btn btn-primary btn-sm" onclick="openDriveDocModal()">Drive 증빙 연결</button></div></div><div id="docs-drive-list" class="drive-list"></div></div>
   <div id="docs-content"></div>`;
   filterDocs();
+  loadDriveDocs();
 }
 function filterDocs(){
+  renderDriveDocs();
   const cf=(document.getElementById('fd-c')||{value:''}).value;
   const tf=(document.getElementById('fd-t')||{value:''}).value;
   const el=document.getElementById('docs-content');if(!el)return;
@@ -3729,6 +3841,7 @@ async function checkAuth(){
 }
 
 function showLoginScreen(){
+  resetDriveDocs();
   globalThis.invoiceSheetStatus?.hide();
   globalThis.liveInventory?.hide();
   document.getElementById('login-screen').style.display = 'flex';

@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="style.css?v=20260910-wekeep-live-1"/>
+<link rel="stylesheet" href="style.css?v=20260910-drive-evidence-1"/>
 </head>
 <body>
   </div>
@@ -576,6 +576,7 @@
         <input type="file" id="inv-doc-upload" style="display:none" accept=".pdf,.xlsx,.xls,.doc,.docx,.jpg,.png,.jpeg,.zip,.rar,.7z" multiple onchange="invFileSelect(this)"/>
       </div>
       <div id="inv-doc-list" style="font-size:11px;color:var(--text3)">첨부 파일 없음</div>
+      <div class="drive-detail"><div class="drive-detail-heading"><strong>Google Drive 증빙</strong><div><button class="btn btn-sm" onclick="loadDriveDocs()">다시 조회</button> <button class="btn btn-sm btn-primary" onclick="openDriveDocModal(document.getElementById('m-inv-view').dataset.invoiceId)">Drive 증빙 연결</button></div></div><div id="inv-drive-list"></div></div>
     </div>
   </div>
   <div class="mft">
@@ -586,10 +587,25 @@
   </div>
 </div>
 </div>
+<div class="modal-bg" id="m-drive-doc">
+  <div class="modal" style="width:560px;max-width:calc(100vw - 24px)">
+    <div class="mhd"><h2>Google Drive 증빙 연결</h2><button class="btn btn-sm" onclick="cm('m-drive-doc')">닫기</button></div>
+    <div class="mbody">
+      <div class="frow c1"><div class="fg"><label for="drive-invoice">연결할 주문 *</label><select id="drive-invoice"></select></div></div>
+      <div class="frow c1"><div class="fg"><label for="drive-type">서류 종류 *</label><select id="drive-type"></select></div></div>
+      <div class="frow c1"><div class="fg"><label for="drive-name">서류명 *</label><input id="drive-name" maxlength="250" placeholder="예: 7월 거래명세서"/></div></div>
+      <div class="frow c1"><div class="fg"><label for="drive-url">Google Drive 공유 링크 *</label><input id="drive-url" type="url" placeholder="https://drive.google.com/file/d/…/view"/></div></div>
+      <p class="drive-status">파일을 열 때 Google Drive의 기존 접근 권한이 적용됩니다.</p>
+      <p id="drive-error" class="drive-error" role="alert"></p>
+    </div>
+    <div class="mft"><button class="btn" onclick="cm('m-drive-doc')">취소</button><button id="drive-save" class="btn btn-primary" onclick="saveDriveDoc()">증빙 연결</button></div>
+  </div>
+</div>
+<script src="drive-documents.js?v=20260910-drive-evidence-1"></script>
 <script src="dashboard-model.js?v=20260910-raw-upload-1"></script>
 <script src="dashboard-ui.js?v=20260910-raw-upload-1"></script>
 <script src="sheet-sync-status.js?v=20260910-raw-upload-1"></script>
 <script src="live-inventory.js?v=20260910-wekeep-live-1"></script>
-<script src="app.js?v=20260910-wekeep-live-1"></script>
+<script src="app.js?v=20260910-drive-evidence-1"></script>
 </body>
 </html>
