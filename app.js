@@ -39,6 +39,23 @@ globalThis.invoiceSheetStatus = globalThis.SheetSyncStatus?.mount({document,read
   if(error)throw error;
   return data;
 }});
+globalThis.inventoryHistory = globalThis.InventoryHistory?.mount({
+  document,
+  read:async()=>{
+    const {data,error}=await sb.rpc('get_wekeep_history');
+    if(error)throw error;
+    return data;
+  },
+  write:async batch=>{
+    const {data,error}=await sb.rpc('save_wekeep_history',{p_batch:batch});
+    if(error)throw error;
+    return data;
+  },
+  onCurrent:()=>{
+    globalThis.inventoryHistory?.hide();
+    globalThis.liveInventory?.show();
+  }
+});
 globalThis.liveInventory = globalThis.LiveInventory?.mount({
   document,
   read:async()=>{
@@ -50,6 +67,11 @@ globalThis.liveInventory = globalThis.LiveInventory?.mount({
     const {data,error}=await sb.rpc('save_wekeep_inventory',{p_snapshot:snapshot});
     if(error)throw error;
     return data;
+  },
+  onHistory:identity=>{
+    globalThis.liveInventory?.hide();
+    if(identity)globalThis.inventoryHistory?.openProduct(identity);
+    else globalThis.inventoryHistory?.show();
   }
 });
 
@@ -159,8 +181,13 @@ function closeSidebar(){
 }
 function go(page){
   globalThis.invoiceSheetStatus?.show(page);
-  if(page==='inventory')globalThis.liveInventory?.show();
-  else globalThis.liveInventory?.hide();
+  if(page==='inventory'){
+    globalThis.inventoryHistory?.hide();
+    globalThis.liveInventory?.show();
+  }else{
+    globalThis.liveInventory?.hide();
+    globalThis.inventoryHistory?.hide();
+  }
   document.querySelectorAll('.ni').forEach(el=>el.classList.remove('active'));
   const n=document.getElementById('nav-'+page);if(n)n.classList.add('active');
   const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',inventory:'실시간 재고',tax:'세금계산서',customers:'거래처 마스터',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
@@ -3731,6 +3758,7 @@ async function checkAuth(){
 function showLoginScreen(){
   globalThis.invoiceSheetStatus?.hide();
   globalThis.liveInventory?.hide();
+  globalThis.inventoryHistory?.hide();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('main-app').style.display = 'none';
 }

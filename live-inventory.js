@@ -135,6 +135,9 @@
   function collectionPanel(saveMessage,payload,saving){
     return `<details class="inventory-import"><summary>수집 자료 반영</summary><div class="inventory-import-body"><label for="inventory-payload">수집 자료</label><textarea id="inventory-payload" aria-label="수집 자료" rows="7" spellcheck="false" placeholder="{&quot;version&quot;:1,...}">${escapeHtml(payload||'')}</textarea><div class="inventory-import-actions"><button class="btn btn-primary" type="button" data-inventory-action="save"${saving?' disabled':''}>${saving?'저장 중…':'검증 후 반영'}</button><span class="inventory-save-message" role="status">${escapeHtml(saveMessage||'')}</span></div></div></details>`;
   }
+  function viewTabs(){
+    return '<div class="inventory-view-tabs" role="tablist" aria-label="실시간 재고 보기"><button type="button" role="tab" aria-selected="true">현재 재고</button><button type="button" role="tab" aria-selected="false" data-inventory-action="history-tab">입출고 이력</button></div>';
+  }
   function render(state,options={}){
     let kind=state&&state.kind||'failed';
     let failureBanner='';
@@ -146,15 +149,15 @@
     }
     const query=String(options.query||'').trim().toLocaleLowerCase('ko');
     const sourceLink='<a class="btn btn-sm" href="https://fbw.wekeep.co.kr/fbw/admin/v2/inventory/search.do" target="_blank" rel="noopener noreferrer"><i class="ti ti-external-link"></i> 위킵 원본</a>';
-    if(!['ready','stale'].includes(kind))return `<div class="inventory-page"><div class="inventory-toolbar"><button class="btn" type="button" data-inventory-action="refresh"><i class="ti ti-refresh"></i> 새로고침</button>${sourceLink}</div>${messagePage(kind)}${kind!=='session-expired'?collectionPanel(options.saveMessage,options.payload,options.saving):''}</div>`;
+    if(!['ready','stale'].includes(kind))return `<div class="inventory-page">${viewTabs()}<div class="inventory-toolbar"><button class="btn" type="button" data-inventory-action="refresh"><i class="ti ti-refresh"></i> 새로고침</button>${sourceLink}</div>${messagePage(kind)}${kind!=='session-expired'?collectionPanel(options.saveMessage,options.payload,options.saving):''}</div>`;
     const snapshot=state.snapshot;
     const visible=snapshot.rows.filter(item=>!query||[item.name,item.code,item.supplier].some(value=>value.toLocaleLowerCase('ko').includes(query)));
     const totals=snapshot.rows.reduce((sum,item)=>{for(const key of ['available','safety','held','defective'])sum[key]+=item[key];return sum;},{available:0,safety:0,held:0,defective:0});
     const negative=snapshot.rows.filter(item=>['available','safety','held','defective'].some(key=>item[key]<0)).length;
     const blank=snapshot.rows.filter(item=>item.code.trim()==='').length;
-    const rows=visible.map(item=>`<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.code)||'<span class="inventory-muted">(빈 코드)</span>'}</td><td>${escapeHtml(item.supplier)}</td><td class="num${item.available<0?' negative':''}">${item.available.toLocaleString('ko-KR')}</td><td class="num${item.safety<0?' negative':''}">${item.safety.toLocaleString('ko-KR')}</td><td class="num${item.held<0?' negative':''}">${item.held.toLocaleString('ko-KR')}</td><td class="num${item.defective<0?' negative':''}">${item.defective.toLocaleString('ko-KR')}</td></tr>`).join('');
+    const rows=visible.map(item=>`<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.code)||'<span class="inventory-muted">(빈 코드)</span>'}</td><td>${escapeHtml(item.supplier)}</td><td class="num${item.available<0?' negative':''}">${item.available.toLocaleString('ko-KR')}</td><td class="num${item.safety<0?' negative':''}">${item.safety.toLocaleString('ko-KR')}</td><td class="num${item.held<0?' negative':''}">${item.held.toLocaleString('ko-KR')}</td><td class="num${item.defective<0?' negative':''}">${item.defective.toLocaleString('ko-KR')}</td><td><button class="btn btn-sm" type="button" data-inventory-history="${snapshot.rows.indexOf(item)}">이력 보기</button></td></tr>`).join('');
     const freshness=kind==='stale'?'<div class="inventory-stale"><i class="ti ti-alert-triangle"></i> <strong>지연</strong> · 마지막 수집 후 15분 이상 지났습니다.</div>':(['failed','loading'].includes(transient)?'':'<div class="inventory-fresh"><i class="ti ti-circle-check"></i> <strong>최신</strong> · 마지막 수집이 15분 이내입니다.</div>');
-    return `<div class="inventory-page"><div class="inventory-toolbar"><input id="inventory-search" type="search" value="${escapeHtml(options.query||'')}" placeholder="제품명 · 관리코드 · 공급처 검색" aria-label="실시간 재고 검색"><button class="btn" type="button" data-inventory-action="refresh"><i class="ti ti-refresh"></i> 새로고침</button>${sourceLink}</div>${failureBanner}${freshness}<div class="inventory-meta"><span><strong>마지막 수집</strong> ${escapeHtml(formatTime(snapshot.collected_at))}</span><span><strong>서버 확인</strong> ${escapeHtml(formatTime(state.checked_at))}</span><span>전체 ${snapshot.rows.length.toLocaleString('ko-KR')}행 · 검색 ${visible.length.toLocaleString('ko-KR')}행</span><span>저장 자료를 60초마다 확인 · 위킵 원본 수집 목표 10분</span></div><div class="inventory-kpis">${[['가용',totals.available],['안전',totals.safety],['유보',totals.held],['하자',totals.defective]].map(([label,value])=>`<div class="kpi"><div class="lbl">전체 ${label} 합계</div><div class="val">${value.toLocaleString('ko-KR')}</div></div>`).join('')}<div class="kpi"><div class="lbl">음수 행</div><div class="val${negative?' negative':''}">${negative.toLocaleString('ko-KR')}</div></div><div class="kpi"><div class="lbl">빈 관리코드</div><div class="val">${blank.toLocaleString('ko-KR')}</div></div></div><div class="card inventory-table-card"><div class="tw"><table class="inventory-table"><thead><tr><th>제품명</th><th>관리코드</th><th>공급처</th><th>가용</th><th>안전</th><th>유보</th><th>하자</th></tr></thead><tbody>${rows||'<tr><td colspan="7" class="inventory-no-results">검색 결과가 없습니다.</td></tr>'}</tbody></table></div></div>${collectionPanel(options.saveMessage,options.payload,options.saving)}</div>`;
+    return `<div class="inventory-page">${viewTabs()}<div class="inventory-toolbar"><input id="inventory-search" type="search" value="${escapeHtml(options.query||'')}" placeholder="제품명 · 관리코드 · 공급처 검색" aria-label="실시간 재고 검색"><button class="btn" type="button" data-inventory-action="refresh"><i class="ti ti-refresh"></i> 새로고침</button>${sourceLink}</div>${failureBanner}${freshness}<div class="inventory-meta"><span><strong>마지막 수집</strong> ${escapeHtml(formatTime(snapshot.collected_at))}</span><span><strong>서버 확인</strong> ${escapeHtml(formatTime(state.checked_at))}</span><span>전체 ${snapshot.rows.length.toLocaleString('ko-KR')}행 · 검색 ${visible.length.toLocaleString('ko-KR')}행</span><span>저장 자료를 60초마다 확인 · 위킵 원본 수집 목표 10분</span></div><div class="inventory-kpis">${[['가용',totals.available],['안전',totals.safety],['유보',totals.held],['하자',totals.defective]].map(([label,value])=>`<div class="kpi"><div class="lbl">전체 ${label} 합계</div><div class="val">${value.toLocaleString('ko-KR')}</div></div>`).join('')}<div class="kpi"><div class="lbl">음수 행</div><div class="val${negative?' negative':''}">${negative.toLocaleString('ko-KR')}</div></div><div class="kpi"><div class="lbl">빈 관리코드</div><div class="val">${blank.toLocaleString('ko-KR')}</div></div></div><div class="card inventory-table-card"><div class="tw"><table class="inventory-table"><thead><tr><th>제품명</th><th>관리코드</th><th>공급처</th><th>가용</th><th>안전</th><th>유보</th><th>하자</th><th>입출고</th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="inventory-no-results">검색 결과가 없습니다.</td></tr>'}</tbody></table></div></div>${collectionPanel(options.saveMessage,options.payload,options.saving)}</div>`;
   }
   function validateSaveResult(result,snapshot){
     if(!result||result.saved!==true||result.collected_at!==snapshot.collected_at||result.row_count!==snapshot.rows.length)fail('저장 확인 응답이 일치하지 않습니다.');
@@ -255,10 +258,18 @@
       }finally{if(pendingWrite===saveRequest)pendingWrite=null;if(active&&saveLifecycle===lifecycle){saving=false;paint();}}
     }
     host.addEventListener('click',event=>{
+      const historyButton=event.target.closest&&event.target.closest('[data-inventory-history]');
+      if(historyButton&&typeof options.onHistory==='function'){
+        const displayed=state&&state.snapshot||(state&&state.previous&&state.previous.snapshot);
+        const item=displayed&&displayed.rows[Number(historyButton.dataset.inventoryHistory)];
+        if(item)options.onHistory({name:item.name,code:item.code,supplier:item.supplier});
+        return;
+      }
       const button=event.target.closest&&event.target.closest('[data-inventory-action]');
       if(!button)return;
       if(button.dataset.inventoryAction==='refresh')controller.refresh();
       if(button.dataset.inventoryAction==='save')save();
+      if(button.dataset.inventoryAction==='history-tab'&&typeof options.onHistory==='function')options.onHistory(null);
     });
     host.addEventListener('input',event=>{
       if(event.target&&event.target.id==='inventory-search'){query=event.target.value;paint();const input=doc.getElementById('inventory-search');if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}}
