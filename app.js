@@ -2170,6 +2170,7 @@ function handleRawUpload(input){
     if(window._rawUploadData?.length){toast('기존 업로드가 남아 있어 새 파일을 적용하지 않았습니다.');return;}
     try{
       const wb=XLSX.read(e.target.result,{type:'binary',raw:true});
+      const date1904=!!wb.Workbook?.WBProps?.date1904;
       const ws=wb.Sheets[wb.SheetNames[0]];
       // sheet_to_json omits error cells (and may omit an entire error-only row).
       const cellErrors=Object.entries(ws).filter(([address,cell])=>/^[A-Z]+[1-9]\d*$/.test(address)&&cell?.t==='e')
@@ -2198,7 +2199,7 @@ function handleRawUpload(input){
           else colMap[field]=k;
         }
       });
-      ['barcode','qty'].forEach(field=>{if(!colMap[field])issues.push({message:`${labels[field]} 컬럼이 없습니다.`});});
+      ['barcode','qty','orderDate'].forEach(field=>{if(!colMap[field])issues.push({message:`${labels[field]} 컬럼이 없습니다.`});});
       if(issues.length){showRawUploadIssues(issues);return;}
 
       // 모달에서 선택한 거래처 (고정)
@@ -2223,7 +2224,12 @@ function handleRawUpload(input){
         const barcode=rawBarcode==null?'':String(rawBarcode).trim();
         if(!barcode)error('바코드가 비어 있습니다.');
         else if((typeof rawBarcode!=='string'&&typeof rawBarcode!=='number')||(typeof rawBarcode==='number'&&(!Number.isSafeInteger(rawBarcode)||rawBarcode<0)))error('바코드를 정확한 텍스트로 입력해 주세요.');
-        const odate=colMap.orderDate?String(row[colMap.orderDate]||'').trim():'';
+        const dates={};
+        for(const field of ['orderDate','payDate','shipDate']){
+          dates[field]=parseRawUploadDate(colMap[field]?row[colMap[field]]:'',date1904);
+          if(dates[field]===null||(field==='orderDate'&&!dates[field]))error(`${labels[field]}을 실제 날짜로 입력해 주세요. (예: 2026-09-11, Excel 날짜 셀)`);
+        }
+        const odate=dates.orderDate;
         const prod=barcodeMap[barcode];
         const mappedName=prod?prod.name:(colMap.product?String(row[colMap.product]||'').trim():'');
 
@@ -2243,8 +2249,13 @@ function handleRawUpload(input){
 
         const key=`${fixedCust}|${odate}`;
         if(!invMap[key])invMap[key]={rawCustomer:fixedCust,customer:fixedCust,custExact:true,orderDate:odate,
-          payDate:colMap.payDate?String(row[colMap.payDate]||''):'',shipDate:colMap.shipDate?String(row[colMap.shipDate]||''):'',items:[]};
+          payDate:'',shipDate:'',items:[]};
         const g=invMap[key];
+        for(const field of ['payDate','shipDate']){
+          if(g[field]&&dates[field]&&g[field]!==dates[field])error(`같은 발주일(${odate}) 주문의 ${labels[field]}이 다릅니다. ${g[field]} / ${dates[field]} 값을 확인해 주세요.`);
+          else if(dates[field])g[field]=dates[field];
+        }
+        if(issues.length!==before)return;
 
         if(calcPrice!==null&&excelPrice>0&&excelPrice!==calcPrice){
           priceAlerts.push({barcode,name:mappedName,customer:fixedCust,excelPrice,calcPrice,retailPrice,supplyRate});
@@ -2395,6 +2406,35 @@ function cancelRawUpload(){
   if(area)area.innerHTML='';
 }
 
+function parseRawUploadDate(value,date1904=false){
+  if(value==null||(typeof value==='string'&&!value.trim()))return '';
+  let text;
+  if(typeof value==='number'){
+    if(!Number.isFinite(value))return null;
+    if(Number.isInteger(value)&&/^\d{8}$/.test(String(value)))text=String(value);
+    else{
+      // Excel serials are calendar days; their fractional part is time, not a timezone.
+      const day=Math.floor(value),max=date1904?2957003:2958465;
+      if(day<(date1904?0:1)||day>max||(!date1904&&day===60))return null;
+      const epoch=date1904?Date.UTC(1904,0,1):Date.UTC(1899,11,31);
+      const date=new Date(epoch+(day-(!date1904&&day>60?1:0))*86400000);
+      return date.toISOString().slice(0,10);
+    }
+  }else if(typeof value==='string')text=value.trim();
+  else return null;
+  const parts=text.match(/^(\d{4})(\d{2})(\d{2})$/)
+    ||text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+    ||text.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
+    ||text.match(/^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?$/)
+    ||text.match(/^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일$/);
+  if(!parts)return null;
+  const [year,month,day]=parts.slice(1).map(Number);
+  const leap=year%4===0&&(year%100!==0||year%400===0);
+  const days=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31];
+  if(year<1||year>9999||month<1||month>12||day<1||day>days[month-1])return null;
+  return `${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
 function parseRawUploadNumber(value,currency=false){
   if(typeof value==='number')return Number.isFinite(value)?value:null;
   if(typeof value!=='string')return null;
@@ -2439,7 +2479,7 @@ async function confirmRawUpload(){
       current=g;
       if(!g.items?.length){g._saveStatus='failed';g._saveError='품목이 없는 주문은 업로드할 수 없습니다.';break;}
       if(!g._saveInvoice){
-        const c=custByName(g.customer),code=c?.code||'UNK',odate=g.orderDate||today();
+        const c=custByName(g.customer),code=c?.code||'UNK',odate=g.orderDate;
         const ym=odate.replace(/[.\-\s]/g,'').replace(/[가-힣]+/g,'').slice(0,8);
         const baseNo=`${code}_${ym}`;
         const used=new Set([..._invoices.map(i=>i.no),...groups.map(x=>x._saveInvoice?.no)]);
