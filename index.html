@@ -409,6 +409,7 @@
       <div style="font-size:11px;color:var(--text3)">.xlsx / .xls / .csv</div>
     </div>
     <input type="file" id="raw-file-input-modal" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleRawUpload(this)"/>
+    <p style="margin-top:12px;font-size:11px;color:var(--text2);line-height:1.6">발주일은 필수입니다. 날짜는 2026-09-11 또는 Excel 날짜 셀로 입력해 주세요. 입금일·출고일은 비워둘 수 있으며, 날짜 셀의 시간은 제외하고 날짜만 저장합니다.</p>
     <div id="raw-upload-errors" role="alert" hidden style="margin-top:14px;padding:12px;border:1px solid var(--red);border-radius:8px;font-size:12px;line-height:1.6"></div>
     <div style="margin-top:16px;text-align:center">
       <span style="font-size:11px;color:var(--text3)">업로드 서식이 없으신가요?</span>
@@ -608,6 +609,6 @@
 <script src="inventory-history.js?v=20260910-history-1"></script>
 <script src="inventory-monthly.js?v=20260911-annual-1"></script>
 <script src="live-inventory.js?v=20260910-history-1"></script>
-<script src="app.js?v=20260911-annual-1"></script>
+<script src="app.js?v=20260911-raw-dates-1"></script>
 </body>
 </html>
