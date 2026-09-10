@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check app.js && node --check dashboard-model.js && node --check dashboard-ui.js && node --check sheet-sync-status.js && node --check live-inventory.js && node --check drive-documents.js"
+    "check": "node --check app.js && node --check dashboard-model.js && node --check dashboard-ui.js && node --check sheet-sync-status.js && node --check live-inventory.js && node --check inventory-history.js && node --check drive-documents.js"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8"
