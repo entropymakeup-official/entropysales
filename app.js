@@ -2131,30 +2131,43 @@ function handleRawUpload(input){
   if(_savingRawUpload){toast('업로드 저장이 끝날 때까지 기다려 주세요.');return;}
   if(window._rawUploadData?.length){toast('기존 업로드를 이어서 처리하거나 미리보기에서 비운 뒤 새 파일을 선택해 주세요.');return;}
   const f=input.files[0];if(!f)return;
+  showRawUploadIssues([]);
   const reader=new FileReader();
   reader.onload=e=>{
     if(_savingRawUpload){toast('업로드 저장이 끝난 뒤 파일을 다시 선택해 주세요.');return;}
     if(window._rawUploadData?.length){toast('기존 업로드가 남아 있어 새 파일을 적용하지 않았습니다.');return;}
     try{
-      const wb=XLSX.read(e.target.result,{type:'binary'});
+      const wb=XLSX.read(e.target.result,{type:'binary',raw:true});
       const ws=wb.Sheets[wb.SheetNames[0]];
+      // sheet_to_json omits error cells (and may omit an entire error-only row).
+      const cellErrors=Object.entries(ws).filter(([address,cell])=>/^[A-Z]+[1-9]\d*$/.test(address)&&cell?.t==='e')
+        .map(([address])=>({row:Number(address.match(/\d+$/)[0]),message:`${address} 셀에 Excel 오류가 있습니다. 수식과 값을 확인해 주세요.`}));
+      if(cellErrors.length){showRawUploadIssues(cellErrors);return;}
       const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-      if(!rows.length){toast('데이터가 없습니다.');return;}
+      if(!rows.length){showRawUploadIssues([{message:'데이터가 없습니다.'}]);return;}
 
       const colMap={};
+      const issues=[];
+      const labels={barcode:'바코드',qty:'수량',price:'단가',customer:'거래처',orderDate:'발주일',payDate:'입금일',shipDate:'출고일',product:'제품명',salesType:'유형'};
       Object.keys(rows[0]).forEach(k=>{
         const kl=k.toLowerCase().replace(/[\s_\-*\n()]/g,'');
-        if(kl.includes('거래처')||kl.includes('customer'))colMap.customer=k;
-        else if(kl.includes('발주일')||kl.includes('orderdate'))colMap.orderDate=k;
-        else if(kl.includes('barcode')||kl.includes('바코드'))colMap.barcode=k;
-        else if(kl.includes('제품명')||kl.includes('product')||kl.includes('item'))colMap.product=k;
-        else if(kl.includes('salestype')||kl.includes('type')||kl.includes('유형'))colMap.salesType=k;
-        else if(kl.includes('수량')||kl.includes('qty'))colMap.qty=k;
-        else if(kl.includes('단가')||kl.includes('unitprice')||kl.includes('price'))colMap.price=k;
-        else if(kl.includes('입금일')||kl.includes('paydate'))colMap.payDate=k;
-        else if(kl.includes('출고일')||kl.includes('shipdate'))colMap.shipDate=k;
+        let field;
+        if(kl.includes('거래처')||kl.includes('customer'))field='customer';
+        else if(kl.includes('발주일')||kl.includes('orderdate'))field='orderDate';
+        else if(kl.includes('barcode')||kl.includes('바코드'))field='barcode';
+        else if(kl.includes('제품명')||kl.includes('product')||kl.includes('item'))field='product';
+        else if(kl.includes('salestype')||kl.includes('type')||kl.includes('유형'))field='salesType';
+        else if(kl.includes('수량')||kl.includes('qty'))field='qty';
+        else if(kl.includes('단가')||kl.includes('unitprice')||kl.includes('price'))field='price';
+        else if(kl.includes('입금일')||kl.includes('paydate'))field='payDate';
+        else if(kl.includes('출고일')||kl.includes('shipdate'))field='shipDate';
+        if(field){
+          if(colMap[field])issues.push({message:`${labels[field]} 컬럼이 중복됩니다. 사용할 컬럼 하나만 남겨 주세요.`});
+          else colMap[field]=k;
+        }
       });
-      if(!colMap.customer&&!document.getElementById('raw-upload-cust')?.value){toast('거래처 컬럼을 찾을 수 없습니다.');return;}
+      ['barcode','qty'].forEach(field=>{if(!colMap[field])issues.push({message:`${labels[field]} 컬럼이 없습니다.`});});
+      if(issues.length){showRawUploadIssues(issues);return;}
 
       // 모달에서 선택한 거래처 (고정)
       const fixedCust=document.getElementById('raw-upload-cust')?.value||'';
@@ -2169,23 +2182,16 @@ function handleRawUpload(input){
       let unmappedBarcode=0;
       const priceAlerts=[];
 
-      rows.forEach(row=>{
-        const barcode=colMap.barcode?String(row[colMap.barcode]||'').trim():'';
-        if(!barcode)return; // 바코드 필수
+      rows.forEach((row,index)=>{
+        if(Object.values(row).every(value=>value==null||String(value).trim()===''))return;
+        const rowNumber=Number.isInteger(row.__rowNum__)?row.__rowNum__+1:index+2;
+        const error=message=>issues.push({row:rowNumber,message});
+        const before=issues.length;
+        const rawBarcode=row[colMap.barcode];
+        const barcode=rawBarcode==null?'':String(rawBarcode).trim();
+        if(!barcode)error('바코드가 비어 있습니다.');
+        else if((typeof rawBarcode!=='string'&&typeof rawBarcode!=='number')||(typeof rawBarcode==='number'&&(!Number.isSafeInteger(rawBarcode)||rawBarcode<0)))error('바코드를 정확한 텍스트로 입력해 주세요.');
         const odate=colMap.orderDate?String(row[colMap.orderDate]||'').trim():'';
-        const key=`${fixedCust}|${odate}`;
-        if(!invMap[key]){
-          invMap[key]={
-            rawCustomer:fixedCust,
-            customer:fixedCust,
-            custExact:true,
-            orderDate:odate,
-            payDate:colMap.payDate?String(row[colMap.payDate]||''):'',
-            shipDate:colMap.shipDate?String(row[colMap.shipDate]||''):'',
-            items:[]
-          };
-        }
-        const g=invMap[key];
         const prod=barcodeMap[barcode];
         const mappedName=prod?prod.name:(colMap.product?String(row[colMap.product]||'').trim():'');
 
@@ -2193,8 +2199,20 @@ function handleRawUpload(input){
         const supplyRate=fixedCustObj?.supply_rate||null;
         const retailPrice=prod?.price||0;
         const calcPrice=supplyRate&&retailPrice?Math.round(retailPrice*supplyRate/100):null;
-        const excelPrice=colMap.price?parseFloat(String(row[colMap.price]||'0').replace(/[₩,]/g,''))||0:0;
+        const qty=parseRawUploadNumber(row[colMap.qty]);
+        if(qty===null)error('수량을 올바른 숫자로 입력해 주세요. (예: 1,000 또는 2.5)');
+        const rawPrice=colMap.price?row[colMap.price]:'';
+        const priceBlank=rawPrice==null||String(rawPrice).trim()==='';
+        const excelPrice=parseRawUploadNumber(rawPrice,true);
+        if(excelPrice===null&&(!priceBlank||calcPrice===null))error('단가를 올바른 숫자로 입력해 주세요. 0원은 0을 입력해 주세요.');
         const finalPrice=calcPrice!==null?calcPrice:excelPrice;
+        if(finalPrice!==null&&!Number.isFinite(finalPrice))error('계산된 공급가를 확인해 주세요.');
+        if(issues.length!==before)return;
+
+        const key=`${fixedCust}|${odate}`;
+        if(!invMap[key])invMap[key]={rawCustomer:fixedCust,customer:fixedCust,custExact:true,orderDate:odate,
+          payDate:colMap.payDate?String(row[colMap.payDate]||''):'',shipDate:colMap.shipDate?String(row[colMap.shipDate]||''):'',items:[]};
+        const g=invMap[key];
 
         if(calcPrice!==null&&excelPrice>0&&excelPrice!==calcPrice){
           priceAlerts.push({barcode,name:mappedName,customer:fixedCust,excelPrice,calcPrice,retailPrice,supplyRate});
@@ -2204,17 +2222,20 @@ function handleRawUpload(input){
         g.items.push({
           barcode,name:mappedName,
           salesType:String(row[colMap.salesType]||'Paid').trim(),
-          qty:parseFloat(row[colMap.qty])||0,
+          qty,
           price:finalPrice,
           _mapped:!!prod,_calcPrice:calcPrice,_excelPrice:excelPrice,_supplyRate:supplyRate
         });
       });
 
+      if(issues.length){showRawUploadIssues(issues);return;}
+      if(!Object.keys(invMap).length){showRawUploadIssues([{message:'입력된 품목이 없습니다.'}]);return;}
       window._rawUploadData=Object.values(invMap);
       window._rawPriceAlerts=priceAlerts;
       _showRawPreviewModal(unmappedBarcode);
-    }catch(err){toast('파일 오류: '+err.message);}
+    }catch(err){showRawUploadIssues([{message:'파일을 읽을 수 없습니다. 파일 형식과 내용을 확인해 주세요.'}]);}
   };
+  reader.onerror=()=>showRawUploadIssues([{message:'파일을 읽지 못했습니다. 파일을 다시 선택해 주세요.'}]);
   reader.readAsBinaryString(f);
   input.value='';
 }
@@ -2340,6 +2361,27 @@ function cancelRawUpload(){
   document.removeEventListener('paste',xgHandlePaste);
   const area=document.getElementById('raw-upload-area');
   if(area)area.innerHTML='';
+}
+
+function parseRawUploadNumber(value,currency=false){
+  if(typeof value==='number')return Number.isFinite(value)?value:null;
+  if(typeof value!=='string')return null;
+  let text=value.trim();
+  if(currency)text=text.replace(/^₩\s*/,'');
+  const plain=/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+  const grouped=/^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
+  if(!(text.includes(',')?grouped:plain).test(text))return null;
+  const number=Number(text.replace(/,/g,''));
+  return Number.isFinite(number)?number:null;
+}
+
+function showRawUploadIssues(issues){
+  const el=document.getElementById('raw-upload-errors');
+  if(el){
+    el.hidden=!issues.length;
+    el.innerHTML=issues.length?`<strong>파일 확인 필요 ${issues.length}건</strong><p>이 파일은 아직 저장하지 않았습니다. 아래 내용을 수정한 뒤 다시 선택해 주세요.</p><ul style="padding-left:18px;max-height:160px;overflow:auto">${issues.slice(0,50).map(issue=>`<li>${issue.row?`${issue.row}행: `:''}${esc(issue.message)}</li>`).join('')}</ul>${issues.length>50?'<p>처음 50건을 표시합니다.</p>':''}`:'';
+  }
+  if(issues.length){om('m-raw-upload');toast(`파일 확인 필요 ${issues.length}건 — 오류 내용을 확인해 주세요.`);}
 }
 
 function discardRawUpload(){
