@@ -39,6 +39,19 @@ globalThis.invoiceSheetStatus = globalThis.SheetSyncStatus?.mount({document,read
   if(error)throw error;
   return data;
 }});
+globalThis.liveInventory = globalThis.LiveInventory?.mount({
+  document,
+  read:async()=>{
+    const {data,error}=await sb.rpc('get_wekeep_inventory');
+    if(error)throw error;
+    return data;
+  },
+  write:async snapshot=>{
+    const {data,error}=await sb.rpc('save_wekeep_inventory',{p_snapshot:snapshot});
+    if(error)throw error;
+    return data;
+  }
+});
 
 const MGRS = ['liah','Grace','Raye','Chloe','Ethan'];
 const SALES_TYPES = ['Paid','FOC','GWP','Sample','Replacement','Lost'];
@@ -146,9 +159,11 @@ function closeSidebar(){
 }
 function go(page){
   globalThis.invoiceSheetStatus?.show(page);
+  if(page==='inventory')globalThis.liveInventory?.show();
+  else globalThis.liveInventory?.hide();
   document.querySelectorAll('.ni').forEach(el=>el.classList.remove('active'));
   const n=document.getElementById('nav-'+page);if(n)n.classList.add('active');
-  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',tax:'세금계산서',customers:'거래처 마스터',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
+  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',inventory:'실시간 재고',tax:'세금계산서',customers:'거래처 마스터',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
   document.getElementById('page-title').textContent=titles[page]||page;
   ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,customers:renderCustomers,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
@@ -3673,6 +3688,7 @@ async function checkAuth(){
 
 function showLoginScreen(){
   globalThis.invoiceSheetStatus?.hide();
+  globalThis.liveInventory?.hide();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('main-app').style.display = 'none';
 }
