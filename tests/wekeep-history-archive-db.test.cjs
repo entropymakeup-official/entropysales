@@ -35,11 +35,11 @@ test('January survives February; corrections replace date values and empty marke
  const db=await setup(t);
  const janTime=await save(db,'2025-01-01','2025-01-31',[day('2025-01-01'),day('2025-01-31',{balance:77})],-120000);
  await save(db,'2025-02-01','2025-02-28',[],-90000);
- let result=await read(db);assert.equal(result.months.length,12);
+ let result=await read(db);assert.equal(result.months.length,2);
  assert.deepEqual(month(result,1),{sku:'1',month:1,covered_days:31,record_days:2,inbound:2,returned:-4,faulty:0,damaged:6,outbound:8,balance:77,balance_date:'2025-01-31',last_collected_at:month(result,1).last_collected_at,oldest_collected_at:month(result,1).oldest_collected_at});
  assert.equal(Date.parse(month(result,1).oldest_collected_at),Date.parse(janTime));
  assert.equal(month(result,2).covered_days,28);assert.equal(month(result,2).record_days,0);assert.equal(month(result,2).inbound,null);
- assert.equal(month(result,3).covered_days,0);assert.equal(month(result,3).last_collected_at,null);
+ assert.equal(month(result,3),undefined);
  await save(db,'2025-01-31','2025-01-31',[day('2025-01-31',{balance:88,inbound:-3})],-60000);
  result=await read(db);assert.equal(month(result,1).covered_days,31);assert.equal(month(result,1).record_days,2);assert.equal(month(result,1).inbound,-2);assert.equal(month(result,1).balance,88);
  await save(db,'2025-01-31','2025-01-31',[],-30000);
@@ -91,5 +91,24 @@ test('leap-year coverage counts February 29 and a recorded zero stays numeric',a
  const db=await setup(t);await save(db,'2024-02-01','2024-02-29',[day('2024-02-29',{inbound:0,balance:0})]);
  const result=await read(db,2024);const feb=month(result,2);
  assert.equal(feb.covered_days,29);assert.equal(feb.record_days,1);assert.equal(feb.inbound,0);assert.equal(feb.balance,0);assert.equal(feb.balance_date,'2024-02-29');
- assert.equal(month(await read(db,2025),2).covered_days,0);
+ assert.equal(month(await read(db,2025),2),undefined);
+});
+test('annual catalog includes live products never observed and prefers current metadata',async t=>{
+ const db=await setup(t);
+ const second={...identity,sku:'2',name:'Not observed'};
+ await save(db,'2025-01-01','2025-01-01',[day('2025-01-01')],-120000,[identity,second]);
+ let result=await read(db);assert.deepEqual(result.catalog,[identity,second]);
+ assert.equal(month(result,1,'2'),undefined,'never-observed months are omitted for the UI to construct');
+ const renamed={...identity,name:'Current renamed product'};
+ await save(db,'2025-02-01','2025-02-01',[],-60000,[second,renamed]);
+ result=await read(db);assert.deepEqual(result.catalog.find(x=>x.sku==='1'),renamed);
+ assert.equal(month(result,1).record_days,1);
+});
+
+test('installation includes existing live catalog entries without a product window',async t=>{
+ const db=await setup(t,false);const second={...identity,sku:'2',name:'Not seeded'};
+ await save(db,'2025-01-01','2025-01-01',[],-60000,[identity,second]);await install(db);
+ const result=await read(db);assert.deepEqual(result.catalog,[identity,second]);
+ assert.equal(result.months.length,1);assert.equal(month(result,1,'2'),undefined);
+ assert.equal(month(result,1).covered_days,1);assert.equal(month(result,1).record_days,0);assert.equal(month(result,1).inbound,null);
 });

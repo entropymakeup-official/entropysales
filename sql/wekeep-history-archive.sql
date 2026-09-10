@@ -95,7 +95,12 @@ begin
  then raise exception 'INVALID_HISTORY_YEAR'; end if;
  year_start:=make_date(p_year,1,1);
  select coalesce(jsonb_agg(jsonb_build_object('sku',sku,'name',name,'code',code,'supplier',supplier)
-  order by sku collate "C"),'[]'::jsonb) into result_catalog from wekeep_history_private.archive_catalog;
+  order by sku collate "C"),'[]'::jsonb) into result_catalog from (
+  select sku,name,code,supplier from wekeep_history_private.catalog
+  union all
+  select a.sku,a.name,a.code,a.supplier from wekeep_history_private.archive_catalog a
+  where not exists(select 1 from wekeep_history_private.catalog live where live.sku=a.sku)
+ ) roster;
  with periods as (
   select m as month,(year_start+make_interval(months=>m-1))::date as starts,
    least((year_start+make_interval(months=>m)-interval '1 day')::date,today) as ends
@@ -107,9 +112,9 @@ begin
    max(d.balance) filter(where d.date=p.ends and d.has_record) as balance,
    max(d.date) filter(where d.date=p.ends and d.has_record) as balance_date,
    max(d.collected_at) as last_collected_at,min(d.collected_at) as oldest_collected_at
-  from wekeep_history_private.archive_catalog c cross join periods p
+  from (select value->>'sku' as sku from jsonb_array_elements(result_catalog)) c cross join periods p
   left join wekeep_history_private.archive_day d on d.sku=c.sku and d.date between p.starts and p.ends
-  group by c.sku,p.month
+  group by c.sku,p.month having count(d.date)>0
  ) select coalesce(jsonb_agg(to_jsonb(s) order by s.sku collate "C",s.month),'[]'::jsonb)
  into result_months from summaries s;
  return jsonb_build_object('year',p_year,'today',today,'catalog',result_catalog,'months',result_months,'checked_at',now());
