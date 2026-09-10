@@ -307,3 +307,31 @@ test('a confirmed save cancels a pre-save read and refreshes from a new authorit
   assert.match(host.innerHTML,/CODE&amp;1/,'late pre-save read must not replace the confirmed snapshot');
   ui.hide();
 });
+
+async function timeoutReadback(readbackFactory){
+  const handlers={},timers=new Map();let timerId=0,html='',reads=0;
+  const host={addEventListener:(name,fn)=>handlers[name]=fn,querySelector:()=>null,get innerHTML(){return html;},set innerHTML(value){html=value;}};
+  const payloadNode={id:'inventory-payload',value:''};
+  const doc={activeElement:null,getElementById:id=>id==='content'?host:id==='topbar-actions'?{innerHTML:''}:id==='inventory-payload'?payloadNode:null};
+  const fresh=snapshot({collected_at:new Date().toISOString()});
+  const ui=inventory.mount({document:doc,timeoutMs:25,setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id),
+    read:async()=>++reads===1?{snapshot:null,checked_at:new Date().toISOString()}:{snapshot:readbackFactory(fresh),checked_at:new Date().toISOString()},write:()=>new Promise(()=>{})});
+  await ui.show();payloadNode.value=JSON.stringify(fresh);handlers.input({target:payloadNode});handlers.click({target:{closest:()=>({dataset:{inventoryAction:'save'}})}});await Promise.resolve();
+  const deadline=[...timers.entries()].find(([,timer])=>timer.ms===25);assert.ok(deadline);timers.delete(deadline[0]);deadline[1].fn();
+  await new Promise(setImmediate);
+  return {html,ui};
+}
+
+test('write timeout readback confirms an identical snapshot regardless of JSON object key order',async()=>{
+  const h=await timeoutReadback(fresh=>({rows:fresh.rows.map(item=>({defective:item.defective,held:item.held,safety:item.safety,available:item.available,supplier:item.supplier,code:item.code,name:item.name})),expected_count:fresh.expected_count,collected_at:fresh.collected_at,source:fresh.source,version:fresh.version}));
+  assert.match(h.html,/1행 저장 확인 완료/);
+  assert.doesNotMatch(h.html,/저장 여부 확인 필요/);
+  h.ui.hide();
+});
+
+test('write timeout readback stays uncertain when time and count match but row content differs',async()=>{
+  const h=await timeoutReadback(fresh=>({...fresh,rows:[{...fresh.rows[0],available:fresh.rows[0].available+1}]}));
+  assert.match(h.html,/저장 여부 확인 필요/);
+  assert.doesNotMatch(h.html,/저장 확인 완료/);
+  h.ui.hide();
+});

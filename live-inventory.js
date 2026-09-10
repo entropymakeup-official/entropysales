@@ -160,6 +160,11 @@
     if(!result||result.saved!==true||result.collected_at!==snapshot.collected_at||result.row_count!==snapshot.rows.length)fail('저장 확인 응답이 일치하지 않습니다.');
     return result;
   }
+  function sameSnapshot(left,right){
+    if(!left||!right||left.version!==right.version||left.source!==right.source||left.collected_at!==right.collected_at||left.expected_count!==right.expected_count||left.rows.length!==right.rows.length)return false;
+    const keys=['name','code','supplier','available','safety','held','defective'];
+    return left.rows.every((row,index)=>keys.every(key=>row[key]===right.rows[index][key]));
+  }
   function createController(options){
     const read=options.read,paint=options.render;
     const getNow=options.now||(()=>Date.now());
@@ -222,10 +227,10 @@
     async function save(){
       if(!active||saving||typeof options.write!=='function')return;
       const saveLifecycle=lifecycle;
-      let saveRequest=null;
+      let saveRequest=null,checked=null;
       try{
         const parsed=JSON.parse(payload);
-        const checked=validateSnapshot(parsed);
+        checked=validateSnapshot(parsed);
         saving=true;saveMessage='검증 후 저장 중…';paint();
         const bounded=timed(()=>options.write(checked),timeoutMs,schedule,cancel);
         saveRequest=bounded;
@@ -242,7 +247,7 @@
           saveMessage='저장 응답이 지연되었습니다. 저장 여부 확인 필요 · 자동 재전송하지 않았습니다.';
           await controller.refresh(true);
           if(!active||saveLifecycle!==lifecycle)return;
-          if(['ready','stale'].includes(state.kind)&&JSON.stringify(state.snapshot)===JSON.stringify(checked)){
+          if(['ready','stale'].includes(state.kind)&&sameSnapshot(state.snapshot,checked)){
             payload='';saveMessage=`${checked.rows.length.toLocaleString('ko-KR')}행 저장 확인 완료`;
           }
         }else saveMessage=error instanceof SyntaxError?'JSON 형식을 확인해 주세요.':(error&&error.message&&/^(스냅샷|지원하지|수집|예상|\d+행)/.test(error.message)?error.message:'저장하지 못했습니다. 다시 로그인하거나 잠시 후 시도해 주세요.');
