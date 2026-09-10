@@ -298,3 +298,28 @@ tr:hover td{background:var(--bg3)}
 .sheet-sync-problems li{padding:4px 0;overflow-wrap:anywhere}
 .sheet-sync-problems li span{display:inline-block;margin-left:8px;color:var(--text2)}
 @media(max-width:640px){.sheet-sync{margin:8px 10px 0;padding:10px}.sheet-sync-main{flex-direction:column;gap:8px}.sheet-sync-problems li span{display:block;margin:3px 0 0}}
+
+/* 위킵 실시간 재고 */
+.inventory-page{display:flex;flex-direction:column;gap:12px}
+.inventory-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.inventory-toolbar input{flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg2);color:var(--text);font-size:12px}
+.inventory-state{padding:28px 20px;text-align:center;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg2)}
+.inventory-state strong{font-size:14px}.inventory-state p{margin-top:6px;color:var(--text2);font-size:11px;line-height:1.5}
+.inventory-state-failed,.inventory-state-session-expired{border-color:#fecaca;background:var(--red-light)}
+.inventory-stale{padding:8px 11px;border:1px solid #fcd34d;border-radius:var(--radius);background:var(--amber-light);color:#92400e;font-size:11px}
+.inventory-fresh{padding:8px 11px;border:1px solid #a7f3d0;border-radius:var(--radius);background:var(--green-light);color:#047857;font-size:11px}
+.inventory-checking{padding:8px 11px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);color:var(--text2);font-size:11px}
+.inventory-meta{display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-size:10px;color:var(--text2)}
+.inventory-meta strong{color:var(--text);margin-right:3px}
+.inventory-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.inventory-kpis .kpi .val{font-size:17px}.inventory-kpis .negative,.inventory-table .negative{color:var(--red)}
+.inventory-table-card{margin:0}.inventory-table{min-width:760px}.inventory-table th:nth-child(n+4),.inventory-table td.num{text-align:right}
+.inventory-muted{color:var(--text3);font-style:italic}.inventory-no-results{text-align:center!important;padding:28px!important;color:var(--text3)}
+.inventory-import{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg2)}
+.inventory-import summary{padding:10px 13px;cursor:pointer;font-size:11px;font-weight:600;color:var(--text2)}
+.inventory-import-body{display:flex;flex-direction:column;gap:7px;padding:0 13px 13px}
+.inventory-import-body label{font-size:10px;color:var(--text2)}
+.inventory-import textarea{width:100%;box-sizing:border-box;resize:vertical;padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);color:var(--text);font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+.inventory-import-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.inventory-save-message{font-size:11px;color:var(--text2)}
+@media(max-width:1024px){.inventory-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:640px){.inventory-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.inventory-toolbar input{min-width:100%;order:3}}

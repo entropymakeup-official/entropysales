@@ -10,7 +10,9 @@
 4. 브라우저에서 기간/거래처 필터·집계 근거 연결을 확인합니다.
 5. 검토 후 main에 통합하고 Pages 배포 성공 및 공개 파일 일치를 확인합니다.
 
-배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js, sheet-sync-status.js 6개입니다. 변경한 파일의 버전 쿼리를 함께 갱신해야 합니다. 시트 반영 상태 화면은 sql/invoice-sheet-status.sql의 읽기 전용 RPC 설치가 먼저 필요합니다. 운영 절차와 한계는 SHEET-SYNC-STATUS.md를 참고합니다.
+배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js, sheet-sync-status.js, live-inventory.js 7개입니다. 변경한 파일의 버전 쿼리를 함께 갱신해야 합니다. 시트 반영 상태 화면은 sql/invoice-sheet-status.sql의 읽기 전용 RPC 설치가 먼저 필요합니다. 운영 절차와 한계는 SHEET-SYNC-STATUS.md를 참고합니다.
+
+실시간 재고는 sql/wekeep-live.sql의 별도 private 스냅샷과 회사 로그인 사용자용 RPC를 사용합니다. 실제 재고·수집 파일·로그인 세션은 공개 저장소에 넣지 않습니다. 전체 건수와 행을 검증한 자료만 원자적으로 교체하며 기존 stocks의 입고 예정과 제품 마스터는 변경하지 않습니다. 화면은 저장 자료를 60초마다 확인하지만 위킵에서 새 자료를 가져오는 수집기는 별도 실행이 필요합니다. 운영 구성은 위킵 API를 직접 호출하지 않는 브라우저 수집이며, 사이트 화면·로그인·수집 호스트 상태에 의존합니다. LIVE-INVENTORY.md를 참고합니다.
 
 운영 데이터는 자동 테스트에 사용하지 않습니다. Excel 업로드는 기존 save_invoice_atomic으로 주문별 저장하고, 첫 오류에서 멈춰 완료·실패·확인 필요·미처리를 표시합니다. 같은 업로드 세션의 재시도는 완료 주문을 건너뛰고 준비한 주문번호를 유지합니다. 파일 전체의 일괄 롤백, 새로고침·파일 재업로드까지 포함한 서버 멱등성은 별도 과제입니다. Google Sheets 연동은 별도 Apps Script/DB 설치 작업으로 관리합니다.
 

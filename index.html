@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="style.css?v=20260910-raw-upload-1"/>
+<link rel="stylesheet" href="style.css?v=20260910-wekeep-live-1"/>
 </head>
 <body>
   </div>
@@ -98,6 +98,7 @@
     <div class="ns">분석</div>
     <div class="ni" onclick="go('monthly')" id="nav-monthly"><i class="ti ti-chart-bar"></i>월별 현황</div>
     <div class="ni" onclick="go('forecast')" id="nav-forecast"><i class="ti ti-trending-up"></i>재고 포캐스팅</div>
+    <div class="ni" onclick="go('inventory')" id="nav-inventory"><i class="ti ti-building-warehouse"></i>실시간 재고</div>
     <div class="ni" onclick="go('productanalysis')" id="nav-productanalysis"><i class="ti ti-package"></i>제품별 분석</div>
     <div class="ns">정산</div>
     <div class="ni" onclick="go('tax')" id="nav-tax"><i class="ti ti-receipt-2"></i>세금계산서</div>
@@ -588,6 +589,7 @@
 <script src="dashboard-model.js?v=20260910-raw-upload-1"></script>
 <script src="dashboard-ui.js?v=20260910-raw-upload-1"></script>
 <script src="sheet-sync-status.js?v=20260910-raw-upload-1"></script>
-<script src="app.js?v=20260910-raw-input-1"></script>
+<script src="live-inventory.js?v=20260910-wekeep-live-1"></script>
+<script src="app.js?v=20260910-wekeep-live-1"></script>
 </body>
 </html>
