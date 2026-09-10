@@ -1049,7 +1049,7 @@ function refreshInvoiceStatusList(){
   // A delayed response must not replace an input the user is still editing.
   // Reapply filters on the next normal table refresh if any tracking draft is open.
   const inputs=Array.from(document.getElementById('inv-tbody')?.querySelectorAll('[data-invoice-tracking]')||[]);
-  if(inputs.some(el=>el===document.activeElement||el.value!==el.defaultValue))return;
+  if(inputs.some(el=>el===document.activeElement||el.value!==(_invoices.find(inv=>inv.id===el.dataset?.invoiceTracking)?.tracking_num||'')))return;
   filterInv();
 }
 async function saveInvoiceStatus(id,patch,label){

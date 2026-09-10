@@ -3,7 +3,7 @@ const source=fs.readFileSync(path.join(__dirname,'../../app.js'),'utf8');
 function statusCode(){
  const helper=source.indexOf('const _invoiceStatusPending=');
  const start=helper<0?source.indexOf('async function togglePayStatus('):helper;
- return source.slice(start,source.indexOf('async function toggleShipStatus(',start))+
+ return source.slice(source.indexOf('async function updTracking('),start)+source.slice(start,source.indexOf('async function toggleShipStatus(',start))+
   source.slice(source.indexOf('async function updShipSt('),source.indexOf('function openNewInv('));
 }
 function harness({response,execute,date='2026-09-10',confirm=true,invoice={}}={}){

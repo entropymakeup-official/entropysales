@@ -72,3 +72,21 @@ test('a replaced local order is not overwritten by an older pending response',as
  resolve({data:[{id:'inv-a',status:'Paid',pay_date:'2026-09-10'}],error:null});await p;
  assert.equal(h.ctx._invoices[0].pay_date,'2026-09-09');assert.ok(h.notices.some(x=>/새로고침/.test(x)));
 });
+test('restoring a previously saved tracking value while it is pending cannot be overwritten by another status response',async()=>{
+ let resolveTrack,resolveShip;
+ const h=harness({execute:request=>{
+  if(request.patch.tracking_num==='B')return Promise.resolve({data:null,error:null});
+  if(request.patch.tracking_num==='A')return new Promise(r=>{resolveTrack=r;});
+  return new Promise(r=>{resolveShip=r;});
+ }});
+ const other=h.ctx._invoices[1];other.tracking_num='A';
+ const input={value:'B',defaultValue:'A',dataset:{invoiceTracking:'inv-b'}};
+ h.elements['inv-tbody'].querySelectorAll=()=>[input];
+ h.ctx.filterInv=()=>{input.value=other.tracking_num;};
+ await h.ctx.updTracking('inv-b','B');assert.equal(other.tracking_num,'B');
+ input.value='A';const tracking=h.ctx.updTracking('inv-b','A'),shipping=h.run('ship');
+ await new Promise(setImmediate);
+ resolveShip({data:[{id:'inv-a',ship_status:'출고완료'}],error:null});await shipping;
+ assert.equal(input.value,'A','the current input must survive the unrelated status refresh');
+ resolveTrack({data:null,error:null});await tracking;assert.equal(other.tracking_num,'A');
+});
