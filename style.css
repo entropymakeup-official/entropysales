@@ -335,3 +335,15 @@ tr:hover td{background:var(--bg3)}
 .drive-order-link{border:0;padding:0;background:none;color:var(--purple);font:inherit;cursor:pointer}
 .drive-detail{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
 .drive-detail-heading{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:12px}
+
+.tax-ledger-panel{margin-bottom:16px;border-top:3px solid var(--purple)}
+.tax-ledger-body{padding:14px 16px}
+.tax-ledger-scope,.tax-ledger-note{font-size:11px;line-height:1.6;color:var(--text2)}
+.tax-ledger-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:14px 0 18px}
+.tax-ledger-totals span{display:block;font-size:11px;color:var(--text2);margin-bottom:5px}
+.tax-ledger-totals strong{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text)}
+.tax-ledger-totals>div:first-child strong{color:var(--purple-dark)}
+.tax-ledger-body summary{cursor:pointer;font-size:12px;font-weight:600;padding:8px 0}
+.tax-ledger-body table{min-width:820px}.tax-ledger-body td{vertical-align:top}.tax-ledger-money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tax-ledger-body td a{white-space:nowrap}.tax-ledger-refresh{margin-top:12px}.tax-ledger-note{margin-top:12px}
+@media(max-width:640px){.tax-ledger-totals{gap:12px;grid-template-columns:1fr}.tax-ledger-totals>div{display:flex;align-items:center;justify-content:space-between}.tax-ledger-totals strong{font-size:19px}}
