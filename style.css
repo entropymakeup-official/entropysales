@@ -323,7 +323,6 @@ tr:hover td{background:var(--bg3)}
 .inventory-import-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.inventory-save-message{font-size:11px;color:var(--text2)}
 @media(max-width:1024px){.inventory-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.inventory-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.inventory-toolbar input{min-width:100%;order:3}}
-
 /* 위킵 일별 입출고 이력 */
 .inventory-view-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);padding-bottom:6px}
 .inventory-view-tabs button{appearance:none;border:0;background:transparent;color:var(--text2);font:inherit;font-size:12px;font-weight:600;padding:7px 12px;border-radius:var(--radius);cursor:pointer}
@@ -349,3 +348,17 @@ tr:hover td{background:var(--bg3)}
 .history-import{margin-top:2px}
 @media(max-width:1024px){.history-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.history-charts{grid-template-columns:1fr}.history-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.history-filters{grid-template-columns:1fr}.history-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.history-chart-row{grid-template-columns:34px minmax(2px,1fr) 58px minmax(2px,1fr) 58px}}
+
+/* Google Drive 증빙 */
+.drive-list{padding:4px 14px 12px}
+.drive-status{font-size:11px;color:var(--text3);padding:6px 0}
+.drive-error{color:var(--red);font-size:12px;white-space:pre-wrap}
+.drive-row{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px}
+.drive-row>i{color:var(--purple);flex-shrink:0}
+.drive-row-main{flex:1;min-width:0;overflow-wrap:anywhere}
+.drive-row-main a{color:var(--purple);text-decoration:none}
+.drive-row-main a:hover{text-decoration:underline}
+.drive-row-main small{display:block;margin-top:3px;font-size:10px;color:var(--text3)}
+.drive-order-link{border:0;padding:0;background:none;color:var(--purple);font:inherit;cursor:pointer}
+.drive-detail{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.drive-detail-heading{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:12px}
