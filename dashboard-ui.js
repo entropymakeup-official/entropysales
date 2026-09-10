@@ -1,13 +1,36 @@
 let _dashPeriod=null, _dashSnapshot=null;
+let _taxLedgerState={status:'idle',rows:[]},_taxLedgerGeneration=0;
+function resetDashboardTaxLedger(){
+  _taxLedgerGeneration++;
+  _taxLedgerState={status:'idle',rows:[]};
+  const panel=document.getElementById('dash-tax-ledger');
+  if(panel)panel.innerHTML='';
+}
+async function loadDashboardTaxLedger(){
+  const generation=++_taxLedgerGeneration;
+  _taxLedgerState={status:'loading',rows:[]};
+  const state=await TaxLedger.load(sb);
+  if(generation===_taxLedgerGeneration)_taxLedgerState=state;
+}
+async function refreshDashboardTaxLedger(){
+  const pending=loadDashboardTaxLedger();
+  if(document.getElementById('dash-tax-ledger'))renderDash();
+  await pending;
+  if(document.getElementById('dash-tax-ledger')&&_taxLedgerState.status!=='idle')renderDash();
+}
+function dashboardDateRows(){
+  return [..._invoices,...(_taxLedgerState.status==='ready'?_taxLedgerState.rows.map(r=>({order_date:r.written_date})):[])];
+}
+function dashboardTaxLedgerPanel(){return TaxLedger.render(_taxLedgerState,dashboardPeriod(),_customers);}
 function dashboardPeriod(){
   if(!_dashPeriod){const year=today().slice(0,4);_dashPeriod={start:year+'-01-01',end:year+'-12-31'};}
-  if(_dashPeriod.allTime)_dashPeriod={..._dashPeriod,...DashboardModel.allTimePeriod(_invoices,today())};
+  if(_dashPeriod.allTime)_dashPeriod={..._dashPeriod,...DashboardModel.allTimePeriod(dashboardDateRows(),today())};
   return _dashPeriod;
 }
 function dashboardControls(summary){
   const period=dashboardPeriod();
   const customers=[...new Set([..._customers.map(c=>c.name),..._invoices.map(v=>v.customer),period.customer].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
-  const years=[...new Set([today().slice(0,4),period.start.slice(0,4),..._invoices.map(v=>(v.order_date||'').slice(0,4)).filter(v=>/^\d{4}$/.test(v))])].sort().reverse();
+  const years=[...new Set([today().slice(0,4),period.start.slice(0,4),...dashboardDateRows().map(v=>(v.order_date||'').slice(0,4)).filter(v=>/^\d{4}$/.test(v))])].sort().reverse();
   return `<section class="card dash-filters" aria-label="대시보드 조회 기간">
     <form onsubmit="event.preventDefault();applyDashboardPeriod()">
       <label>연도<select id="dash-year" onchange="setDashboardYear(this.value)">${period.allTime?'<option value="" disabled selected>전체 기간</option>':''}${years.map(y=>`<option ${!period.allTime&&y===period.start.slice(0,4)?'selected':''}>${y}</option>`).join('')}</select></label>
@@ -43,7 +66,7 @@ function applyDashboardPeriod(keepAllTime=false){
   _dashPeriod=p;renderDash();
 }
 function setDashboardYear(year){_dashPeriod={...dashboardPeriod(),start:year+'-01-01',end:year+'-12-31',allTime:false};renderDash();}
-function setDashboardAllTime(){_dashPeriod={...dashboardPeriod(),...DashboardModel.allTimePeriod(_invoices,today()),allTime:true};renderDash();}
+function setDashboardAllTime(){_dashPeriod={...dashboardPeriod(),...DashboardModel.allTimePeriod(dashboardDateRows(),today()),allTime:true};renderDash();}
 function setDashboardMonth(){
   const date=today(),year=Number(date.slice(0,4)),month=Number(date.slice(5,7));
   _dashPeriod={...dashboardPeriod(),start:date.slice(0,7)+'-01',end:date.slice(0,7)+'-'+new Date(year,month,0).getDate(),allTime:false};renderDash();
