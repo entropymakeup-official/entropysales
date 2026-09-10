@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="style.css?v=20260910-overview-1"/>
+<link rel="stylesheet" href="style.css?v=20260910-sheet-status-1"/>
 </head>
 <body>
   </div>
@@ -115,6 +115,7 @@
       <div class="topbar-title" id="page-title">대시보드</div>
       <div class="topbar-actions" id="topbar-actions"></div>
     </div>
+    <section id="sheet-sync-status" class="sheet-sync" aria-label="Google 시트 반영 상태" hidden></section>
     <div class="content" id="content"><div class="loading"><i class="ti ti-loader"></i>로딩 중...</div></div>
   </div>
 </div>
@@ -583,6 +584,7 @@
 </div>
 <script src="dashboard-model.js?v=20260910-overview-1"></script>
 <script src="dashboard-ui.js?v=20260910-overview-1"></script>
-<script src="app.js?v=20260910-overview-1"></script>
+<script src="sheet-sync-status.js?v=20260910-sheet-status-1"></script>
+<script src="app.js?v=20260910-sheet-status-1"></script>
 </body>
 </html>
