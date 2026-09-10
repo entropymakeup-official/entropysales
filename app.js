@@ -927,13 +927,11 @@ function filterInv(page){
       <td style="font-size:11px">${v.order_date||'-'}</td>
       <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
       <td style="text-align:right;color:var(--red);font-size:11px">${focAmt>0?fmt(focAmt):'-'}</td>
-      <td style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="togglePayStatus('${v.id}','${v.pay_date||''}','${v.status||''}')"`:''}>
-        ${rev<=0?`<span style="color:var(--text3)">-</span>`:v.status==='Paid'
-          ?`<span class="badge bg-green">입금완료</span> <span style="font-size:9px;color:var(--text3)">${v.pay_date||''}</span>`
-          :`<span class="badge bg-amber">미입금</span>`}
+      <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="togglePayStatus('${v.id}')"`:''}>
+        ${invoicePaymentMarkup(v,rev)}
       </td>
-      <td><select class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="updShipSt('${v.id}',this.value,this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select></td>
-      <td onclick="event.stopPropagation()"><input type="text" placeholder="-" value="${v.tracking_num||''}"
+      <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="updShipSt('${v.id}',this.value,this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select></td>
+      <td onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
         style="border:none;background:transparent;font-size:11px;width:120px;color:var(--text);outline:none;border-bottom:1px solid var(--border);padding:2px 4px"
         onchange="updTracking('${v.id}',this.value)"/></td>
       <td style="text-align:center;position:relative" id="inv-file-td-${v.id}" onclick="event.stopPropagation()"></td>
@@ -1030,22 +1028,80 @@ async function updTracking(id,val){
   toast('Tracking No. 저장됐습니다!');
 }
 
-async function togglePayStatus(id, currentDate, currentStatus){
-  if(currentStatus==='Paid'){
-    // 입금완료 → 미입금으로 되돌리기
-    if(!confirm('입금 완료를 취소하시겠습니까?'))return;
-    await sb.from('invoices').update({status:'Ordered',pay_date:null}).eq('id',id);
-    const inv=_invoices.find(i=>i.id===id);
-    if(inv){inv.status='Ordered';inv.pay_date='';}
-  } else {
-    // 미입금 → 입금완료
-    const date=prompt('입금일을 입력하세요 (YYYY-MM-DD)',today());
-    if(!date)return;
-    await sb.from('invoices').update({status:'Paid',pay_date:date}).eq('id',id);
-    const inv=_invoices.find(i=>i.id===id);
-    if(inv){inv.status='Paid';inv.pay_date=date;}
-  }
+const _invoiceStatusPending=new Set();
+function invoicePaymentMarkup(inv,rev){
+  if(rev<=0)return '<span style="color:var(--text3)">-</span>';
+  if(_invoiceStatusPending.has(inv.id))return '<span class="badge bg-gray">저장 중…</span>';
+  return inv.status==='Paid'
+    ?`<span class="badge bg-green">입금완료</span> <span style="font-size:9px;color:var(--text3)">${esc(inv.pay_date||'')}</span>`
+    :'<span class="badge bg-amber">미입금</span>';
+}
+function refreshInvoiceStatusControls(id){
+  const inv=_invoices.find(i=>i.id===id);if(!inv)return;
+  const pending=_invoiceStatusPending.has(id);
+  const pay=document.getElementById('inv-pay-'+id);
+  if(pay){pay.innerHTML=invoicePaymentMarkup(inv,itemsRev(getInvItems(id)));pay.setAttribute('aria-busy',String(pending));}
+  const ship=document.getElementById('inv-ship-'+id);
+  if(ship){ship.value=inv.ship_status||'준비중';ship.className='ss s'+ship.value.replace(/\s/g,'');ship.disabled=pending;}
+}
+function refreshInvoiceStatusList(){
+  if(!document.getElementById('nav-invoices')?.classList.contains('active'))return;
+  // A delayed response must not replace an input the user is still editing.
+  // Reapply filters on the next normal table refresh if any tracking draft is open.
+  const inputs=Array.from(document.getElementById('inv-tbody')?.querySelectorAll('[data-invoice-tracking]')||[]);
+  if(inputs.some(el=>el===document.activeElement||el.value!==(_invoices.find(inv=>inv.id===el.dataset?.invoiceTracking)?.tracking_num||'')))return;
   filterInv();
+}
+async function saveInvoiceStatus(id,patch,label){
+  if(_invoiceStatusPending.has(id)){refreshInvoiceStatusControls(id);toast('이 주문의 상태를 저장 중입니다.');return false;}
+  const inv=_invoices.find(i=>i.id===id);
+  if(!inv){toast('주문을 확인할 수 없습니다. 목록을 새로고침해주세요.');return false;}
+  const fields=Object.keys(patch),before=Object.fromEntries(fields.map(key=>[key,inv[key]??null]));
+  _invoiceStatusPending.add(id);refreshInvoiceStatusControls(id);
+  let confirmed=false,changed=false;
+  try{
+    let query=sb.from('invoices').update(patch).eq('id',id);
+    // Compare and update in one statement; a stale tab cannot overwrite a newer value.
+    for(const key of fields)query=before[key]===null?query.is(key,null):query.eq(key,before[key]);
+    const {data,error}=await query.select(['id',...fields].join(','));
+    if(error)throw new Error('status update rejected');
+    if(!Array.isArray(data)||data.length!==1||typeof data[0]?.id!=='string'||data[0].id!==id||fields.some(key=>data[0][key]!==patch[key])){
+      toast('저장 결과를 확인할 수 없습니다. 다른 수정·삭제 또는 권한 변경이 있을 수 있으니 목록을 새로고침해주세요.');
+      return false;
+    }
+    confirmed=true;
+    const current=_invoices.find(i=>i.id===id);
+    if(!current||fields.some(key=>(current[key]??null)!==before[key])){
+      toast('저장 응답을 기다리는 동안 주문 정보가 바뀌었습니다. 목록을 새로고침해 최종 상태를 확인해주세요.');
+      return false;
+    }
+    for(const key of fields)current[key]=data[0][key];
+    changed=true;
+    toast(label+' 저장됐습니다.');
+    return true;
+  }catch(e){
+    toast('상태 저장 결과를 확인할 수 없습니다. 목록을 새로고침한 뒤 다시 확인해주세요.');
+    return false;
+  }finally{
+    _invoiceStatusPending.delete(id);
+    refreshInvoiceStatusControls(id);
+    if(confirmed)globalThis.invoiceSheetStatus?.saved();
+    if(changed)refreshInvoiceStatusList();
+  }
+}
+async function togglePayStatus(id){
+  if(_invoiceStatusPending.has(id)){toast('이 주문의 상태를 저장 중입니다.');return;}
+  const inv=_invoices.find(i=>i.id===id);
+  if(!inv){toast('주문을 확인할 수 없습니다. 목록을 새로고침해주세요.');return;}
+  if(inv.status==='Paid'){
+    if(!confirm('입금 완료를 취소하시겠습니까?'))return;
+    return saveInvoiceStatus(id,{status:'Ordered',pay_date:null},'미입금 상태');
+  }
+  const input=prompt('입금일을 입력하세요 (YYYY-MM-DD)',today());
+  if(input===null||input==='')return;
+  const date=input.trim();
+  if(!DashboardModel.validDate(date)){toast('입금일을 YYYY-MM-DD 형식의 실제 날짜로 입력해주세요.');return;}
+  return saveInvoiceStatus(id,{status:'Paid',pay_date:date},'입금완료 상태');
 }
 
 async function toggleShipStatus(id, currentDate, currentStatus){
@@ -1076,10 +1132,11 @@ async function updInvSt(id,val,el){
   toast('Status: '+val);
 }
 async function updShipSt(id,val,el){
-  await sb.from('invoices').update({ship_status:val}).eq('id',id);
-  const inv=_invoices.find(i=>i.id===id);if(inv)inv.ship_status=val;
-  if(el)el.className='ss s'+val.replace(/\s/g,'');
-  toast('출고: '+val);
+  refreshInvoiceStatusControls(id);
+  if(!['준비중','출고완료'].includes(val)){toast('출고 상태를 다시 선택해주세요.');return;}
+  const inv=_invoices.find(i=>i.id===id);
+  if(inv&&(inv.ship_status||'준비중')===val)return;
+  return saveInvoiceStatus(id,{ship_status:val},'출고: '+val);
 }
 
 function openNewInv(){
