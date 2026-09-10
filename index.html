@@ -408,6 +408,7 @@
       <div style="font-size:11px;color:var(--text3)">.xlsx / .xls / .csv</div>
     </div>
     <input type="file" id="raw-file-input-modal" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleRawUpload(this)"/>
+    <div id="raw-upload-errors" role="alert" hidden style="margin-top:14px;padding:12px;border:1px solid var(--red);border-radius:8px;font-size:12px;line-height:1.6"></div>
     <div style="margin-top:16px;text-align:center">
       <span style="font-size:11px;color:var(--text3)">업로드 서식이 없으신가요?</span>
       <span class="alink" style="font-size:11px;margin-left:4px" onclick="cm('m-raw-upload');downloadRawTemplate()"><i class="ti ti-download" style="font-size:10px"></i> 서식 다운로드</span>
@@ -587,6 +588,6 @@
 <script src="dashboard-model.js?v=20260910-raw-upload-1"></script>
 <script src="dashboard-ui.js?v=20260910-raw-upload-1"></script>
 <script src="sheet-sync-status.js?v=20260910-raw-upload-1"></script>
-<script src="app.js?v=20260910-invoice-status-1"></script>
+<script src="app.js?v=20260910-raw-input-1"></script>
 </body>
 </html>
