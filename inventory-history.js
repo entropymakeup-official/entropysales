@@ -185,6 +185,15 @@
   }
   function kstToday(now){return new Date(currentMs(now)+9*60*60*1000).toISOString().slice(0,10);}
   function defaultFilters(now){const to=kstToday(now);return {sku:'',query:'',from:addDays(to,-29),to,type:'all'};}
+  function displayRangeStatus(from,to){
+    if(!from||!to)return {valid:false,message:'시작일과 종료일을 모두 선택해 주세요.'};
+    let start,end;
+    try{start=dateMs(from,'시작일');end=dateMs(to,'종료일');}
+    catch(_error){return {valid:false,message:'날짜 형식을 확인해 주세요.'};}
+    if(start>end)return {valid:false,message:'시작일은 종료일보다 늦을 수 없습니다.'};
+    if((end-start)/86400000+1>31)return {valid:false,message:'조회 기간은 31일 이내로 선택해 주세요.'};
+    return {valid:true,message:''};
+  }
   function tabBar(){return '<div class="inventory-view-tabs" role="tablist" aria-label="실시간 재고 보기"><button type="button" role="tab" aria-selected="false" data-history-action="current">현재 재고</button><button type="button" role="tab" aria-selected="true">입출고 이력</button></div>';}
   function importPanel(options){
     return `<details class="inventory-import history-import"><summary>입출고 수집 자료 반영</summary><div class="inventory-import-body"><label for="history-payload">입출고 수집 자료</label><textarea id="history-payload" aria-label="입출고 수집 자료" rows="7" spellcheck="false" placeholder="{&quot;version&quot;:1,...}">${escapeHtml(options.payload||'')}</textarea><div class="inventory-import-actions"><button class="btn btn-primary" type="button" data-history-action="save"${options.saving?' disabled':''}>${options.saving?'반영 중…':'입출고 검증 후 반영'}</button><span class="inventory-save-message" role="status">${escapeHtml(options.saveMessage||'')}</span></div></div></details>`;
@@ -209,8 +218,17 @@
     const maxFlow=Math.max(1,...rows.flatMap(item=>[Math.abs(item.inbound),Math.abs(item.outbound)]));
     const flow=rows.map(item=>`<div class="history-chart-row"><span>${escapeHtml(item.date.slice(5))}</span><span class="history-bar inbound" style="width:${Math.round(Math.abs(item.inbound)/maxFlow*100)}%" title="입고 ${escapeHtml(item.inbound)}"></span><span class="history-chart-value">입고 ${formatNumber(item.inbound)}</span><span class="history-bar outbound" style="width:${Math.round(Math.abs(item.outbound)/maxFlow*100)}%" title="출고 ${escapeHtml(item.outbound)}"></span><span class="history-chart-value">출고 ${formatNumber(item.outbound)}</span></div>`).join('');
     const min=Math.min(...rows.map(item=>item.balance),0),max=Math.max(...rows.map(item=>item.balance),1),span=max-min||1;
-    const points=rows.map((item,index)=>`${rows.length===1?50:index/(rows.length-1)*100},${90-(item.balance-min)/span*80}`).join(' ');
-    return `<div class="history-charts"><section class="card history-chart" aria-label="입고/출고 추이"><div class="card-hd"><h3>입고/출고 추이</h3></div><div class="history-flow-chart">${flow||'<p class="inventory-muted">표시할 수집 기록이 없습니다.</p>'}</div></section><section class="card history-chart" aria-label="잔고 추이"><div class="card-hd"><h3>잔고 추이</h3></div>${rows.length?`<svg viewBox="0 0 100 100" role="img" aria-label="잔고 추이"><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"></polyline></svg><div class="history-balance-range">${escapeHtml(rows[0].date)} ${formatNumber(rows[0].balance)} → ${escapeHtml(rows.at(-1).date)} ${formatNumber(rows.at(-1).balance)}</div>`:'<p class="inventory-muted">표시할 수집 기록이 없습니다.</p>'}</section></div>`;
+    const start=rows.length?dateMs(rows[0].date):0,end=rows.length?dateMs(rows.at(-1).date):0,dateSpan=end-start;
+    const plotted=rows.map(item=>({item,x:dateSpan?(dateMs(item.date)-start)/dateSpan*100:50,y:90-(item.balance-min)/span*80}));
+    const segments=[];
+    plotted.forEach(point=>{
+      const previous=segments.at(-1)?.at(-1);
+      if(!previous||dateMs(point.item.date)-dateMs(previous.item.date)!==86400000)segments.push([]);
+      segments.at(-1).push(point);
+    });
+    const lines=segments.filter(segment=>segment.length>1).map(segment=>`<polyline points="${segment.map(point=>`${point.x},${point.y}`).join(' ')}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>`).join('');
+    const points=plotted.map(point=>`<circle cx="${point.x}" cy="${point.y}" r="2.2" fill="currentColor" role="img" aria-label="${escapeHtml(point.item.date)} 잔고 ${escapeHtml(point.item.balance)}"></circle>`).join('');
+    return `<div class="history-charts"><section class="card history-chart" aria-label="입고/출고 추이"><div class="card-hd"><h3>입고/출고 추이</h3></div><div class="history-flow-chart">${flow||'<p class="inventory-muted">표시할 수집 기록이 없습니다.</p>'}</div></section><section class="card history-chart" aria-label="잔고 추이"><div class="card-hd"><h3>잔고 추이</h3></div>${rows.length?`<svg viewBox="0 0 100 100" role="img" aria-label="잔고 추이">${lines}${points}</svg><div class="history-balance-range">${escapeHtml(rows[0].date)} ${formatNumber(rows[0].balance)} → ${escapeHtml(rows.at(-1).date)} ${formatNumber(rows.at(-1).balance)}</div>`:'<p class="inventory-muted">표시할 수집 기록이 없습니다.</p>'}</section></div>`;
   }
   function renderTable(product,summary,filters){
     const byDate=new Map(summary.rows.map(item=>[item.date,item]));
@@ -221,7 +239,7 @@
       if(!item)return `<tr class="history-gap"><td>${escapeHtml(date)} 기록 없음</td><td colspan="6">원본에 수집된 일별 기록이 없습니다.</td></tr>`;
       return `<tr><td>${escapeHtml(item.date)}</td>${QUANTITY_KEYS.map(key=>`<td class="num${item[key]<0?' negative':''}">${formatNumber(item[key])}</td>`).join('')}</tr>`;
     }).join('');
-    return `<div class="card inventory-table-card"><div class="tw"><table class="inventory-table history-table" aria-label="일별 입출고 이력"><thead><tr><th>날짜</th><th>입고</th><th>반품</th><th>불량</th><th>파손</th><th>출고</th><th>잔고</th></tr></thead><tbody>${body||'<tr><td colspan="7" class="inventory-no-results">조건에 맞는 수집 기록이 없습니다.</td></tr>'}</tbody></table></div></div>`;
+    return `<div class="card inventory-table-card"><div class="tw"><table class="inventory-table history-table" aria-label="일별 입출고 이력"><thead><tr><th>날짜</th><th>입고</th><th>반품입고</th><th>하자입고</th><th>불량입고</th><th>출고</th><th>잔고</th></tr></thead><tbody>${body||'<tr><td colspan="7" class="inventory-no-results">조건에 맞는 수집 기록이 없습니다.</td></tr>'}</tbody></table></div></div>`;
   }
   function render(state,options={}){
     const baseOptions={...defaultFilters(options.now),...options};
@@ -243,11 +261,15 @@
     const status=kind==='stale'?'<div class="inventory-stale"><strong>수집 지연</strong> · 일부 제품의 마지막 수집 후 3시간 이상 지났습니다.</div>':(failureBanner?'':'<div class="inventory-fresh"><strong>상태 최신</strong> · 수집 제품의 마지막 반영이 3시간 이내입니다.</div>');
     let detail='<div class="inventory-state"><strong>제품을 선택하면 일별 추이와 기록을 확인할 수 있습니다.</strong><p>검색하거나 제품 목록에서 선택해 주세요.</p></div>';
     if(product&&catalogItem){
-      const summary=summarizeHistory(data,baseOptions);
-      const totals=FLOW_KEYS.map(key=>`<div class="kpi"><div class="lbl">${TYPE_LABELS[key]}</div><div class="val${summary.totals[key]<0?' negative':''}">${formatNumber(summary.totals[key])}</div></div>`).join('');
-      const missing=summary.missingDates.length?`<details class="history-gaps"><summary>기록 없는 날짜 ${summary.missingDates.length}일</summary><ul>${summary.missingDates.map(date=>`<li>${escapeHtml(date)} 기록 없음</li>`).join('')}</ul></details>`:'<div class="inventory-fresh">수집 범위 안에 날짜 공백이 없습니다.</div>';
-      const outside=summary.outsideDates.length?`<div class="inventory-checking">선택 기간 중 ${summary.outsideDates.length.toLocaleString('ko-KR')}일은 이 제품의 수집 범위 밖입니다.</div>`:'';
-      detail=`<div class="history-product-heading"><strong>${escapeHtml(productLabel(catalogItem))}</strong><span>수집 범위 ${escapeHtml(product.from)} ~ ${escapeHtml(product.to)} · 수집 ${escapeHtml(formatTime(product.collected_at))}</span></div><div class="history-summary-title">수집된 기록 합계 · ${summary.recordCount.toLocaleString('ko-KR')}건</div><div class="inventory-kpis history-kpis">${totals}</div>${outside}${missing}${renderCharts(filterHistory(data,{...baseOptions,type:'all'}))}${renderTable(product,summary,baseOptions)}`;
+      const rangeStatus=displayRangeStatus(baseOptions.from,baseOptions.to);
+      if(!rangeStatus.valid)detail=`<div class="inventory-state history-filter-error" role="alert"><strong>조회 기간을 확인해 주세요.</strong><p>${escapeHtml(rangeStatus.message)}</p></div>`;
+      else{
+        const summary=summarizeHistory(data,baseOptions);
+        const totals=FLOW_KEYS.map(key=>`<div class="kpi"><div class="lbl">${TYPE_LABELS[key]}</div><div class="val${summary.totals[key]<0?' negative':''}">${formatNumber(summary.totals[key])}</div></div>`).join('');
+        const missing=summary.missingDates.length?`<details class="history-gaps"><summary>기록 없는 날짜 ${summary.missingDates.length}일</summary><ul>${summary.missingDates.map(date=>`<li>${escapeHtml(date)} 기록 없음</li>`).join('')}</ul></details>`:'<div class="inventory-fresh">수집 범위 안에 날짜 공백이 없습니다.</div>';
+        const outside=summary.outsideDates.length?`<div class="inventory-checking">선택 기간 중 ${summary.outsideDates.length.toLocaleString('ko-KR')}일은 이 제품의 수집 범위 밖입니다.</div>`:'';
+        detail=`<div class="history-product-heading"><strong>${escapeHtml(productLabel(catalogItem))}</strong><span>수집 범위 ${escapeHtml(product.from)} ~ ${escapeHtml(product.to)} · 수집 ${escapeHtml(formatTime(product.collected_at))}</span></div><div class="history-summary-title">수집된 기록 합계 · ${summary.recordCount.toLocaleString('ko-KR')}건</div><div class="inventory-kpis history-kpis">${totals}</div>${outside}${missing}${renderCharts(filterHistory(data,{...baseOptions,type:'all'}))}${renderTable(product,summary,baseOptions)}`;
+      }
     }
     return `<div class="inventory-page history-page">${tabBar()}${toolbar}${matchBanner(baseOptions.match)}${failureBanner}${status}<div class="inventory-meta"><span><strong>수집 범위</strong> ${coverage.collected} / 전체 ${coverage.total}개 제품</span><span><strong>최근 수집</strong> ${escapeHtml(formatTime(latest))}</span>${oldest!==latest?`<span><strong>가장 오래된 수집</strong> ${escapeHtml(formatTime(oldest))}</span>`:''}<span><strong>${windows.length>1?'혼합 수집 범위':'수집 기간'}</strong> ${windows.map(([window,count])=>`${escapeHtml(window)} (${count}개)`).join(', ')||'-'}</span><span><strong>서버 확인</strong> ${escapeHtml(formatTime(data.checked_at))}</span><span>입출고 이력 순환 수집 · 전체 약 2시간</span></div><div class="history-filters"><label>제품 검색<input id="history-product-search" type="search" value="${escapeHtml(baseOptions.query)}" placeholder="제품명 · 관리코드 · 공급처"></label><label>제품<select id="history-product"><option value="">제품 선택</option>${choices.map(item=>`<option value="${escapeHtml(item.sku)}"${item.sku===String(baseOptions.sku)?' selected':''}>${escapeHtml(productLabel(item))}</option>`).join('')}</select></label><label>시작일<input id="history-from" type="date" value="${escapeHtml(baseOptions.from)}"></label><label>종료일<input id="history-to" type="date" value="${escapeHtml(baseOptions.to)}"></label><label>유형<select id="history-type">${Object.entries(TYPE_LABELS).map(([value,label])=>`<option value="${value}"${value===baseOptions.type?' selected':''}>${label}</option>`).join('')}</select></label></div>${detail}${importPanel(baseOptions)}</div>`;
   }
@@ -272,8 +294,19 @@
       paint(lastGood?{kind:'loading',previous:deriveStatus(lastGood.data,getNow())}:{kind:'loading'});
       const bounded=timed(read,timeoutMs,schedule,cancel);
       const promise=bounded.promise.then(result=>{
-        if(active&&gen===generation){const next=deriveStatus(result,getNow());if(['ready','stale'].includes(next.kind))lastGood=next;if(next.kind==='empty')lastGood=null;paint(next.kind==='failed'&&lastGood?{kind:'failed',previous:deriveStatus(lastGood.data,getNow())}:next);}
-      }).catch(error=>{if(active&&gen===generation){const kind=publicKind(error);paint(lastGood?{kind,previous:deriveStatus(lastGood.data,getNow())}:{kind});}}).finally(()=>{if(inFlight&&inFlight.promise===promise)inFlight=null;queue(gen);});
+        if(!active||gen!==generation)return {kind:'cancelled'};
+        const next=deriveStatus(result,getNow());
+        if(['ready','stale'].includes(next.kind))lastGood=next;
+        if(next.kind==='empty')lastGood=null;
+        const painted=next.kind==='failed'&&lastGood?{kind:'failed',previous:deriveStatus(lastGood.data,getNow())}:next;
+        paint(painted);
+        return next;
+      }).catch(error=>{
+        if(!active||gen!==generation)return {kind:'cancelled'};
+        const kind=publicKind(error),failed=lastGood?{kind,previous:deriveStatus(lastGood.data,getNow())}:{kind};
+        paint(failed);
+        return failed;
+      }).finally(()=>{if(inFlight&&inFlight.promise===promise)inFlight=null;queue(gen);});
       inFlight={generation:gen,promise,cancel:bounded.cancel};return promise;
     }
     function show(){active=true;generation++;clearPoll();return refresh();}
@@ -319,8 +352,8 @@
       if(actions)actions.innerHTML='';
     }
     async function readbackConfirms(checked){
-      await controller.refresh(true);
-      return active&&confirmsBatch(data(),checked);
+      const fresh=await controller.refresh(true);
+      return active&&fresh&&['ready','stale'].includes(fresh.kind)&&confirmsBatch(fresh.data,checked);
     }
     async function save(){
       if(!active||saving||typeof options.write!=='function')return;
@@ -331,13 +364,17 @@
         const ack=await bounded.promise;
         if(!active||saveLifecycle!==lifecycle)return;
         validateSaveResult(ack,checked);
-        if(await readbackConfirms(checked)){payload='';saveMessage=`${checked.products.length.toLocaleString('ko-KR')}개 제품 · ${ack.day_count.toLocaleString('ko-KR')}건 반영 완료`;}
+        const confirmed=await readbackConfirms(checked);
+        if(!active||saveLifecycle!==lifecycle)return;
+        if(confirmed){payload='';saveMessage=`${checked.products.length.toLocaleString('ko-KR')}개 제품 · ${ack.day_count.toLocaleString('ko-KR')}건 반영 완료`;}
         else saveMessage='저장 응답은 확인했지만 최신 자료 재조회가 일치하지 않습니다. 저장 여부 확인 필요';
       }catch(error){
         if(!active||saveLifecycle!==lifecycle)return;
         if(error&&error.code==='HISTORY_TIMEOUT'){
           saveMessage='저장 응답이 지연되었습니다. 저장 여부 확인 필요 · 자동 재전송하지 않았습니다.';
-          if(checked&&await readbackConfirms(checked)){payload='';saveMessage=`${checked.products.length.toLocaleString('ko-KR')}개 제품 저장 확인 완료`}
+          const confirmed=checked&&await readbackConfirms(checked);
+          if(!active||saveLifecycle!==lifecycle)return;
+          if(confirmed){payload='';saveMessage=`${checked.products.length.toLocaleString('ko-KR')}개 제품 저장 확인 완료`}
         }else if(error instanceof SyntaxError)saveMessage='JSON 형식을 확인해 주세요.';
         else if(error&&/^(입출고|지원하지|수집|카탈로그|제품|\d+번째)/.test(error.message))saveMessage=error.message;
         else saveMessage='입출고 자료를 반영하지 못했습니다. 다시 로그인하거나 잠시 후 시도해 주세요.';
@@ -370,5 +407,5 @@
     };
   }
 
-  return {validateBatch,validateRead,filterHistory,summarizeCoverage,summarizeHistory,matchCatalog,deriveStatus,defaultFilters,render,createController,validateSaveResult,confirmsBatch,mount};
+  return {validateBatch,validateRead,filterHistory,summarizeCoverage,summarizeHistory,matchCatalog,deriveStatus,defaultFilters,displayRangeStatus,render,createController,validateSaveResult,confirmsBatch,mount};
 });

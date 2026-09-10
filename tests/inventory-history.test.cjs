@@ -139,6 +139,50 @@ test('render distinguishes empty, partial and failed states and keeps the import
   assert.match(history.render({kind:'failed'}),/입출고 이력을 불러오지 못했습니다/);
 });
 
+test('daily table headers preserve the source meanings for distinct returned, faulty and damaged quantities',()=>{
+  const distinct=response({products:[{
+    sku:'101',from:'2026-09-10',to:'2026-09-10',collected_at:'2026-09-10T05:55:00.000Z',
+    days:[day('2026-09-10',{returned:21,faulty:32,damaged:43})]
+  }]});
+  const html=history.render({kind:'ready',data:distinct},{sku:'101',from:'2026-09-10',to:'2026-09-10'});
+  assert.match(html,/<th>입고<\/th><th>반품입고<\/th><th>하자입고<\/th><th>불량입고<\/th><th>출고<\/th><th>잔고<\/th>/);
+  assert.match(html,/<td class="num">0<\/td><td class="num">21<\/td><td class="num">32<\/td><td class="num">43<\/td><td class="num">0<\/td><td class="num">10<\/td>/);
+});
+
+test('balance chart breaks at missing source dates and keeps isolated observations visible',()=>{
+  const html=history.render({kind:'ready',data:response()},{sku:'101',from:'2026-09-08',to:'2026-09-10'});
+  assert.doesNotMatch(html,/<polyline[^>]*>/,'isolated September 8 and 10 balances must not be connected');
+  assert.equal((html.match(/<circle /g)||[]).length,2);
+  assert.match(html,/aria-label="2026-09-08 잔고 15"/);
+  assert.match(html,/aria-label="2026-09-10 잔고 12"/);
+});
+
+test('empty, reversed and oversized editable date ranges render concise validation without generating rows',()=>{
+  for(const [from,to,message] of [
+    ['','2026-09-10','시작일과 종료일을 모두 선택해 주세요.'],
+    ['2026-09-11','2026-09-10','시작일은 종료일보다 늦을 수 없습니다.'],
+    ['2026-01-01','2026-09-10','조회 기간은 31일 이내로 선택해 주세요.']
+  ]){
+    assert.doesNotThrow(()=>history.render({kind:'ready',data:response()},{sku:'101',from,to}));
+    const html=history.render({kind:'ready',data:response()},{sku:'101',from,to});
+    assert.match(html,new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+    assert.doesNotMatch(html,/aria-label="일별 입출고 이력"/);
+  }
+});
+
+test('clearing a mounted date input keeps the draft and displays validation without throwing',async()=>{
+  const handlers={};let html='';
+  const host={addEventListener:(name,fn)=>handlers[name]=fn,querySelector:()=>null,get innerHTML(){return html;},set innerHTML(value){html=value;}};
+  const doc={activeElement:null,getElementById:id=>id==='content'?host:id==='topbar-actions'?{innerHTML:''}:null};
+  const ui=history.mount({document:doc,read:async()=>response(),write:async()=>null});
+  await ui.show();
+  assert.doesNotThrow(()=>handlers.change({target:{id:'history-product',value:'101'}}));
+  assert.doesNotThrow(()=>handlers.change({target:{id:'history-from',value:''}}));
+  assert.match(html,/value=""/);
+  assert.match(html,/시작일과 종료일을 모두 선택해 주세요/);
+  ui.hide();
+});
+
 test('render requires an explicit product selection before showing product-only charts',()=>{
   const html=history.render({kind:'ready',data:response()},{from:'2026-09-08',to:'2026-09-10'});
   assert.match(html,/제품을 선택하면 일별 추이/);
@@ -193,6 +237,22 @@ test('authoritative readback confirms date-sorted storage without mutating desce
   }]});
   assert.equal(history.confirmsBatch(stored,source),true);
   assert.equal(JSON.stringify(source),before);
+});
+
+test('acknowledged save stays uncertain when its specific authoritative read fails despite identical cached data',async()=>{
+  const handlers={};let html='',reads=0;
+  const host={addEventListener:(name,fn)=>handlers[name]=fn,querySelector:()=>null,get innerHTML(){return html;},set innerHTML(value){html=value;}};
+  const payloadNode={id:'history-payload',value:''};
+  const source=batch({collected_at:new Date().toISOString()});
+  const cached={catalog:source.catalog,products:source.products.map(product=>({sku:product.sku,from:source.from,to:source.to,collected_at:source.collected_at,days:product.days})),checked_at:new Date().toISOString()};
+  const doc={activeElement:null,getElementById:id=>id==='content'?host:id==='topbar-actions'?{innerHTML:''}:id==='history-payload'?payloadNode:null};
+  const ui=history.mount({document:doc,read:async()=>{if(++reads===1)return cached;throw new Error('fresh read failed');},write:async()=>({saved:true,collected_at:source.collected_at,product_count:1,day_count:2})});
+  await ui.show();payloadNode.value=JSON.stringify(source);handlers.input({target:payloadNode});
+  handlers.click({target:{closest:()=>({dataset:{historyAction:'save'}})}});await new Promise(setImmediate);
+  assert.equal(reads,2);
+  assert.match(html,/저장 여부 확인 필요/);
+  assert.doesNotMatch(html,/반영 완료|저장 확인 완료/);
+  ui.hide();
 });
 
 test('current inventory rows pass exact identity to history instead of choosing by management code',()=>{
