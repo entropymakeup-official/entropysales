@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const modelPath=path.join(__dirname,'../drive-documents.js');
-function model(){const ctx={URL,setTimeout,clearTimeout};vm.createContext(ctx);if(fs.existsSync(modelPath))vm.runInContext(fs.readFileSync(modelPath,'utf8'),ctx);assert.ok(ctx.DriveDocuments,'Drive document behavior is available');return ctx.DriveDocuments;}
+function model(){const ctx={URL,setTimeout,clearTimeout,TextEncoder,crypto:require("node:crypto").webcrypto,prompt:()=>"연결 사유"};vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../change-requests.js'),'utf8'),ctx);if(fs.existsSync(modelPath))vm.runInContext(fs.readFileSync(modelPath,'utf8'),ctx);assert.ok(ctx.DriveDocuments,'Drive document behavior is available');return ctx.DriveDocuments;}
 const fileId='test_file_1234567890',invoiceId='00000000-0000-0000-0000-000000000001';
 const form={name:'  Statement.pdf  ',type:'거래명세서',invoice_id:invoiceId,url:'https://drive.google.com/file/d/'+fileId+'/view?usp=sharing'};
 const invoice={id:invoiceId,no:'TEST_001',customer:'테스트 거래처'};
@@ -18,24 +18,16 @@ test('a link requires a real selected invoice, a bounded name and a known docume
  const m=model(),p=m.prepare(form,[invoice]);assert.equal(p.name,'Statement.pdf');assert.equal(p.invoice_id,invoiceId);assert.equal(p.drive_file_id,fileId);assert.equal(p.resource_key,null);
  for(const change of [{name:' '},{name:'x'.repeat(251)},{type:'<script>'},{invoice_id:'missing'},{url:''}])assert.throws(()=>m.prepare({...form,...change},[invoice]));
 });
-test('save accepts only an acknowledged matching row and performs no invoice or storage writes',async()=>{
- const m=model(),calls=[];const row={id:'00000000-0000-0000-0000-000000000002',...m.prepare(form,[invoice]),created_at:'2026-09-10T00:00:00Z'};
- const sb={from:table=>{calls.push(table);return{insert:p=>{calls.push(p);return{select:()=>({single:async()=>({data:row,error:null})})};}};}};
- const result=await m.save(sb,form,[invoice]);assert.equal(result.id,row.id);assert.equal(calls.length,2);assert.equal(calls[0],'invoice_drive_documents');assert.equal(calls[1].invoice_id,invoiceId);
+test('save submits validated link metadata as pending operation, without invoice or storage writes',async()=>{
+ const m=model(),calls=[];const sb={rpc:async(name,args)=>{calls.push({name,args});return {data:{id:'r',status:'pending'}};},from(){throw Error('direct write');}};
+ const result=await m.save(sb,form,[invoice]);assert.equal(result.status,'pending');assert.equal(calls[0].name,'submit_change_request');const op=calls[0].args.p_operations[0];assert.equal(op.table,'invoice_drive_documents');assert.equal(op.before,null);assert.equal(op.values.invoice_id,invoiceId);
 });
-test('rejected, missing, unrelated or lost save responses never become successful links',async()=>{
- const m=model(),p=m.prepare(form,[invoice]);
- for(const response of [{error:{code:'23505'}},{error:{code:'42501'}},{data:null},{data:{id:'wrong',...p}},{data:{id:'00000000-0000-0000-0000-000000000002',...p,drive_file_id:'another_file_123'}}]){
-  const sb={from:()=>({insert:()=>({select:()=>({single:async()=>response})})})};await assert.rejects(m.save(sb,form,[invoice]));
- }
- const sb={from:()=>({insert:()=>({select:()=>({single:async()=>{throw Error('offline')}})})})};await assert.rejects(m.save(sb,form,[invoice]));
+test('rejected, malformed and lost responses never become successful links',async()=>{
+ const m=model();for(const response of [{error:{code:'23505'}},{error:{code:'42501'}},{data:null},{data:{id:'r',status:'wrong'}}]){const sb={rpc:async()=>response};await assert.rejects(m.save(sb,form,[invoice]));}
+ await assert.rejects(m.save({rpc:async()=>{throw Error('offline')}},form,[invoice]));
 });
-test('removing a link checks identity and acknowledgement and does not remove the Drive file',async()=>{
- const m=model(),calls=[],id='00000000-0000-0000-0000-000000000002';
- const sb={from(table){
-  calls.push(table);
-  return {delete(){return {eq(k,v){calls.push([k,v]);return {select:async()=>({data:[{id}],error:null})};}};}};
- }};
- await m.remove(sb,id);assert.deepEqual(calls,['invoice_drive_documents',['id',id]]);
- const missing={from:()=>({delete:()=>({eq:()=>({select:async()=>({data:[],error:null})})})})};await assert.rejects(m.remove(missing,id));await assert.rejects(m.remove(sb,'bad-id'));
+test('remove submits full before snapshot without deleting Drive file',async()=>{
+ const m=model(),calls=[],id='00000000-0000-0000-0000-000000000002',before={id,...m.prepare(form,[invoice]),created_at:'2026-09-11'};
+ const sb={rpc:async(name,args)=>{calls.push({name,args});return {data:{id:'r',status:'pending'}};},from(){throw Error('unexpected write');}};
+ const result=await m.remove(sb,id,before);assert.equal(result.status,'pending');assert.equal(calls[0].args.p_operations[0].before.created_at,'2026-09-11');assert.equal(calls[0].args.p_operations[0].action,'delete');await assert.rejects(m.remove(sb,'bad-id',before));
 });

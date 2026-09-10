@@ -4,7 +4,7 @@
  const fileIdPattern=/^[A-Za-z0-9_-]{10,200}$/;
  const resourcePattern=/^[A-Za-z0-9_-]{1,200}$/;
  const types=['거래명세서','구매확인서','세금계산서','기타'];
- const fields='id,invoice_id,drive_file_id,resource_key,name,type,created_at';
+ const fields='*';
  const uncertain='저장 결과를 확인하지 못했습니다. 증빙 목록을 새로 확인한 뒤 다시 시도해 주세요.';
  function canonical(fileId,key){return 'https://drive.google.com/file/d/'+fileId+'/view'+(key?'?resourcekey='+key:'');}
  function parseLink(value){
@@ -47,17 +47,16 @@
   }
   throw new Error('증빙이 많아 전체 조회를 완료하지 못했습니다. 관리자에게 문의해 주세요.');
  }
+ const clients=new WeakMap();
+ function requests(sb){if(!clients.has(sb))clients.set(sb,root.ChangeRequests.createClient({sb}));return clients.get(sb);}
  async function save(sb,form,invoices){
-  const payload=prepare(form,invoices);
-  const {data,error}=await bounded(sb.from('invoice_drive_documents').insert(payload).select(fields).single());
-  if(error?.code==='23505')throw new Error('이 주문에 이미 연결된 Drive 파일입니다. 증빙 목록을 새로 확인해 주세요.');
-  if(error||!validRow(data)||Object.keys(payload).some(k=>data[k]!==payload[k]))throw new Error(uncertain);
-  return data;
+  const payload=prepare(form,invoices),client=requests(sb);
+  return client.submit([await client.row('invoice_drive_documents','insert',{},payload,null)]);
  }
- async function remove(sb,id){
+ async function remove(sb,id,before){
   if(!uuid.test(id||''))throw new Error('삭제할 연결을 다시 확인해 주세요.');
-  const {data,error}=await bounded(sb.from('invoice_drive_documents').delete().eq('id',id).select('id'));
-  if(error||!Array.isArray(data)||data.length!==1||data[0].id!==id)throw new Error('연결 삭제 결과를 확인하지 못했습니다. 목록을 새로 조회해 주세요.');
+  const client=requests(sb);
+  return client.submit([await client.row('invoice_drive_documents','delete',{id},null,before)]);
  }
  root.DriveDocuments={types,parseLink,prepare,urlFor,list,save,remove};
 })(typeof globalThis!=='undefined'?globalThis:window);
