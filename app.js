@@ -1151,6 +1151,7 @@ function calcInvTotal(){
 // ─── 인보이스 상세 보기 ───
 function viewInv(id){
   const v=_invoices.find(i=>i.id===id);if(!v)return;
+  document.getElementById('m-inv-view').dataset.invoiceId=String(id);
   const items=getInvItems(id);
   const rev=itemsRev(items);
   document.getElementById('view-inv-no').textContent=v.no;
@@ -1184,7 +1185,7 @@ function viewInv(id){
   const noteEl=document.getElementById('view-inv-note');
   noteEl.textContent=v.note?'메모: '+v.note:'';
   // 버튼 연결
-  document.getElementById('view-del-btn').onclick=()=>{cm('m-inv-view');delInv(id);};
+  document.getElementById('view-del-btn').onclick=()=>delInv(id);
   document.getElementById('view-dl-btn').onclick=()=>{cm('m-inv-view');downloadMeongse(v);};
   document.getElementById('view-edit-btn').onclick=()=>{cm('m-inv-view');editInv(id);};
   // 첨부 파일 목록 로드 (캐시 무효화 후)
@@ -1243,7 +1244,45 @@ async function saveInv(){
   toast(isNew?'인보이스 생성! 거래명세서 다운로드 중...':'저장됐습니다!');
   if(isNew)setTimeout(()=>downloadMeongse({...saved.invoice,items:saved.items}),300);
 }
-async function delInv(id){if(!confirm('삭제하시겠습니까?'))return;await sb.from('invoice_items').delete().eq('invoice_id',id);await sb.from('invoices').delete().eq('id',id);_invoices=_invoices.filter(i=>i.id!==id);_items=_items.filter(i=>i.invoice_id!==id);globalThis.invoiceSheetStatus?.saved();renderInvoices();}
+const _deletingInvoiceIds=new Set();
+async function deleteInvoiceRecord(id){
+  const key=String(id),inv=_invoices.find(i=>String(i.id)===key);
+  if(!inv||_deletingInvoiceIds.has(key))return false;
+  const count=_items.filter(i=>String(i.invoice_id)===key).length;
+  if(!confirm(`${inv.no||'선택한 주문'}의 주문과 품목 ${count}개를 모두 삭제할까요?\n삭제한 자료는 되돌릴 수 없습니다.`))return false;
+  _deletingInvoiceIds.add(key);
+  let result;
+  try{
+    // The validated invoice_items FK cascades this single statement atomically.
+    result=await sb.from('invoices').delete().eq('id',id).select('id');
+  }catch(error){
+    toast('삭제 결과를 확인하지 못했습니다. 목록을 새로고침해 확인해 주세요.');
+    return false;
+  }finally{
+    _deletingInvoiceIds.delete(key);
+  }
+  if(result?.error){
+    toast('삭제에 실패했거나 결과를 확인할 수 없습니다. 목록을 새로고침해 확인해 주세요.');
+    return false;
+  }
+  const deleted=result?.data;
+  if(!Array.isArray(deleted)||deleted.length!==1||typeof deleted[0]?.id!=='string'||deleted[0].id!==key){
+    toast('삭제된 주문을 확인할 수 없습니다. 목록을 새로고침하고 접근 권한을 확인해 주세요.');
+    return false;
+  }
+  _invoices=_invoices.filter(i=>String(i.id)!==key);
+  _items=_items.filter(i=>String(i.invoice_id)!==key);
+  if(Array.isArray(window._rr))window._rr=window._rr.filter(r=>String(r.invId)!==key);
+  if(Array.isArray(window._rr_filtered))window._rr_filtered=window._rr_filtered.filter(r=>String(r.invId)!==key);
+  globalThis.invoiceSheetStatus?.saved();
+  toast('삭제됐습니다. 시트 반영 상태를 확인해 주세요.');
+  return true;
+}
+async function delInv(id){
+  if(!await deleteInvoiceRecord(id))return;
+  if(document.getElementById('m-inv-view')?.dataset.invoiceId===String(id))cm('m-inv-view');
+  if(document.getElementById('nav-invoices')?.classList.contains('active'))renderInvoices();
+}
 
 // ─── RAW ───
 function renderRaw(){
@@ -1365,14 +1404,8 @@ function filterRaw(page){
 }
 
 async function delRawItem(invId){
-  if(!confirm('해당 인보이스와 품목을 모두 삭제할까요?'))return;
-  await sb.from('invoice_items').delete().eq('invoice_id',invId);
-  await sb.from('invoices').delete().eq('id',invId);
-  _invoices=_invoices.filter(i=>i.id!==invId);
-  _items=_items.filter(i=>i.invoice_id!==invId);
-  globalThis.invoiceSheetStatus?.saved();
-  toast('삭제됐습니다.');
-  renderRaw();
+  if(!await deleteInvoiceRecord(invId))return;
+  if(document.getElementById('nav-raw')?.classList.contains('active'))filterRaw();
 }
 
 function editRawItem(invId){
