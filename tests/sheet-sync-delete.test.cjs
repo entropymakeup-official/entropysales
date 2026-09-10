@@ -1,14 +1,13 @@
-const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path');
+const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm');
 const {createController}=require('../sheet-sync-status');
-const source=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
+const {deletionCode}=require('./helpers/invoice-delete.cjs');
 for(const name of ['delInv','delRawItem'])test(name+' discards a status response from before a confirmed deletion',async()=>{
  const responses=[],paints=[];
  const controller=createController({read:()=>new Promise(resolve=>responses.push(resolve)),render:m=>paints.push(m)});
- const start=source.indexOf('async function '+name+'('),end=source.indexOf('\n}',start);
- const code=name==='delInv'?source.slice(start,source.indexOf('\n',start)):source.slice(start,end+2);
  const ctx=vm.createContext({invoiceSheetStatus:controller,confirm:()=>true,_invoices:[{id:'test'}],_items:[{invoice_id:'test'}],
-  sb:{from:()=>({delete:()=>({eq:async()=>({error:null})})})},renderInvoices:()=>controller.refresh(),renderRaw:()=>controller.refresh(),toast:()=>{}});
- vm.runInContext(code,ctx);
+  document:{getElementById:()=>null},window:{},
+  sb:{from:()=>({delete:()=>({eq:()=>({select:async()=>({data:[{id:'test'}],error:null})})})})},renderInvoices:()=>controller.refresh(),renderRaw:()=>controller.refresh(),toast:()=>{}});
+ vm.runInContext(deletionCode(),ctx);
  try{
   const before=controller.show();await ctx[name]('test');assert.equal(responses.length,2);
   responses[0]({enabled:true,pending_count:0,failed_count:0,delayed_count:0,missing_count:0,last_synced_at:'2026-09-10T03:00:00Z',checked_at:'2026-09-10T03:01:00Z',problems:[]});
