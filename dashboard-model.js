@@ -4,6 +4,11 @@
     return typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
       !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value;
   }
+  function allTimePeriod(invoices,today){
+    const dates=invoices.map(v=>v.order_date).filter(validDate).sort();
+    const year=today.slice(0,4);
+    return {start:dates[0]||year+'-01-01',end:dates[dates.length-1]||year+'-12-31'};
+  }
   function summarize(invoices,items,period){
     if(!validDate(period.start)||!validDate(period.end)||period.start>period.end)
       throw new Error('시작일과 종료일을 올바르게 입력해 주세요.');
@@ -33,7 +38,7 @@
     return result;
   }
   function evidence(summary,metric){
-    const types={revenue:['Paid'],pendingRevenue:['Paid'],foc:['FOC','GWP','Sample'],lost:['Lost']};
+    const types={recordedRevenue:['Paid'],revenue:['Paid'],pendingRevenue:['Paid'],foc:['FOC','GWP','Sample'],lost:['Lost']};
     if(!types[metric])throw new Error('지원하지 않는 집계 항목입니다.');
     const rows=summary.rows.filter(r=>{
       if(metric==='pendingRevenue')return r.tax?.pending&&r.lines.some(i=>i.sales_type==='Paid');
@@ -73,6 +78,6 @@
     result.displayAdjustment=Math.round(result.recordedRevenue)-Math.round(result.revenue)-Math.round(result.pendingRevenue);
     return result;
   }
-  const api={summarize,summarizeSupply,validDate,evidence};
+  const api={summarize,summarizeSupply,validDate,allTimePeriod,evidence};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.DashboardModel=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

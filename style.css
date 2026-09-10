@@ -52,6 +52,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .dash-tax-warning{color:var(--text);border-left:3px solid #d97706;padding-left:10px}
 .dash-tax-reason{white-space:normal;min-width:200px;max-width:340px}
 .kpi-grid.dash-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+.kpi-grid.dash-overview{grid-template-columns:2fr repeat(3,minmax(0,1fr))}
+.dash-overview .kpi{padding:16px;min-width:0;display:flex;flex-direction:column;justify-content:center}
+.dash-overview .lbl{font-size:12px;margin-bottom:7px}
+.dash-overview .dash-primary .val{font-size:clamp(22px,2.5vw,32px);overflow-wrap:anywhere}
+.dash-overview .sub{line-height:1.5;margin-top:7px}
+.dash-section-title{font-size:13px;margin:18px 0 10px}
+.dash-basis-panel{font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:16px}
+.dash-basis-panel p{margin:8px 0}
+.dash-basis-panel summary{cursor:pointer;width:fit-content}
 .dash-filters p{font-size:12px;line-height:1.6;margin:8px 0}
 .dash-filters details{font-size:12px;color:var(--text2);margin-top:8px}
 .dash-filters summary{cursor:pointer;width:fit-content}
@@ -73,7 +82,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .dash-evidence th,.dash-evidence td{padding:9px;text-align:left;border-bottom:1px solid var(--border)}
 .dash-evidence td:last-child{text-align:right}
 .dash-evidence .alink{background:none;border:none;color:#2563eb;cursor:pointer;font:inherit;text-decoration:underline}
-@media(max-width:600px){.dash-filters label{flex:1;min-width:125px}.dash-filters input{width:100%;box-sizing:border-box}}
+@media(max-width:600px){.dash-filters label{flex:1;min-width:125px}.dash-filters input{width:100%;box-sizing:border-box}.dash-overview .dash-primary{grid-column:1/-1}}
 .card{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:12px}
 .card-hd{padding:9px 13px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .card-hd h3{font-size:12px;font-weight:600}

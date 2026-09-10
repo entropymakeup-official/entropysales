@@ -163,20 +163,28 @@ function renderDash(){
 
   document.getElementById('content').innerHTML=`
   ${dashboardControls(summary)}
+  <section aria-label="매출 요약">
+  <div class="kpi-grid dash-overview">
+    ${dashboardMetricCard('recordedRevenue','총매출(등록금액)',summary.recordedRevenue,'세금 기준 확인 필요 금액 포함 · 근거 주문 보기 →')}
+    ${dashboardMetricCard('foc','무료 제공 평가금액',totalFoc,`총매출 대비 ${summary.recordedRevenue>0?(totalFoc/summary.recordedRevenue*100).toFixed(1):0}% · 근거 주문 보기 →`)}
+    ${dashboardMetricCard('lost','Lost 금액',totalLost)}
+    ${dashboardGoalCard()}
+  </div>
+  </section>
+  <section aria-label="공급가액 상세 분석">
+  <h3 class="dash-section-title">공급가액 상세 분석</h3>
   <div class="kpi-grid dash-kpis">
     ${dashboardMetricCard('revenue','공급가액 집계분',totalRev)}
-    ${dashboardMetricCard('foc','무료 제공 평가금액',totalFoc)}
     ${dashboardMetricCard('pendingRevenue','세금 기준 확인 필요',summary.pendingRevenue,summary.pendingCount+'건 · 확인 사유 보기 →')}
-    ${dashboardMetricCard('lost','Lost 금액',totalLost)}
     <div class="kpi" id="dash-storage-kpi" style="cursor:pointer" onclick="runStorageCheck(this)" title="클릭해서 확인">
       <div class="lbl">Storage 사용량</div>
       <div class="val" style="font-size:14px" id="dash-storage-val"><span style="font-size:11px;color:var(--text3)">클릭해서 확인 →</span></div>
       <div style="height:4px;background:var(--bg2);border-radius:20px;overflow:hidden;margin-top:5px"><div id="dash-storage-bar" style="height:100%;border-radius:20px;background:var(--green);width:0%;transition:width .4s"></div></div>
       <div class="sub" id="dash-storage-sub" style="margin-top:3px"></div>
     </div>
-    ${dashboardGoalCard()}
-
   </div>
+  ${dashboardBasis(summary)}
+  </section>
   <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
     <div class="card">
       <div class="card-hd"><h3>월별 공급가액 집계분 — ${yr}</h3><span class="alink" onclick="go('monthly')">자세히 보기</span></div>
