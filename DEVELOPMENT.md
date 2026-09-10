@@ -12,7 +12,7 @@ RAW Excel 업로드는 발주일 컬럼과 값을 필수로 검사합니다. 발
 4. 브라우저에서 기간/거래처 필터·집계 근거 연결을 확인합니다.
 5. 검토 후 main에 통합하고 Pages 배포 성공 및 공개 파일 일치를 확인합니다.
 
-배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js, sheet-sync-status.js, live-inventory.js, inventory-history.js, drive-documents.js 9개입니다. 변경한 파일의 버전 쿼리를 함께 갱신해야 합니다. 시트 반영 상태 화면은 sql/invoice-sheet-status.sql의 읽기 전용 RPC 설치가 먼저 필요합니다. 운영 절차와 한계는 SHEET-SYNC-STATUS.md를 참고합니다.
+배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js, sheet-sync-status.js, live-inventory.js, inventory-history.js, inventory-monthly.js, drive-documents.js 10개입니다. 변경한 파일의 버전 쿼리를 함께 갱신해야 합니다. 시트 반영 상태 화면은 sql/invoice-sheet-status.sql의 읽기 전용 RPC 설치가 먼저 필요합니다. 운영 절차와 한계는 SHEET-SYNC-STATUS.md를 참고합니다.
 
 Drive 증빙 연결은 sql/invoice-drive-documents.sql 설치 후 사용합니다. 주문별 파일 ID 중복을 DB에서 막고, 현재 invoices RLS를 통과하는 로그인 사용자만 조회·추가·연결 해제할 수 있습니다. 20초 내 확인된 반환 행이 있어야 성공으로 표시하며 응답 유실 시 자동 재전송하지 않습니다. 인보이스 상세·첨부 아이콘·서류 관리에서 기존 Drive 권한으로 원본을 엽니다. 연결 해제나 주문 삭제는 연결 메타데이터만 제거하고 원본 파일은 삭제하지 않습니다. Drive 파일의 실제 공유 권한·내용·최신성은 이 기능이 자동 검증하지 않습니다. 실제 문서 URL·영업 자료는 공개 저장소에 넣지 않습니다.
 

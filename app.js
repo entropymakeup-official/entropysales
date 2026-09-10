@@ -39,15 +39,20 @@ globalThis.invoiceSheetStatus = globalThis.SheetSyncStatus?.mount({document,read
   if(error)throw error;
   return data;
 }});
-globalThis.inventoryHistory = globalThis.InventoryHistory?.mount({
+globalThis.inventoryHistory = globalThis.InventoryMonthly?.mount({
   document,
-  read:async()=>{
-    const {data,error}=await sb.rpc('get_wekeep_history');
+  read:async year=>{
+    const {data,error}=await sb.rpc('get_wekeep_history_year',{p_year:year});
     if(error)throw error;
     return data;
   },
   write:async batch=>{
     const {data,error}=await sb.rpc('save_wekeep_history',{p_batch:batch});
+    if(error)throw error;
+    return data;
+  },
+  verify:async()=>{
+    const {data,error}=await sb.rpc('get_wekeep_history');
     if(error)throw error;
     return data;
   },
