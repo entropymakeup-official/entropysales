@@ -1250,6 +1250,7 @@ function renderRaw(){
   globalThis.invoiceSheetStatus?.refresh();
   document.getElementById('topbar-actions').innerHTML=`
     <button class="btn btn-primary" onclick="openRawManual()"><i class="ti ti-pencil"></i> 발주 입력</button>
+    <button class="btn" onclick="openRawUploadModal()"><i class="ti ti-upload"></i> Excel 업로드</button>
     <button class="btn btn-green" onclick="exportRaw()"><i class="ti ti-file-spreadsheet"></i> Excel 다운로드</button>`;
 
   const rows=[];
@@ -1860,8 +1861,9 @@ function calcRmTotal(el){
 }
 
 let _savingRaw=false;
+let _savingRawUpload=false;
 async function saveRawManual(){
-  if(_savingRaw)return;
+  if(_savingRaw||_savingRawUpload)return;
   const cust=document.getElementById('rm-cust')?.value;
   const odate=document.getElementById('rm-date')?.value;
   const pdate=document.getElementById('rm-pdate')?.value||null;
@@ -1921,7 +1923,7 @@ function _showRawConfirmModal(){
 }
 
 async function confirmRawSave(){
-  if(_savingRaw)return;
+  if(_savingRaw||_savingRawUpload)return;
   const {cust,c,invNo,odate,pdate,sdate,items}=window._pendingRaw||{};
   if(!invNo)return;
   const saved=await persistRawInvoice(null,{
@@ -1943,19 +1945,25 @@ async function confirmRawSave(){
   },300);
 }
 
-async function persistRawInvoice(id,invoice,items){
+async function persistRawInvoice(id,invoice,items,options={}){
   if(_savingRaw)return null;
   _savingRaw=true;
   const buttons=[...document.querySelectorAll('button[onclick="saveRawManual()"],button[onclick="confirmRawSave()"]')];
   const states=buttons.map(button=>({button,disabled:button.disabled,html:button.innerHTML}));
   buttons.forEach(button=>{button.disabled=true;button.textContent='저장 중...';});
+  let confirmedFailure=false;
   try{
     const {data,error}=await sb.rpc('save_invoice_atomic',{
       p_id:id===null?null:String(id),p_invoice:invoice,
       p_items:items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}))
     });
-    if(error)throw error;
-    if(!data?.invoice?.id||!Array.isArray(data.items)||data.items.length!==items.length){
+    if(error){
+      // SQL rejection rolls this transaction back. A duplicate number may be a prior unconfirmed save.
+      confirmedFailure=/^[0-9A-Z]{5}$/.test(error.code||'')&&error.code!=='23505';
+      throw error;
+    }
+    if(!data?.invoice?.id||data.invoice.no!==invoice.no||!Array.isArray(data.items)||data.items.length!==items.length||
+       data.items.some(it=>!it.id||String(it.invoice_id)!==String(data.invoice.id))||new Set(data.items.map(it=>String(it.id))).size!==data.items.length){
       throw new Error('서버 저장 결과를 확인할 수 없습니다.');
     }
     const index=_invoices.findIndex(row=>row.id===data.invoice.id);
@@ -1965,7 +1973,8 @@ async function persistRawInvoice(id,invoice,items){
     globalThis.invoiceSheetStatus?.saved();
     return data;
   }catch(error){
-    toast('저장 실패 또는 결과 확인 불가: '+(error?.message||String(error))+' — 입력은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
+    if(options.onFailure)options.onFailure(error,confirmedFailure);
+    else toast('저장 실패 또는 결과 확인 불가: '+(error?.message||String(error))+' — 입력은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
     return null;
   }finally{
     _savingRaw=false;
@@ -1984,6 +1993,8 @@ function downloadRawTemplate(){
 
 // ─── 거래처 유사도 매칭 ───
 function openRawUploadModal(){
+  if(_savingRawUpload){toast('업로드 저장이 끝날 때까지 기다려 주세요.');return;}
+  if(window._rawUploadData?.length){_showRawPreviewModal();return;}
   const sel=document.getElementById('raw-upload-cust');
   if(sel){
     sel.innerHTML='<option value="">-- 거래처를 먼저 선택하세요 --</option>'+
@@ -2012,9 +2023,13 @@ function _matchCust(name){
 }
 
 function handleRawUpload(input){
+  if(_savingRawUpload){toast('업로드 저장이 끝날 때까지 기다려 주세요.');return;}
+  if(window._rawUploadData?.length){toast('기존 업로드를 이어서 처리하거나 미리보기에서 비운 뒤 새 파일을 선택해 주세요.');return;}
   const f=input.files[0];if(!f)return;
   const reader=new FileReader();
   reader.onload=e=>{
+    if(_savingRawUpload){toast('업로드 저장이 끝난 뒤 파일을 다시 선택해 주세요.');return;}
+    if(window._rawUploadData?.length){toast('기존 업로드가 남아 있어 새 파일을 적용하지 않았습니다.');return;}
     try{
       const wb=XLSX.read(e.target.result,{type:'binary'});
       const ws=wb.Sheets[wb.SheetNames[0]];
@@ -2106,8 +2121,10 @@ function handleRawUploadFromDrop(file){
   handleRawUpload(fakeInput);
 }
 
-function _showRawPreviewModal(unmappedBarcode=0){
+function _showRawPreviewModal(unmappedBarcode){
   const groups=window._rawUploadData||[];
+  if(unmappedBarcode===undefined)unmappedBarcode=groups.reduce((n,g)=>n+g.items.filter(i=>!i._mapped).length,0);
+  cm('m-raw-upload');
   const total=groups.reduce((a,g)=>a+g.items.length,0);
   const paidAmt=groups.reduce((a,g)=>a+g.items.filter(i=>i.salesType==='Paid').reduce((b,i)=>b+i.qty*i.price,0),0);
   const focAmt=groups.reduce((a,g)=>a+g.items.filter(i=>i.salesType!=='Paid').reduce((b,i)=>b+i.qty*i.price,0),0);
@@ -2124,13 +2141,13 @@ function _showRawPreviewModal(unmappedBarcode=0){
   document.getElementById('raw-preview-groups').innerHTML=groups.map((g,gi)=>{
     const paid=g.items.filter(i=>i.salesType==='Paid').reduce((a,i)=>a+i.qty*i.price,0);
     const foc=g.items.filter(i=>i.salesType!=='Paid').length;
-    const isExact=g.custExact;
+    const isExact=g.custExact||!!g._saveInvoice;
     const custHtml=isExact
       ? `<span style="font-weight:600;min-width:140px">${esc(g.customer)}</span>`
       : `<span style="display:flex;align-items:center;gap:4px;min-width:220px">
           <i class="ti ti-alert-triangle" style="color:var(--orange,#f59e0b);font-size:11px"></i>
           <span style="font-size:10px;color:var(--text3);text-decoration:line-through">${esc(g.rawCustomer)}</span>
-          <select style="font-size:11px;padding:2px 4px;border:1px solid var(--orange,#f59e0b);border-radius:4px;background:var(--bg2)"
+          <select data-raw-upload-customer="${gi}" style="font-size:11px;padding:2px 4px;border:1px solid var(--orange,#f59e0b);border-radius:4px;background:var(--bg2)"
             onchange="window._rawUploadData[${gi}].customer=this.value">
             <option value="">-- 선택 --</option>
             ${(_customers||[]).map(c=>`<option value="${esc(c.name)}" ${c.name===g.customer?'selected':''}>${esc(c.name)}</option>`).join('')}
@@ -2183,6 +2200,7 @@ function _showRawPreviewModal(unmappedBarcode=0){
     }
   }
 
+  renderRawUploadStatus();
   om('m-raw-preview');
 }
 
@@ -2211,8 +2229,7 @@ function _showRawGroupItems(gi){
 }
 
 function cancelRawUpload(){
-  if(_savingRaw){toast('저장이 끝날 때까지 기다려 주세요.');return;}
-  window._rawUploadData=null;
+  if(_savingRaw||_savingRawUpload){toast('저장이 끝날 때까지 기다려 주세요.');return;}
   window._editRawInvId=null;
   document.removeEventListener('keydown',xgKeydownGlobal);
   document.removeEventListener('paste',xgHandlePaste);
@@ -2220,37 +2237,76 @@ function cancelRawUpload(){
   if(area)area.innerHTML='';
 }
 
-async function confirmRawUpload(){
+function discardRawUpload(){
+  if(_savingRawUpload){toast('업로드 저장이 끝날 때까지 기다려 주세요.');return;}
+  if(!confirm('이 창의 업로드 내역을 비울까요? 이미 저장된 주문은 삭제되지 않습니다. 저장 여부 확인 필요 주문은 목록에서 확인하고, 새 파일에는 이미 저장된 주문을 제외해 주세요.'))return;
+  window._rawUploadData=null;window._rawPriceAlerts=[];
   cm('m-raw-preview');
-  const groups=window._rawUploadData;if(!groups)return;
-  // 거래처 미선택 체크
-  const noMatch=groups.filter(g=>!g.customer);
-  if(noMatch.length){toast(`거래처를 선택해주세요 (${noMatch.length}건 미선택)`);om('m-raw-preview');return;}
-  const area=document.getElementById('raw-upload-area');
-  if(area)area.innerHTML=`<div class="loading"><i class="ti ti-loader"></i>저장 중...</div>`;
-  let invCount=0,itemCount=0;
-  for(const g of groups){
-    const c=custByName(g.customer);
-    const code=c?.code||'UNK';
-    const odate=g.orderDate||today();
-    const ym=odate.replace(/[.\-\s]/g,'').replace(/[가-힣]+/g,'').slice(0,8);
-    let invNo=`${code}_${ym}`;
-    if(_invoices.find(i=>i.no===invNo)){let n=2;while(_invoices.find(i=>i.no===`${invNo}_${n}`))n++;invNo=`${invNo}_${n}`;}
-    const {data:invData,error}=await sb.from('invoices').insert({
-      no:invNo,customer:g.customer,mgr:c?.mgr||'',
-      order_date:odate||null,pay_date:g.payDate||null,ship_date:g.shipDate||null,
-      status:'Ordered',ship_status:'준비중'
-    }).select().single();
-    if(error||!invData){toast('오류: '+invNo);continue;}
-    const itemRows=g.items.map(it=>({invoice_id:invData.id,invoice_no:invNo,name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType||'Paid',qty:it.qty,price:it.price}));
-    if(itemRows.length)await sb.from('invoice_items').insert(itemRows);
-    _invoices.unshift(invData);
-    _items.push(...itemRows.map((it,i)=>({...it,id:'tmp_'+Date.now()+'_'+i})));
-    invCount++;itemCount+=itemRows.length;
+}
+
+async function confirmRawUpload(){
+  if(_savingRawUpload||_savingRaw)return;
+  const groups=window._rawUploadData;if(!groups?.length)return;
+  const noMatch=groups.filter(g=>g._saveStatus!=='saved'&&!g.customer);
+  if(noMatch.length){toast(`거래처를 선택해주세요 (${noMatch.length}건 미선택)`);return;}
+  _savingRawUpload=true;
+  const controls=[...document.querySelectorAll('#m-raw-preview button,#m-raw-preview select')];
+  const states=controls.map(el=>({el,disabled:el.disabled}));
+  controls.forEach(el=>el.disabled=true);
+  let current=null;
+  try{
+    for(const g of groups){
+      if(g._saveStatus==='saved')continue;
+      current=g;
+      if(!g.items?.length){g._saveStatus='failed';g._saveError='품목이 없는 주문은 업로드할 수 없습니다.';break;}
+      if(!g._saveInvoice){
+        const c=custByName(g.customer),code=c?.code||'UNK',odate=g.orderDate||today();
+        const ym=odate.replace(/[.\-\s]/g,'').replace(/[가-힣]+/g,'').slice(0,8);
+        const baseNo=`${code}_${ym}`;
+        const used=new Set([..._invoices.map(i=>i.no),...groups.map(x=>x._saveInvoice?.no)]);
+        let invNo=baseNo,n=2;while(used.has(invNo))invNo=`${baseNo}_${n++}`;
+        // Keep this number on retry. Never turn an unconfirmed request into a new order number.
+        g._saveInvoice={no:invNo,customer:g.customer,mgr:c?.mgr||'',order_date:odate||null,
+          pay_date:g.payDate||null,ship_date:g.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:''};
+      }
+      g._saveStatus='saving';g._saveError='';renderRawUploadStatus(groups);
+      const saved=await persistRawInvoice(null,g._saveInvoice,g.items.map(it=>({...it,salesType:it.salesType||'Paid'})),{
+        onFailure:(error,confirmed)=>{g._saveStatus=confirmed?'failed':'unknown';g._saveError=error?.message||String(error);}
+      });
+      if(!saved){if(g._saveStatus==='saving')g._saveStatus='unknown';break;}
+      g._saveStatus='saved';g._savedInvoiceId=saved.invoice.id;
+      renderRawUploadStatus(groups);
+    }
+  }catch(error){
+    if(current){current._saveStatus='unknown';current._saveError=error?.message||String(error);}
+  }finally{
+    _savingRawUpload=false;
+    states.forEach(({el,disabled})=>el.disabled=disabled);
+    renderRawUploadStatus(groups);
   }
-  window._rawUploadData=null;
-  toast(`RAW 저장 완료! ${invCount}건 ${itemCount}개 품목`);
-  setTimeout(()=>renderRaw(),400);
+  const completed=groups.filter(g=>g._saveStatus==='saved');
+  if(completed.length===groups.length){
+    window._rawUploadData=null;cm('m-raw-preview');renderRaw();
+    toast(`RAW 저장 완료! ${completed.length}건 ${completed.reduce((n,g)=>n+g.items.length,0)}개 품목`);
+  }else{
+    toast(`RAW 저장 중단 — 완료 ${completed.length}건. 실패·확인 필요·미처리 내역을 확인해 주세요.`);
+  }
+}
+
+function renderRawUploadStatus(groups=window._rawUploadData||[]){
+  const labels={saved:'완료',failed:'실패',unknown:'저장 여부 확인 필요',saving:'저장 중',pending:'미처리'};
+  const count=state=>groups.filter(g=>(g._saveStatus||'pending')===state).length;
+  const attempted=groups.some(g=>g._saveStatus);
+  document.querySelectorAll('[data-raw-upload-customer]').forEach(select=>{
+    select.disabled=_savingRawUpload||!!groups[Number(select.dataset.rawUploadCustomer)]?._saveInvoice;
+  });
+  const button=document.getElementById('raw-upload-save');
+  if(button)button.textContent=_savingRawUpload?'저장 중...':attempted?'미완료 주문 재시도':'저장';
+  const el=document.getElementById('raw-upload-status');if(!el)return;
+  if(!attempted){el.innerHTML='<p>주문별로 인보이스와 상세항목을 함께 저장합니다. 오류가 나면 멈추며 완료된 주문은 유지됩니다.</p>';return;}
+  el.innerHTML=`<p><strong>완료 ${count('saved')}건 · 실패 ${count('failed')}건 · 확인 필요 ${count('unknown')}건 · 미처리 ${count('pending')}건${count('saving')?' · 저장 중 '+count('saving')+'건':''}</strong></p>
+    ${count('unknown')?'<p>응답을 확인하지 못한 주문은 아래 번호로 목록에서 저장 여부를 먼저 확인해 주세요. 재시도에도 같은 번호를 사용하며, 이미 저장된 번호를 새 번호로 바꾸지 않습니다.</p>':''}
+    <div style="max-height:180px;overflow:auto"><table style="width:100%;font-size:11px;text-align:left"><thead><tr><th>주문번호 / 발주일</th><th>거래처</th><th>처리 결과</th></tr></thead><tbody>${groups.map(g=>`<tr><td>${esc(g._saveInvoice?.no||g.orderDate||'-')}</td><td>${esc(g.customer)}</td><td>${labels[g._saveStatus||'pending']}${g._saveError?'<br>'+esc(g._saveError):''}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 // ── Paid → 인보이스 연동 ──

@@ -14,7 +14,7 @@ function setup(rpc){
   vm.createContext(ctx);
   const start=source.indexOf('async function saveRawManual');
   const end=source.indexOf('// ── Excel 업로드',start);
-  vm.runInContext('let _savingRaw=false;\n'+source.slice(start,end),ctx);
+  vm.runInContext('let _savingRaw=false,_savingRawUpload=false;\n'+source.slice(start,end),ctx);
   return {ctx,calls,messages,original};
 }
 test('edit preserves header fields and uses server item IDs',async()=>{
