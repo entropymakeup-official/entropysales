@@ -275,3 +275,26 @@ tr:hover td{background:var(--bg3)}
 
 /* 비활성 버튼 (RSP 업로드 반영 등) */
 .btn:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
+
+/* Google Sheets delivery status, independent of dashboard filters. */
+.sheet-sync{flex:none;margin:12px 18px 0;padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg2);font-size:11px;max-height:35vh;overflow:auto}
+.sheet-sync[hidden]{display:none}
+.sheet-sync-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.sheet-sync-copy{min-width:0}
+.sheet-sync-heading{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:var(--text2)}
+.sheet-sync-heading strong{font-size:12px;color:var(--text)}
+.sheet-sync-badge{padding:2px 7px;border-radius:12px;font-weight:600}
+.sheet-sync-badge.success{background:var(--green-light);color:#047857}
+.sheet-sync-badge.warning{background:var(--amber-light);color:#92400e}
+.sheet-sync-badge.error{background:var(--red-light);color:#b91c1c}
+.sheet-sync-badge.neutral{background:var(--bg3);color:var(--text2)}
+.sheet-sync p{margin-top:5px;line-height:1.5;color:var(--text2)}
+.sheet-sync .sheet-sync-time{font-size:10px}
+.sheet-sync-actions{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
+.sheet-sync-actions a{text-decoration:none}
+.sheet-sync-problems{margin-top:8px;border-top:1px solid var(--border);padding-top:8px}
+.sheet-sync-problems summary{cursor:pointer;color:var(--text)}
+.sheet-sync-problems ul{list-style:none;padding-top:5px}
+.sheet-sync-problems li{padding:4px 0;overflow-wrap:anywhere}
+.sheet-sync-problems li span{display:inline-block;margin-left:8px;color:var(--text2)}
+@media(max-width:640px){.sheet-sync{margin:8px 10px 0;padding:10px}.sheet-sync-main{flex-direction:column;gap:8px}.sheet-sync-problems li span{display:block;margin:3px 0 0}}

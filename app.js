@@ -34,6 +34,11 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 const SURL = "https://qqmhxnwmasamkqsbnrvw.supabase.co";
 const SKEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxbWh4bndtYXNhbWtxc2JucnZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNzEyMTgsImV4cCI6MjA5Njc0NzIxOH0.Un7Q3tOIIjalgaSFOyrgjMa-MuZ6GXhtt6DsVnE3Vy8";
 const sb = supabase.createClient(SURL, SKEY);
+globalThis.invoiceSheetStatus = globalThis.SheetSyncStatus?.mount({document,read:async()=>{
+  const {data,error}=await sb.rpc('get_invoice_sheet_status');
+  if(error)throw error;
+  return data;
+}});
 
 const MGRS = ['liah','Grace','Raye','Chloe','Ethan'];
 const SALES_TYPES = ['Paid','FOC','GWP','Sample','Replacement','Lost'];
@@ -140,6 +145,7 @@ function closeSidebar(){
   document.getElementById('sidebar-overlay').classList.remove('open');
 }
 function go(page){
+  globalThis.invoiceSheetStatus?.show(page);
   document.querySelectorAll('.ni').forEach(el=>el.classList.remove('active'));
   const n=document.getElementById('nav-'+page);if(n)n.classList.add('active');
   const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',tax:'세금계산서',customers:'거래처 마스터',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
@@ -877,6 +883,7 @@ async function deleteInvDoc(invId,name){
 
 // ─── INVOICES ───
 function renderInvoices(){
+  globalThis.invoiceSheetStatus?.refresh();
   document.getElementById('topbar-actions').innerHTML=`<button class="btn btn-primary" onclick="openNewInv()"><i class="ti ti-plus"></i> 직접 등록</button><button class="btn btn-green" onclick="exportInvoices()"><i class="ti ti-file-spreadsheet"></i> Excel 다운로드</button>`;
   document.getElementById('content').innerHTML=`
   <div class="fb">
@@ -1230,15 +1237,17 @@ async function saveInv(){
   if(idx>=0)_invoices[idx]=saved.invoice;
   else _invoices.unshift(saved.invoice);
   _items=_items.filter(i=>String(i.invoice_id)!==String(invId)).concat(saved.items);
+  globalThis.invoiceSheetStatus?.saved();
   cm('m-inv');
   renderInvoices();
   toast(isNew?'인보이스 생성! 거래명세서 다운로드 중...':'저장됐습니다!');
   if(isNew)setTimeout(()=>downloadMeongse({...saved.invoice,items:saved.items}),300);
 }
-async function delInv(id){if(!confirm('삭제하시겠습니까?'))return;await sb.from('invoice_items').delete().eq('invoice_id',id);await sb.from('invoices').delete().eq('id',id);_invoices=_invoices.filter(i=>i.id!==id);_items=_items.filter(i=>i.invoice_id!==id);renderInvoices();}
+async function delInv(id){if(!confirm('삭제하시겠습니까?'))return;await sb.from('invoice_items').delete().eq('invoice_id',id);await sb.from('invoices').delete().eq('id',id);_invoices=_invoices.filter(i=>i.id!==id);_items=_items.filter(i=>i.invoice_id!==id);globalThis.invoiceSheetStatus?.saved();renderInvoices();}
 
 // ─── RAW ───
 function renderRaw(){
+  globalThis.invoiceSheetStatus?.refresh();
   document.getElementById('topbar-actions').innerHTML=`
     <button class="btn btn-primary" onclick="openRawManual()"><i class="ti ti-pencil"></i> 발주 입력</button>
     <button class="btn" onclick="openRawUploadModal()"><i class="ti ti-upload"></i> Excel 업로드</button>
@@ -1361,6 +1370,7 @@ async function delRawItem(invId){
   await sb.from('invoices').delete().eq('id',invId);
   _invoices=_invoices.filter(i=>i.id!==invId);
   _items=_items.filter(i=>i.invoice_id!==invId);
+  globalThis.invoiceSheetStatus?.saved();
   toast('삭제됐습니다.');
   renderRaw();
 }
@@ -1960,6 +1970,7 @@ async function persistRawInvoice(id,invoice,items,options={}){
     if(index>=0)_invoices[index]=data.invoice;else _invoices.unshift(data.invoice);
     _items=_items.filter(row=>row.invoice_id!==data.invoice.id);
     _items.push(...data.items);
+    globalThis.invoiceSheetStatus?.saved();
     return data;
   }catch(error){
     if(options.onFailure)options.onFailure(error,confirmedFailure);
@@ -3571,6 +3582,7 @@ async function checkAuth(){
 }
 
 function showLoginScreen(){
+  globalThis.invoiceSheetStatus?.hide();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('main-app').style.display = 'none';
 }

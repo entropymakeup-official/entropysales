@@ -8,10 +8,10 @@
 4. 브라우저에서 기간/거래처 필터·집계 근거 연결을 확인합니다.
 5. 검토 후 main에 통합하고 Pages 배포 성공 및 공개 파일 일치를 확인합니다.
 
-배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js 5개입니다. 버전 쿼리를 함께 갱신해야 합니다. 데이터베이스 변경은 이번 화면 통합에 필요하지 않습니다.
+배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js, sheet-sync-status.js 6개입니다. 변경한 파일의 버전 쿼리를 함께 갱신해야 합니다. 시트 반영 상태 화면은 sql/invoice-sheet-status.sql의 읽기 전용 RPC 설치가 먼저 필요합니다. 운영 절차와 한계는 SHEET-SYNC-STATUS.md를 참고합니다.
 
 운영 데이터는 자동 테스트에 사용하지 않습니다. Excel 업로드는 기존 save_invoice_atomic으로 주문별 저장하고, 첫 오류에서 멈춰 완료·실패·확인 필요·미처리를 표시합니다. 같은 업로드 세션의 재시도는 완료 주문을 건너뛰고 준비한 주문번호를 유지합니다. 파일 전체의 일괄 롤백, 삭제 경로 원자성, 새로고침·파일 재업로드까지 포함한 서버 멱등성은 별도 과제입니다. Google Sheets 연동은 별도 Apps Script/DB 설치 작업으로 관리합니다.
 
-GitHub Pull Request와 main 변경 시 Dashboard validation이 문법 및 전체 테스트를 실행합니다. 병합 전 이 검사의 성공을 확인합니다. 저장소 보호규칙 자체는 별도로 설정하지 않았습니다.
+GitHub Pull Request와 main 변경 시 Dashboard validation이 npm ci 후 문법 및 전체 테스트를 실행합니다. 상태 RPC는 PGlite의 별도 테스트 DB로 검증하며 운영 주문을 수정하지 않습니다. 병합 전 이 검사의 성공을 확인합니다. 저장소 보호규칙 자체는 별도로 설정하지 않았습니다.
 
 RAW 화면의 Excel 업로드 버튼으로 파일을 선택합니다. 중단된 미리보기를 닫아도 같은 버튼으로 복귀하며, 수동 입력을 취소해도 업로드 결과는 유지됩니다. 새 파일로 바꾸려면 미리보기의 '업로드 내역 비우기'를 확인해야 합니다. 이 동작은 화면의 배치 상태만 비우며 이미 저장된 주문을 삭제하지 않습니다.
