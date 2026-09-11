@@ -34,6 +34,15 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 const SURL = "https://qqmhxnwmasamkqsbnrvw.supabase.co";
 const SKEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxbWh4bndtYXNhbWtxc2JucnZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNzEyMTgsImV4cCI6MjA5Njc0NzIxOH0.Un7Q3tOIIjalgaSFOyrgjMa-MuZ6GXhtt6DsVnE3Vy8";
 const sb = supabase.createClient(SURL, SKEY);
+const changeRequests=ChangeRequests.createClient({sb});
+async function queueChanges(operations,options={}){
+  try{const result=await changeRequests.submit(await operations,options);if(result)toast(ChangeRequests.message(result));return result;}
+  catch(error){toast('요청 실패 또는 접수 확인 필요: '+(error?.message||String(error))+' — 입력을 유지했습니다. 변경 요청 목록을 확인해 주세요.');return null;}
+}
+function rowChange(table,action,key,values,before){return changeRequests.row(table,action,key,values,before);}
+function invoiceChange(id,invoice,items,before){return changeRequests.invoice(id,invoice,items,id===null?null:(before||{invoice:_invoices.find(v=>v.id===id),items:_items.filter(v=>v.invoice_id===id)}));}
+async function requestRow(table,action,key,values,before){try{return await queueChanges([await rowChange(table,action,key,values,before)]);}catch(error){toast('요청 실패: '+error.message);return null;}}
+
 globalThis.invoiceSheetStatus = globalThis.SheetSyncStatus?.mount({document,read:async()=>{
   const {data,error}=await sb.rpc('get_invoice_sheet_status');
   if(error)throw error;
@@ -412,32 +421,17 @@ function cancelUpload(){_uploadData=null;document.getElementById('upload-preview
 
 async function confirmUpload(withDownload){
   if(!_uploadData)return;
-  document.getElementById('upload-actions').innerHTML='<div class="loading"><i class="ti ti-loader"></i>저장 중...</div>';
-  const created=[];
-  for(const inv of _uploadData){
-    const c=custByName(inv.customer);
-    const code=c?.code||'UNK';
-    const no=inv.invNo||genInvNo(code,inv.orderDate);
-    const exists=_invoices.find(i=>i.no===no);
-    if(exists){toast('이미 존재: '+no);continue;}
-    const {data:invData,error}=await sb.from('invoices').insert({
-      no,customer:inv.customer,mgr:c?.mgr||'',
-      order_date:inv.orderDate||null,pay_date:inv.payDate||null,ship_date:inv.shipDate||null,
-      status:'Ordered',ship_status:'준비중',foc:0,note:inv.note
-    }).select().single();
-    if(error||!invData){toast('오류: '+no);continue;}
-    const itemRows=inv.items.map(it=>({invoice_id:invData.id,invoice_no:no,name:it.name,barcode:it.barcode,sales_type:it.st||'Paid',qty:it.qty,price:it.price}));
-    if(itemRows.length)await sb.from('invoice_items').insert(itemRows);
-    _invoices.unshift(invData);
-    _items.push(...itemRows.map((it,i)=>({...it,id:'tmp_'+Date.now()+'_'+i})));
-    created.push({...invData,items:inv.items.map(it=>({...it,sales_type:it.st}))});
-  }
-  _uploadData=null;
-  if(created.length){
-    toast(`인보이스 ${created.length}건 생성!`);
-    if(withDownload)created.forEach(inv=>downloadMeongse(inv));
-  }
-  setTimeout(()=>go('invoices'),600);
+  const actions=document.getElementById('upload-actions'),old=actions.innerHTML;
+  actions.innerHTML='<div class="loading">변경 요청 제출 중...</div>';
+  try{
+    const operations=[];
+    for(const inv of _uploadData){
+      const c=custByName(inv.customer),no=inv.invNo||genInvNo(c?.code||'UNK',inv.orderDate);
+      if(_invoices.some(i=>i.no===no))throw Error('이미 존재하는 번호: '+no);
+      operations.push(await invoiceChange(null,{no,customer:inv.customer,mgr:c?.mgr||'',order_date:inv.orderDate||null,pay_date:inv.payDate||null,ship_date:inv.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:inv.note||''},inv.items.map(it=>({name:it.name,barcode:it.barcode||'',sales_type:it.st||'Paid',qty:it.qty,price:it.price}))));
+    }
+    if(await queueChanges(operations)){cancelUpload();go('invoices');}
+  }catch(error){toast('요청 실패: '+error.message);}finally{actions.innerHTML=old;}
 }
 
 
@@ -901,32 +895,9 @@ async function invDropFiles(files){
   if(!files||!files.length)return;
   for(const file of Array.from(files)) await uploadInvDoc(file);
 }
-async function uploadInvDoc(input){
-  const file=input?.files?.[0]||input;
-  if(!file||!_currentInvId)return;
-  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path=_currentInvId+'/'+safeName;
-  toast('업로드 중...');
-  const{data,error}=await sb.storage.from('invoice-docs').upload(path,file,{upsert:true,metadata:{originalName:file.name}});
-  if(error){
-    toast('❌ 업로드 실패: '+error.message);
-    console.error(error);return;
-  }
-  toast('✅ 업로드 완료!');
-  delete _invFileCache[_currentInvId];
-  loadInvDocs(_currentInvId);
-  updateInvFileIcon(_currentInvId);
-  if(input.value!==undefined)input.value='';
-}
+async function uploadInvDoc(input){toast('파일 연결은 관리자 승인이 필요합니다. Google Drive에 파일을 올린 뒤 Drive 증빙 연결 요청을 사용해 주세요.');}
 
-async function deleteInvDoc(invId,name){
-  if(!confirm(name+'을 삭제할까요?'))return;
-  await sb.storage.from('invoice-docs').remove([invId+'/'+name]);
-  toast('삭제됐습니다.');
-  delete _invFileCache[invId];
-  loadInvDocs(invId);
-  loadInvFileIcons([invId]);
-}
+async function deleteInvDoc(invId,name){toast('기존 파일의 직접 삭제는 중지됐습니다. 승인 절차를 지원하는 Drive 증빙 연결을 사용해 주세요.');}
 
 // ─── INVOICES ───
 function renderInvoices(){
@@ -1072,10 +1043,9 @@ function updateInvFileIcon(id){
 }
 
 async function updTracking(id,val){
-  await sb.from('invoices').update({tracking_num:val}).eq('id',id);
-  const inv=_invoices.find(i=>i.id===id);
-  if(inv)inv.tracking_num=val;
-  toast('Tracking No. 저장됐습니다!');
+  const inv=_invoices.find(i=>i.id===id);if(!inv)return;
+  const result=await requestRow('invoices','update',{id},{tracking_num:val},inv);
+  const input=document.querySelector('[data-invoice-tracking="'+id+'"]');if(result&&input&&input.value===val)input.value=inv.tracking_num||'';
 }
 
 const _invoiceStatusPending=new Set();
@@ -1103,41 +1073,11 @@ function refreshInvoiceStatusList(){
   filterInv();
 }
 async function saveInvoiceStatus(id,patch,label){
-  if(_invoiceStatusPending.has(id)){refreshInvoiceStatusControls(id);toast('이 주문의 상태를 저장 중입니다.');return false;}
-  const inv=_invoices.find(i=>i.id===id);
-  if(!inv){toast('주문을 확인할 수 없습니다. 목록을 새로고침해주세요.');return false;}
-  const fields=Object.keys(patch),before=Object.fromEntries(fields.map(key=>[key,inv[key]??null]));
+  if(_invoiceStatusPending.has(id))return false;
+  const inv=_invoices.find(i=>i.id===id);if(!inv)return false;
   _invoiceStatusPending.add(id);refreshInvoiceStatusControls(id);
-  let confirmed=false,changed=false;
-  try{
-    let query=sb.from('invoices').update(patch).eq('id',id);
-    // Compare and update in one statement; a stale tab cannot overwrite a newer value.
-    for(const key of fields)query=before[key]===null?query.is(key,null):query.eq(key,before[key]);
-    const {data,error}=await query.select(['id',...fields].join(','));
-    if(error)throw new Error('status update rejected');
-    if(!Array.isArray(data)||data.length!==1||typeof data[0]?.id!=='string'||data[0].id!==id||fields.some(key=>data[0][key]!==patch[key])){
-      toast('저장 결과를 확인할 수 없습니다. 다른 수정·삭제 또는 권한 변경이 있을 수 있으니 목록을 새로고침해주세요.');
-      return false;
-    }
-    confirmed=true;
-    const current=_invoices.find(i=>i.id===id);
-    if(!current||fields.some(key=>(current[key]??null)!==before[key])){
-      toast('저장 응답을 기다리는 동안 주문 정보가 바뀌었습니다. 목록을 새로고침해 최종 상태를 확인해주세요.');
-      return false;
-    }
-    for(const key of fields)current[key]=data[0][key];
-    changed=true;
-    toast(label+' 저장됐습니다.');
-    return true;
-  }catch(e){
-    toast('상태 저장 결과를 확인할 수 없습니다. 목록을 새로고침한 뒤 다시 확인해주세요.');
-    return false;
-  }finally{
-    _invoiceStatusPending.delete(id);
-    refreshInvoiceStatusControls(id);
-    if(confirmed)globalThis.invoiceSheetStatus?.saved();
-    if(changed)refreshInvoiceStatusList();
-  }
+  try{return !!await requestRow('invoices','update',{id},patch,inv);}
+  finally{_invoiceStatusPending.delete(id);refreshInvoiceStatusControls(id);}
 }
 async function togglePayStatus(id){
   if(_invoiceStatusPending.has(id)){toast('이 주문의 상태를 저장 중입니다.');return;}
@@ -1154,32 +1094,17 @@ async function togglePayStatus(id){
   return saveInvoiceStatus(id,{status:'Paid',pay_date:date},'입금완료 상태');
 }
 
-async function toggleShipStatus(id, currentDate, currentStatus){
-  if(currentStatus==='출고완료'){
-    if(!confirm('출고 완료를 취소하시겠습니까?'))return;
-    await sb.from('invoices').update({ship_status:'준비중',ship_date:null}).eq('id',id);
-    const inv=_invoices.find(i=>i.id===id);
-    if(inv){inv.ship_status='준비중';inv.ship_date='';}
-  } else {
-    const date=prompt('출고일을 입력하세요 (YYYY-MM-DD)',today());
-    if(!date)return;
-    await sb.from('invoices').update({ship_status:'출고완료',ship_date:date}).eq('id',id);
-    const inv=_invoices.find(i=>i.id===id);
-    if(inv){inv.ship_status='출고완료';inv.ship_date=date;}
-  }
-  filterInv();
+async function toggleShipStatus(id,currentDate,currentStatus){
+  if(currentStatus==='출고완료'){if(confirm('출고 완료 취소를 요청할까요?'))return saveInvoiceStatus(id,{ship_status:'준비중',ship_date:null},'출고 취소');}
+  else{const date=prompt('출고일 (YYYY-MM-DD)',today());if(!date)return;if(!DashboardModel.validDate(date)){toast('실제 날짜를 입력해 주세요.');return;}return saveInvoiceStatus(id,{ship_status:'출고완료',ship_date:date},'출고');}
 }
 
 async function updInvSt(id,val,el){
-  await sb.from('invoices').update({status:val}).eq('id',id);
-  const inv=_invoices.find(i=>i.id===id);if(inv){inv.status=val;}
-  if(el)el.className='ss s'+val;
-  if(val==='Paid'||val==='Closed'){
-    const inv2=_invoices.find(i=>i.id===id);
-    const c=custByName(inv2?.customer);
-    if(c&&!c.tax_status){c.tax_status='발행예정';await sb.from('customers').update({tax_status:'발행예정'}).eq('id',c.id);}
-  }
-  toast('Status: '+val);
+  const inv=_invoices.find(i=>i.id===id);if(!inv)return;
+  try{const ops=[await rowChange('invoices','update',{id},{status:val},inv)];
+    const c=custByName(inv.customer);if((val==='Paid'||val==='Closed')&&c&&!c.tax_status)ops.push(await rowChange('customers','update',{id:c.id},{tax_status:'발행예정'},c));
+    await queueChanges(ops);
+  }catch(error){toast('요청 실패: '+error.message);}finally{if(el){el.value=inv.status;el.className='ss s'+inv.status;}}
 }
 async function updShipSt(id,val,el){
   refreshInvoiceStatusControls(id);
@@ -1206,12 +1131,13 @@ function openNewInv(){
   document.getElementById('inv-items').innerHTML='';
   addInvItem();calcInvTotal();
   document.getElementById('m-inv-title').textContent='인보이스 등록';
-  document.getElementById('inv-save-btn').textContent='저장 (거래명세서 자동 다운로드)';
+  document.getElementById('inv-save-btn').textContent='변경 요청 제출';
   om('m-inv');
 }
 function editInv(id){
   const v=_invoices.find(i=>i.id===id);if(!v)return;
-  _editInv=v;
+  _editInv=JSON.parse(JSON.stringify(v));
+  _editInvBefore=JSON.parse(JSON.stringify({invoice:v,items:getInvItems(id)}));
   document.getElementById('inv-no').value=v.no;
   document.getElementById('inv-cust-ro').value=v.customer;
   document.getElementById('inv-cust-ro').readOnly=true;
@@ -1228,7 +1154,7 @@ function editInv(id){
   getInvItems(id).forEach(it=>addInvItem(it));
   calcInvTotal();
   document.getElementById('m-inv-title').textContent='인보이스 수정';
-  document.getElementById('inv-save-btn').textContent='저장';
+  document.getElementById('inv-save-btn').textContent='변경 요청 제출';
   om('m-inv');
 }
 function addInvItem(it={}){
@@ -1304,6 +1230,7 @@ function viewInv(id){
 }
 
 let _savingInv = false;
+let _editInvBefore=null;
 async function saveInv(){
   if(_savingInv)return;
   const no=document.getElementById('inv-no').value.trim();
@@ -1322,18 +1249,10 @@ async function saveInv(){
   const btn=document.getElementById('inv-save-btn');
   const oldLabel=btn?.textContent;
   _savingInv=true;
-  if(btn){btn.disabled=true;btn.textContent='저장 중...';}
+  if(btn){btn.disabled=true;btn.textContent='요청 중...';}
   let saved=null;
   try{
-    // One server transaction: never fall back to client-side delete/insert.
-    const {data,error}=await sb.rpc('save_invoice_atomic',{
-      p_id:isNew?null:String(editId),p_invoice:payload,p_items:items
-    });
-    if(error)throw error;
-    if(!data?.invoice?.id||!Array.isArray(data.items)){
-      throw new Error('저장 응답을 확인하지 못했습니다.');
-    }
-    saved=data;
+    saved=await changeRequests.submit([await invoiceChange(editId,payload,items,_editInvBefore)]);
   }catch(error){
     const reason=typeof error?.message==='string'?error.message:'통신 오류';
     alert('저장 실패 또는 결과 확인 불가: '+reason+'\n입력 내용은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
@@ -1342,50 +1261,22 @@ async function saveInv(){
     if(btn){btn.disabled=false;btn.textContent=oldLabel;}
   }
   if(!saved)return;
-  const invId=saved.invoice.id;
-  const idx=_invoices.findIndex(i=>String(i.id)===String(invId));
-  if(idx>=0)_invoices[idx]=saved.invoice;
-  else _invoices.unshift(saved.invoice);
-  _items=_items.filter(i=>String(i.invoice_id)!==String(invId)).concat(saved.items);
-  globalThis.invoiceSheetStatus?.saved();
   cm('m-inv');
-  renderInvoices();
-  toast(isNew?'인보이스 생성! 거래명세서 다운로드 중...':'저장됐습니다!');
-  if(isNew)setTimeout(()=>downloadMeongse({...saved.invoice,items:saved.items}),300);
+  toast(ChangeRequests.message(saved));
 }
 const _deletingInvoiceIds=new Set();
 async function deleteInvoiceRecord(id){
   const key=String(id),inv=_invoices.find(i=>String(i.id)===key);
   if(!inv||_deletingInvoiceIds.has(key))return false;
-  const count=_items.filter(i=>String(i.invoice_id)===key).length;
-  if(!confirm(`${inv.no||'선택한 주문'}의 주문과 품목 ${count}개를 모두 삭제할까요?\n삭제한 자료는 되돌릴 수 없습니다.`))return false;
+  if(!confirm(`${inv.no||'주문'}와 품목의 삭제를 요청할까요? 승인 전 자료는 유지됩니다.`))return false;
   _deletingInvoiceIds.add(key);
-  let result;
   try{
-    // The validated invoice_items FK cascades this single statement atomically.
-    result=await sb.from('invoices').delete().eq('id',id).select('id');
-  }catch(error){
-    toast('삭제 결과를 확인하지 못했습니다. 목록을 새로고침해 확인해 주세요.');
-    return false;
-  }finally{
-    _deletingInvoiceIds.delete(key);
-  }
-  if(result?.error){
-    toast('삭제에 실패했거나 결과를 확인할 수 없습니다. 목록을 새로고침해 확인해 주세요.');
-    return false;
-  }
-  const deleted=result?.data;
-  if(!Array.isArray(deleted)||deleted.length!==1||typeof deleted[0]?.id!=='string'||deleted[0].id!==key){
-    toast('삭제된 주문을 확인할 수 없습니다. 목록을 새로고침하고 접근 권한을 확인해 주세요.');
-    return false;
-  }
-  _invoices=_invoices.filter(i=>String(i.id)!==key);
-  _items=_items.filter(i=>String(i.invoice_id)!==key);
-  if(Array.isArray(window._rr))window._rr=window._rr.filter(r=>String(r.invId)!==key);
-  if(Array.isArray(window._rr_filtered))window._rr_filtered=window._rr_filtered.filter(r=>String(r.invId)!==key);
-  globalThis.invoiceSheetStatus?.saved();
-  toast('삭제됐습니다. 시트 반영 상태를 확인해 주세요.');
-  return true;
+    const op=await rowChange('invoices','delete',{id},null,inv);
+    op.before_items=JSON.parse(JSON.stringify(_items.filter(i=>String(i.invoice_id)===key)));
+    const {data,error}=await sb.from('invoice_drive_documents').select('*').eq('invoice_id',id);if(error)throw error;
+    op.before_drive_documents=data;
+    return !!await queueChanges([op]);
+  }catch(error){toast('삭제 요청 실패: '+error.message);return false;}finally{_deletingInvoiceIds.delete(key);}
 }
 async function delInv(id){
   if(!await deleteInvoiceRecord(id))return;
@@ -1521,6 +1412,7 @@ function editRawItem(invId){
   const inv=_invoices.find(i=>i.id===invId);if(!inv)return;
   const items=getInvItems(invId);
   window._editRawInvId=invId;
+  window._editRawBefore=JSON.parse(JSON.stringify({invoice:inv,items}));
   const area=document.getElementById('raw-upload-area');if(!area)return;
   area.innerHTML=`
   <div class="card" style="margin-bottom:12px">
@@ -1556,7 +1448,7 @@ function editRawItem(invId){
         <span style="font-size:10px;color:var(--text3);margin-left:4px">Del = 선택 셀 삭제</span>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn btn-primary" onclick="saveRawManual()"><i class="ti ti-device-floppy"></i> 저장</button>
+        <button class="btn btn-primary" onclick="saveRawManual()"><i class="ti ti-device-floppy"></i> 변경 요청 제출</button>
         <button class="btn" onclick="cancelRawUpload()"><i class="ti ti-x"></i> 취소</button>
       </div>
     </div>
@@ -1620,7 +1512,7 @@ function openRawManual(){
         <span style="font-size:10px;color:var(--text3);margin-left:4px">Del = 선택 셀 삭제</span>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn btn-primary" onclick="saveRawManual()"><i class="ti ti-device-floppy"></i> 저장</button>
+        <button class="btn btn-primary" onclick="saveRawManual()"><i class="ti ti-device-floppy"></i> 변경 요청 제출</button>
         <button class="btn" onclick="cancelRawUpload()"><i class="ti ti-x"></i> 취소</button>
       </div>
     </div>
@@ -2027,7 +1919,7 @@ async function saveRawManual(){
     const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:c?.mgr||'',order_date:odate,pay_date:pdate,ship_date:sdate},items);
     if(!saved)return;
     window._editRawInvId=null;
-    toast(`수정 완료! ${saved.invoice.no}`);
+    toast(ChangeRequests.message(saved));
     cancelRawUpload();
     setTimeout(()=>{renderRaw();const c=document.getElementById('content');if(c)c.scrollTop=0;},300);
   } else {
@@ -2076,7 +1968,7 @@ async function confirmRawSave(){
   if(!saved)return;
   cm('m-raw-confirm');
   window._pendingRaw=null;
-  toast(`✅ ${invNo} 저장 완료! (${items.length}개 품목)`);
+  toast(ChangeRequests.message(saved));
   cancelRawUpload();
   // renderRaw 재실행해서 최신 데이터 반영
   setTimeout(()=>{
@@ -2092,36 +1984,15 @@ async function persistRawInvoice(id,invoice,items,options={}){
   _savingRaw=true;
   const buttons=[...document.querySelectorAll('button[onclick="saveRawManual()"],button[onclick="confirmRawSave()"]')];
   const states=buttons.map(button=>({button,disabled:button.disabled,html:button.innerHTML}));
-  buttons.forEach(button=>{button.disabled=true;button.textContent='저장 중...';});
-  let confirmedFailure=false;
+  buttons.forEach(button=>{button.disabled=true;button.textContent='요청 중...';});
   try{
-    const {data,error}=await sb.rpc('save_invoice_atomic',{
-      p_id:id===null?null:String(id),p_invoice:invoice,
-      p_items:items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}))
-    });
-    if(error){
-      // SQL rejection rolls this transaction back. A duplicate number may be a prior unconfirmed save.
-      confirmedFailure=/^[0-9A-Z]{5}$/.test(error.code||'')&&error.code!=='23505';
-      throw error;
-    }
-    if(!data?.invoice?.id||data.invoice.no!==invoice.no||!Array.isArray(data.items)||data.items.length!==items.length||
-       data.items.some(it=>!it.id||String(it.invoice_id)!==String(data.invoice.id))||new Set(data.items.map(it=>String(it.id))).size!==data.items.length){
-      throw new Error('서버 저장 결과를 확인할 수 없습니다.');
-    }
-    const index=_invoices.findIndex(row=>row.id===data.invoice.id);
-    if(index>=0)_invoices[index]=data.invoice;else _invoices.unshift(data.invoice);
-    _items=_items.filter(row=>row.invoice_id!==data.invoice.id);
-    _items.push(...data.items);
-    globalThis.invoiceSheetStatus?.saved();
-    return data;
+    const payload=Object.fromEntries(['no','customer','mgr','order_date','pay_date','ship_date','status','ship_status','foc','note'].filter(key=>Object.prototype.hasOwnProperty.call(invoice,key)).map(key=>[key,invoice[key]]));
+    return await changeRequests.submit([await invoiceChange(id,payload,items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price})),id===null?null:window._editRawBefore)],options);
   }catch(error){
-    if(options.onFailure)options.onFailure(error,confirmedFailure);
-    else toast('저장 실패 또는 결과 확인 불가: '+(error?.message||String(error))+' — 입력은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
+    if(options.onFailure)options.onFailure(error,/^[0-9A-Z]{5}$/.test(error.code||''));
+    else toast('요청 실패 또는 접수 확인 필요: '+(error?.message||String(error))+' — 입력은 유지했습니다. 변경 요청 목록을 확인해 주세요.');
     return null;
-  }finally{
-    _savingRaw=false;
-    states.forEach(({button,disabled,html})=>{button.disabled=disabled;button.innerHTML=html;});
-  }
+  }finally{_savingRaw=false;states.forEach(({button,disabled,html})=>{button.disabled=disabled;button.innerHTML=html;});}
 }
 
 // ── Excel 업로드 → RAW 저장 ──
@@ -2463,7 +2334,7 @@ function showRawUploadIssues(issues){
 
 function discardRawUpload(){
   if(_savingRawUpload){toast('업로드 저장이 끝날 때까지 기다려 주세요.');return;}
-  if(!confirm('이 창의 업로드 내역을 비울까요? 이미 저장된 주문은 삭제되지 않습니다. 저장 여부 확인 필요 주문은 목록에서 확인하고, 새 파일에는 이미 저장된 주문을 제외해 주세요.'))return;
+  if(!confirm('이 창의 업로드 내역을 비울까요? 이미 제출한 요청은 취소되지 않습니다. 변경 요청 목록에서 접수 여부를 확인하고 중복 제출하지 마세요.'))return;
   window._rawUploadData=null;window._rawPriceAlerts=[];
   cm('m-raw-preview');
 }
@@ -2471,83 +2342,55 @@ function discardRawUpload(){
 async function confirmRawUpload(){
   if(_savingRawUpload||_savingRaw)return;
   const groups=window._rawUploadData;if(!groups?.length)return;
-  const noMatch=groups.filter(g=>g._saveStatus!=='saved'&&!g.customer);
-  if(noMatch.length){toast(`거래처를 선택해주세요 (${noMatch.length}건 미선택)`);return;}
+  const pending=groups.filter(g=>!['requested','approved','rejected'].includes(g._saveStatus));if(!pending.length)return;
+  if(pending.some(g=>!g.customer||!g.items?.length)){toast('모든 주문의 거래처와 품목을 확인해 주세요.');return;}
   _savingRawUpload=true;
-  const controls=[...document.querySelectorAll('#m-raw-preview button,#m-raw-preview select')];
-  const states=controls.map(el=>({el,disabled:el.disabled}));
+  const controls=[...document.querySelectorAll('#m-raw-preview button,#m-raw-preview select')],states=controls.map(el=>({el,disabled:el.disabled}));
   controls.forEach(el=>el.disabled=true);
-  let current=null;
   try{
-    for(const g of groups){
-      if(g._saveStatus==='saved')continue;
-      current=g;
-      if(!g.items?.length){g._saveStatus='failed';g._saveError='품목이 없는 주문은 업로드할 수 없습니다.';break;}
+    const operations=[];
+    for(const g of pending){
       if(!g._saveInvoice){
         const c=custByName(g.customer),code=c?.code||'UNK',odate=g.orderDate;
         const ym=odate.replace(/[.\-\s]/g,'').replace(/[가-힣]+/g,'').slice(0,8);
         const baseNo=`${code}_${ym}`;
         const used=new Set([..._invoices.map(i=>i.no),...groups.map(x=>x._saveInvoice?.no)]);
-        let invNo=baseNo,n=2;while(used.has(invNo))invNo=`${baseNo}_${n++}`;
-        // Keep this number on retry. Never turn an unconfirmed request into a new order number.
-        g._saveInvoice={no:invNo,customer:g.customer,mgr:c?.mgr||'',order_date:odate||null,
-          pay_date:g.payDate||null,ship_date:g.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:''};
+        let no=baseNo,n=2;while(used.has(no))no=`${baseNo}_${n++}`;
+        g._saveInvoice={no,customer:g.customer,mgr:c?.mgr||'',order_date:odate,pay_date:g.payDate||null,ship_date:g.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:''};
       }
-      g._saveStatus='saving';g._saveError='';renderRawUploadStatus(groups);
-      const saved=await persistRawInvoice(null,g._saveInvoice,g.items.map(it=>({...it,salesType:it.salesType||'Paid'})),{
-        onFailure:(error,confirmed)=>{g._saveStatus=confirmed?'failed':'unknown';g._saveError=error?.message||String(error);}
-      });
-      if(!saved){if(g._saveStatus==='saving')g._saveStatus='unknown';break;}
-      g._saveStatus='saved';g._savedInvoiceId=saved.invoice.id;
-      renderRawUploadStatus(groups);
+      operations.push(await invoiceChange(null,g._saveInvoice,g.items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType||'Paid',qty:it.qty,price:it.price}))));
+      g._saveStatus='saving';g._saveError='';
     }
-  }catch(error){
-    if(current){current._saveStatus='unknown';current._saveError=error?.message||String(error);}
-  }finally{
-    _savingRawUpload=false;
-    states.forEach(({el,disabled})=>el.disabled=disabled);
     renderRawUploadStatus(groups);
-  }
-  const completed=groups.filter(g=>g._saveStatus==='saved');
-  if(completed.length===groups.length){
-    window._rawUploadData=null;cm('m-raw-preview');renderRaw();
-    toast(`RAW 저장 완료! ${completed.length}건 ${completed.reduce((n,g)=>n+g.items.length,0)}개 품목`);
-  }else{
-    toast(`RAW 저장 중단 — 완료 ${completed.length}건. 실패·확인 필요·미처리 내역을 확인해 주세요.`);
-  }
+    const result=await changeRequests.submit(operations);
+    for(const g of pending){g._saveStatus=result?(result.status==='pending'?'requested':result.status):'pending';if(result)g._requestId=result.id;}
+    if(result)toast(ChangeRequests.message(result));
+  }catch(error){for(const g of pending){g._saveStatus=/^[0-9A-Z]{5}$/.test(error.code||'')?'failed':'unknown';g._saveError=error?.message||String(error);}toast('요청 실패 또는 확인 필요. 입력과 요청 번호를 유지했습니다. 변경 요청 목록을 확인해 주세요.');}
+  finally{_savingRawUpload=false;states.forEach(({el,disabled})=>el.disabled=disabled);renderRawUploadStatus(groups);}
 }
 
 function renderRawUploadStatus(groups=window._rawUploadData||[]){
-  const labels={saved:'완료',failed:'실패',unknown:'저장 여부 확인 필요',saving:'저장 중',pending:'미처리'};
+  const labels={approved:'승인 완료',rejected:'반려',requested:'승인 대기',failed:'요청 실패',unknown:'접수 여부 확인 필요',saving:'요청 중',pending:'미처리'};
   const count=state=>groups.filter(g=>(g._saveStatus||'pending')===state).length;
   const attempted=groups.some(g=>g._saveStatus);
   document.querySelectorAll('[data-raw-upload-customer]').forEach(select=>{
     select.disabled=_savingRawUpload||!!groups[Number(select.dataset.rawUploadCustomer)]?._saveInvoice;
   });
   const button=document.getElementById('raw-upload-save');
-  if(button)button.textContent=_savingRawUpload?'저장 중...':attempted?'미완료 주문 재시도':'저장';
+  if(button)button.textContent=_savingRawUpload?'요청 중...':attempted?'미처리 요청 재시도':'변경 요청 제출';
   const el=document.getElementById('raw-upload-status');if(!el)return;
-  if(!attempted){el.innerHTML='<p>주문별로 인보이스와 상세항목을 함께 저장합니다. 오류가 나면 멈추며 완료된 주문은 유지됩니다.</p>';return;}
-  el.innerHTML=`<p><strong>완료 ${count('saved')}건 · 실패 ${count('failed')}건 · 확인 필요 ${count('unknown')}건 · 미처리 ${count('pending')}건${count('saving')?' · 저장 중 '+count('saving')+'건':''}</strong></p>
-    ${count('unknown')?'<p>응답을 확인하지 못한 주문은 아래 번호로 목록에서 저장 여부를 먼저 확인해 주세요. 재시도에도 같은 번호를 사용하며, 이미 저장된 번호를 새 번호로 바꾸지 않습니다.</p>':''}
+  if(!attempted){el.innerHTML='<p>모든 주문을 한 변경 요청으로 제출합니다. 승인 전 확정 자료는 유지됩니다.</p>';return;}
+  el.innerHTML=`<p><strong>승인 대기 ${count('requested')}건 · 실패 ${count('failed')}건 · 확인 필요 ${count('unknown')}건 · 미처리 ${count('pending')}건${count('saving')?' · 저장 중 '+count('saving')+'건':''}</strong></p>
+    ${count('unknown')?'<p>응답을 확인하지 못한 경우 변경 요청 목록에서 접수 여부를 확인해 주세요. 재시도는 같은 요청 식별자를 사용합니다.</p>':''}
     <div style="max-height:180px;overflow:auto"><table style="width:100%;font-size:11px;text-align:left"><thead><tr><th>주문번호 / 발주일</th><th>거래처</th><th>처리 결과</th></tr></thead><tbody>${groups.map(g=>`<tr><td>${esc(g._saveInvoice?.no||g.orderDate||'-')}</td><td>${esc(g.customer)}</td><td>${labels[g._saveStatus||'pending']}${g._saveError?'<br>'+esc(g._saveError):''}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 // ── Paid → 인보이스 연동 ──
 async function linkRawToInvoice(){
-  // Ordered 상태 인보이스 중 Paid 품목 있는 것 → Paid로 변경
   const targets=_invoices.filter(inv=>inv.status==='Ordered'&&getInvItems(inv.id).some(it=>it.sales_type==='Paid'));
   if(!targets.length){toast('연동할 Paid 데이터가 없습니다.');return;}
-  if(!confirm(`Paid 품목이 있는 인보이스 ${targets.length}건을 연동할까요?\nStatus가 Paid로 변경됩니다.`))return;
-  let cnt=0;
-  for(const inv of targets){
-    await sb.from('invoices').update({status:'Paid',ship_status:'출고완료'}).eq('id',inv.id);
-    const idx=_invoices.findIndex(i=>i.id===inv.id);
-    if(idx>=0){_invoices[idx].status='Paid';_invoices[idx].ship_status='출고완료';}
-    cnt++;
-  }
-  toast(`✅ ${cnt}건 인보이스 연동 완료!`);
-  setTimeout(()=>renderRaw(),400);
+  if(!confirm(`${targets.length}건의 Paid 변경을 요청할까요?`))return;
+  try{await queueChanges(await Promise.all(targets.map(inv=>rowChange('invoices','update',{id:inv.id},{status:'Paid',ship_status:'출고완료'},inv))));}catch(e){toast(e.message);}
 }
 
 function exportRaw(){
@@ -2750,22 +2593,10 @@ function renderForecast(){
 }
 
 async function convertLostToPaid(barcodeOrName){
-  const lostItems=[];
-  _invoices.forEach(inv=>{
-    getInvItems(inv.id).filter(i=>i.sales_type==='Lost'&&(i.barcode===barcodeOrName||i.name===barcodeOrName)).forEach(it=>{
-      lostItems.push({...it,invId:inv.id,invNo:inv.no});
-    });
-  });
-  if(!lostItems.length){toast('전환할 항목이 없습니다.');return;}
-  if(!confirm(`${lostItems.length}개 품목을 Lost → Paid로 전환할까요?`))return;
-
-  for(const it of lostItems){
-    await sb.from('invoice_items').update({sales_type:'Paid'}).eq('id',it.id);
-    const idx=_items.findIndex(i=>i.id===it.id);
-    if(idx>=0)_items[idx].sales_type='Paid';
-  }
-  toast(`✅ ${lostItems.length}개 품목 Paid 전환 완료!`);
-  renderForecast();
+  const items=_items.filter(i=>i.sales_type==='Lost'&&(i.barcode===barcodeOrName||i.name===barcodeOrName));
+  if(!items.length){toast('전환할 항목이 없습니다.');return;}
+  if(!confirm(`${items.length}개 품목의 Paid 전환을 요청할까요?`))return;
+  try{await queueChanges(await Promise.all(items.map(it=>rowChange('invoice_items','update',{id:it.id},{sales_type:'Paid'},it))));}catch(e){toast(e.message);}
 }
 function stParseBarcode(input){
   const barcode=input.value.trim();
@@ -2777,7 +2608,7 @@ function stParseBarcode(input){
 function openStockModal(){
   _editStock=null;
   document.getElementById('m-stock-title').textContent='입고 예정 등록';
-  document.getElementById('m-stock-save-btn').textContent='저장';
+  document.getElementById('m-stock-save-btn').textContent='변경 요청 제출';
   document.getElementById('st-barcode').value='';
   document.getElementById('st-name').value='';
   document.getElementById('st-date').value='';
@@ -2789,9 +2620,9 @@ function openStockModal(){
 let _editStock=null;
 function editStock(id){
   const s=_stocks.find(x=>x.id===id);if(!s)return;
-  _editStock=s;
+  _editStock=JSON.parse(JSON.stringify(s));
   document.getElementById('m-stock-title').textContent='입고 예정 수정';
-  document.getElementById('m-stock-save-btn').textContent='수정 저장';
+  document.getElementById('m-stock-save-btn').textContent='수정 요청 제출';
   document.getElementById('st-barcode').value=s.barcode||'';
   document.getElementById('st-name').value=s.name||'';
   document.getElementById('st-date').value=s.date||'';
@@ -2806,18 +2637,7 @@ async function saveStock(){
   if((!barcode&&!n)||!d){alert('바코드(또는 제품명)와 날짜 필수');return;}
   const obj={name:n||barcode,barcode,date:d,qty:parseFloat(document.getElementById('st-qty').value)||0,note:document.getElementById('st-note').value};
 
-  if(_editStock){
-    const{error}=await sb.from('stocks').update(obj).eq('id',_editStock.id);
-    if(error){toast('❌ 수정 실패: '+error.message);console.error(error);return;}
-    const idx=_stocks.findIndex(s=>s.id===_editStock.id);
-    if(idx>=0)_stocks[idx]={..._editStock,...obj};
-    cm('m-stock');renderForecast();toast('입고 예정 수정됐습니다!');
-  } else {
-    const{data,error}=await sb.from('stocks').insert(obj).select();
-    if(error){toast('❌ 등록 실패: '+error.message);console.error(error);return;}
-    if(data&&data.length)_stocks.push(...data);
-    cm('m-stock');renderForecast();toast('입고 예정 등록됐습니다!');
-  }
+  if(await requestRow('stocks',_editStock?'update':'insert',_editStock?{id:_editStock.id}:{},obj,_editStock)){cm('m-stock');renderForecast();}
 }
 function renderStockTable(){
   const tbody=document.getElementById('stock-tbody');if(!tbody)return;
@@ -2934,18 +2754,9 @@ function filterTax(){
 }
 
 async function updTaxSt2(custId,name,month,val,el){
-  // tax_records 테이블에 월별 상태 저장 (upsert)
-  await sb.from('tax_records').upsert(
-    {customer_id:custId,month,status:val},
-    {onConflict:'customer_id,month'}
-  );
-  // 캐시 업데이트
-  const idx=_taxRecords.findIndex(r=>r.customer_id===custId&&r.month===month);
-  if(idx>=0)_taxRecords[idx].status=val;
-  else _taxRecords.push({customer_id:custId,month,status:val});
-  if(el)el.className='ss s'+val.replace(/\s/g,'');
-  if(window._taxMonthMap?.[month]?.[name])window._taxMonthMap[month][name].taxStatus=val;
-  toast('계산서 상태: '+val);
+  const before=_taxRecords.find(r=>r.customer_id===custId&&r.month===month)||null;
+  await requestRow('tax_records',before?'update':'insert',before?{id:before.id}:{},{customer_id:custId,month,status:val},before);
+  if(el){el.value=before?.status||'미발행';el.className='ss s'+el.value;}
 }
 
 function exportTax(){
@@ -3060,8 +2871,9 @@ function exportCust(){
 }
 
 function openNewCust(){_editCust=null;['c-name','c-code','c-addr','c-biz','c-ceo','c-contact','c-phone','c-email','c-biz-type','c-note','c-supply-rate'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('c-mgr').value='liah';document.getElementById('c-tax').value='영세';document.getElementById('c-country').value='';document.getElementById('c-status').value='거래중';document.getElementById('m-cust-title').textContent='거래처 등록';om('m-cust');}
-function editCust(id){const c=_customers.find(x=>x.id===id);if(!c)return;_editCust=c;document.getElementById('c-name').value=c.name;document.getElementById('c-code').value=c.code||'';document.getElementById('c-mgr').value=c.mgr||'liah';document.getElementById('c-country').value=c.country||'';document.getElementById('c-tax').value=c.tax||'영세';document.getElementById('c-biz').value=c.biz||'';document.getElementById('c-addr').value=c.addr||'';document.getElementById('c-ceo').value=c.ceo||'';document.getElementById('c-contact').value=c.contact||'';document.getElementById('c-phone').value=c.phone||'';document.getElementById('c-email').value=c.email||'';document.getElementById('c-biz-type').value=c.biz_type||'';document.getElementById('c-note').value=c.note||'';document.getElementById('c-status').value=c.status||'거래중';document.getElementById('c-supply-rate').value=c.supply_rate||'';document.getElementById('m-cust-title').textContent='거래처 수정';om('m-cust');}
-async function saveCust(){const name=document.getElementById('c-name').value.trim();if(!name){alert('업체명 필수');return;}const obj={name,code:document.getElementById('c-code').value,mgr:document.getElementById('c-mgr').value,country:document.getElementById('c-country').value,tax:document.getElementById('c-tax').value,biz:document.getElementById('c-biz').value,addr:document.getElementById('c-addr').value,ceo:document.getElementById('c-ceo').value,contact:document.getElementById('c-contact').value,phone:document.getElementById('c-phone').value,email:document.getElementById('c-email').value,biz_type:document.getElementById('c-biz-type').value,note:document.getElementById('c-note').value,status:document.getElementById('c-status').value,supply_rate:parseFloat(document.getElementById('c-supply-rate').value)||null};if(_editCust){await sb.from('customers').update(obj).eq('id',_editCust.id);const idx=_customers.findIndex(c=>c.id===_editCust.id);if(idx>=0)_customers[idx]={..._editCust,...obj};}else{const{data}=await sb.from('customers').insert(obj).select().single();if(data)_customers.push(data);}cm('m-cust');renderCustomers();toast('저장됐습니다!');}
+function editCust(id){const c=_customers.find(x=>x.id===id);if(!c)return;_editCust=JSON.parse(JSON.stringify(c));document.getElementById('c-name').value=c.name;document.getElementById('c-code').value=c.code||'';document.getElementById('c-mgr').value=c.mgr||'liah';document.getElementById('c-country').value=c.country||'';document.getElementById('c-tax').value=c.tax||'영세';document.getElementById('c-biz').value=c.biz||'';document.getElementById('c-addr').value=c.addr||'';document.getElementById('c-ceo').value=c.ceo||'';document.getElementById('c-contact').value=c.contact||'';document.getElementById('c-phone').value=c.phone||'';document.getElementById('c-email').value=c.email||'';document.getElementById('c-biz-type').value=c.biz_type||'';document.getElementById('c-note').value=c.note||'';document.getElementById('c-status').value=c.status||'거래중';document.getElementById('c-supply-rate').value=c.supply_rate||'';document.getElementById('m-cust-title').textContent='거래처 수정';om('m-cust');}
+async function saveCust(){const name=document.getElementById('c-name').value.trim();if(!name){alert('업체명 필수');return;}const obj={name,code:document.getElementById('c-code').value,mgr:document.getElementById('c-mgr').value,country:document.getElementById('c-country').value,tax:document.getElementById('c-tax').value,biz:document.getElementById('c-biz').value,addr:document.getElementById('c-addr').value,ceo:document.getElementById('c-ceo').value,contact:document.getElementById('c-contact').value,phone:document.getElementById('c-phone').value,email:document.getElementById('c-email').value,biz_type:document.getElementById('c-biz-type').value,note:document.getElementById('c-note').value,status:document.getElementById('c-status').value,supply_rate:parseFloat(document.getElementById('c-supply-rate').value)||null};if(await requestRow('customers',_editCust?'update':'insert',_editCust?{id:_editCust.id}:{},obj,_editCust)){cm('m-cust');renderCustomers();}
+}
 
 // ─── CALENDAR ───
 let _calYear=new Date().getFullYear();
@@ -3225,21 +3037,12 @@ async function saveSched(){
   const date=document.getElementById('sched-date').value;
   if(!title||!date){alert('제목과 날짜는 필수입니다.');return;}
   const obj={title,date,type:document.getElementById('sched-type').value,customer:document.getElementById('sched-cust').value,note:document.getElementById('sched-note').value};
-  const{data,error}=await sb.from('schedules').insert(obj).select().single();
-  if(error){toast('저장 오류: '+error.message);return;}
-  _schedules.push(data);
-  cm('m-sched');
-  buildCalendar();
-  toast('✅ 일정 등록됐습니다!');
+  if(await requestRow('schedules','insert',{},obj,null)){cm('m-sched');buildCalendar();}
 }
 
 async function delSched(id){
-  if(!confirm('삭제하시겠습니까?'))return;
-  await sb.from('schedules').delete().eq('id',id);
-  _schedules=_schedules.filter(s=>s.id!==id);
-  document.getElementById('day-detail-modal')?.remove();
-  buildCalendar();
-  toast('삭제됐습니다.');
+  if(!confirm('삭제를 요청할까요? 승인 전 자료는 유지됩니다.'))return;
+  await requestRow('schedules','delete',{id},null,_schedules.find(r=>r.id===id));
 }
 
 // ─── DOCS ───
@@ -3324,9 +3127,8 @@ async function saveDriveDoc(){
   try{
     const row=await DriveDocuments.save(sb,form,_invoices);
     if(epoch!==_driveEpoch)return;
-    _driveReadSeq++;_driveRows=[row,..._driveRows.filter(d=>d.id!==row.id)];_driveState='ready';_driveError='';
-    renderDriveDocs();cm('m-drive-doc');toast('Drive 증빙이 연결됐습니다.');
-    loadDriveDocs();
+    if(!row)return;
+    cm('m-drive-doc');toast(ChangeRequests.message(row));
   }catch(error){
     if(epoch!==_driveEpoch)return;
     document.getElementById('drive-error').textContent=error?.message||'저장 결과를 확인하지 못했습니다. 증빙 목록을 새로 조회해 주세요.';
@@ -3339,10 +3141,9 @@ async function removeDriveDoc(id){
   if(!confirm('이 주문의 증빙 연결을 해제할까요? Google Drive 원본 파일은 유지됩니다.'))return;
   const epoch=_driveEpoch;_driveRemoving.add(id);renderDriveDocs();
   try{
-    await DriveDocuments.remove(sb,id);
+    const result=await DriveDocuments.remove(sb,id,_driveRows.find(d=>d.id===id));
     if(epoch!==_driveEpoch)return;
-    _driveReadSeq++;_driveRows=_driveRows.filter(d=>d.id!==id);_driveState='ready';_driveError='';
-    toast('증빙 연결이 해제됐습니다.');loadDriveDocs();
+    if(result)toast(ChangeRequests.message(result));
   }catch(error){if(epoch===_driveEpoch)toast(error?.message||'연결 해제 실패. 목록을 다시 조회해 주세요.');}
   finally{if(epoch===_driveEpoch){_driveRemoving.delete(id);renderDriveDocs();}}
 }
@@ -3413,7 +3214,7 @@ function filterDocs(){
 function openDocModal(){
   _editDoc=null;
   document.getElementById('m-doc-title').textContent='서류 등록';
-  document.getElementById('m-doc-save-btn').textContent='저장';
+  document.getElementById('m-doc-save-btn').textContent='변경 요청 제출';
   fillCustSel('d-cust','');
   ['d-name','d-country','d-note'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('d-exp').value='';
@@ -3428,9 +3229,9 @@ let _editDoc=null;
 
 function editDoc(id){
   const d=_docs.find(x=>x.id===id);if(!d)return;
-  _editDoc=d;
+  _editDoc=JSON.parse(JSON.stringify(d));
   document.getElementById('m-doc-title').textContent='서류 수정';
-  document.getElementById('m-doc-save-btn').textContent='수정 저장';
+  document.getElementById('m-doc-save-btn').textContent='수정 요청 제출';
   fillCustSel('d-cust',d.customer||'');
   document.getElementById('d-name').value=d.name||'';
   document.getElementById('d-country').value=d.country||'';
@@ -3455,7 +3256,12 @@ function docDropFile(file){
   if(lbl)lbl.textContent='📄 '+file.name;
 }
 
+const _stagedDocFiles=new WeakMap();
+let _savingDoc=false;
 async function saveDoc(){
+  if(_savingDoc)return;
+  _savingDoc=true;
+  try{
   const name=document.getElementById('d-name').value.trim();
   if(!name){alert('서류명 필수');return;}
   const file=_docFile||document.getElementById('d-file')?.files?.[0];
@@ -3464,28 +3270,24 @@ async function saveDoc(){
   let filePath=_editDoc?.file_path||null;
   if(file){
     if(prog){prog.style.display='block';prog.textContent='파일 업로드 중...';}
-    const path='docs/'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-    // upsert:true 로 같은 이름 파일 덮어쓰기 허용
-    const{data:upData,error:upErr}=await sb.storage.from('documents').upload(path,file,{upsert:true});
+    const path=_stagedDocFiles.get(file)||('pending/'+crypto.randomUUID()+'/'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_'));
+    // 승인 전 기존 파일을 덮어쓰지 않는 독립 업로드 경로
+    const{error:upErr}=_stagedDocFiles.has(file)?{error:null}:await sb.storage.from('documents').upload(path,file,{upsert:false});
     if(upErr){alert('파일 업로드 실패: '+upErr.message);if(prog)prog.style.display='none';return;}
+    _stagedDocFiles.set(file,path);
     // 서명 URL 방식: public URL은 저장하지 않고 경로(file_path)만 저장
     fileUrl=null;
     filePath=path;
     if(prog)prog.textContent='업로드 완료!';
   }
   const obj={name,customer:document.getElementById('d-cust').value,type:document.getElementById('d-type').value,country:document.getElementById('d-country').value,exp_date:document.getElementById('d-exp').value||null,note:document.getElementById('d-note').value,file_url:fileUrl,file_path:filePath};
-  if(_editDoc){
-    await sb.from('documents').update(obj).eq('id',_editDoc.id);
-    const idx=_docs.findIndex(d=>d.id===_editDoc.id);
-    if(idx>=0)_docs[idx]={..._editDoc,...obj};
-    cm('m-doc');filterDocs();toast('서류 수정됐습니다!');
-  } else {
-    const{data}=await sb.from('documents').insert(obj).select().single();
-    if(data)_docs.unshift(data);
-    cm('m-doc');filterDocs();toast('서류 등록됐습니다!');
-  }
+  if(await requestRow('documents',_editDoc?'update':'insert',_editDoc?{id:_editDoc.id}:{},obj,_editDoc)){cm('m-doc');filterDocs();}
+  }catch(error){toast('요청 실패: '+error.message);}finally{_savingDoc=false;}
 }
-async function delDoc(id){if(!confirm('삭제하시겠습니까?'))return;await sb.from('documents').delete().eq('id',id);_docs=_docs.filter(d=>d.id!==id);filterDocs();}
+async function delDoc(id){
+  if(!confirm('삭제를 요청할까요? 승인 전 자료는 유지됩니다.'))return;
+  await requestRow('documents','delete',{id},null,_docs.find(r=>r.id===id));
+}
 
 // ─── PRODUCTS ───
 let _prodSort={col:'name',dir:'asc'};
@@ -3566,21 +3368,10 @@ function filterProd(page){
   }
 }
 function openNewProd(){_editProd=null;['p-name','p-barcode','p-cat'].forEach(id=>document.getElementById(id).value='');document.getElementById('p-price').value='';document.getElementById('p-status').value='';document.getElementById('p-name-eng').value='';document.getElementById('p-cartoon').value='';document.getElementById('p-inbox').value='';document.getElementById('m-prod-title').textContent='제품 등록';om('m-prod');}
-function editProd(id){const p=_products.find(x=>x.id===id);if(!p)return;_editProd=p;document.getElementById('p-name').value=p.name;document.getElementById('p-barcode').value=p.barcode||'';document.getElementById('p-price').value=p.price||'';document.getElementById('p-cat').value=p.cat||'';document.getElementById('p-status').value=p.status||'';document.getElementById('p-name-eng').value=p.name_eng||'';document.getElementById('p-cartoon').value=p.cartoon||'';document.getElementById('p-inbox').value=p.inbox||'';document.getElementById('m-prod-title').textContent='제품 수정';om('m-prod');}
-async function toggleProdStatus(id, isActive){
-  const status=isActive?'':'단종';
-  await sb.from('products').update({status}).eq('id',id);
-  const idx=_products.findIndex(p=>p.id===id);
-  if(idx>=0)_products[idx].status=status;
-  // 라벨 텍스트 업데이트
-  const label=document.querySelector(`input[onchange*="${id}"]`)?.closest('label');
-  if(label)label.title=isActive?'판매중':'단종';
-  const lbl=label?.nextElementSibling;
-  if(lbl)lbl.textContent=isActive?'판매중':'단종';
-  // 행 스타일 업데이트
-  const row=label?.closest('tr');
-  if(row){row.style.opacity=isActive?'':'0.45';row.style.background=isActive?'':'var(--bg3)';}
-  toast(isActive?'판매중으로 변경':'단종 처리됐습니다.');
+function editProd(id){const p=_products.find(x=>x.id===id);if(!p)return;_editProd=JSON.parse(JSON.stringify(p));document.getElementById('p-name').value=p.name;document.getElementById('p-barcode').value=p.barcode||'';document.getElementById('p-price').value=p.price||'';document.getElementById('p-cat').value=p.cat||'';document.getElementById('p-status').value=p.status||'';document.getElementById('p-name-eng').value=p.name_eng||'';document.getElementById('p-cartoon').value=p.cartoon||'';document.getElementById('p-inbox').value=p.inbox||'';document.getElementById('m-prod-title').textContent='제품 수정';om('m-prod');}
+async function toggleProdStatus(id,isActive){
+  await requestRow('products','update',{id},{status:isActive?'':'단종'},_products.find(p=>p.id===id));
+  filterProd();
 }
 
 
@@ -3723,17 +3514,17 @@ async function saveBulkProd(){
     };
   }).filter(Boolean);
   if(!items.length){toast('입력된 데이터가 없습니다.');return;}
-  const{data,error}=await sb.from('products').insert(items).select();
-  if(error){toast('저장 오류: '+error.message);return;}
-  if(data)_products.push(...data);
-  cm('m-prod-bulk');
-  document.removeEventListener('paste',xgProdHandlePaste);
-  document.removeEventListener('keydown',xgProdKeydownGlobal);
-  filterProd();toast(`✅ ${items.length}개 제품 등록 완료!`);
+  try{if(!await queueChanges(await Promise.all(items.map(item=>rowChange('products','insert',{},item,null)))))return;
+  cm('m-prod-bulk');document.removeEventListener('paste',xgProdHandlePaste);document.removeEventListener('keydown',xgProdKeydownGlobal);
+  }catch(e){toast('요청 실패: '+e.message);}
 }
 
-async function saveProd(){const name=document.getElementById('p-name').value.trim();if(!name){alert('제품명 필수');return;}const obj={name,barcode:document.getElementById('p-barcode').value,price:parseFloat(document.getElementById('p-price').value)||0,cat:document.getElementById('p-cat').value,status:document.getElementById('p-status').value,name_eng:document.getElementById('p-name-eng').value,cartoon:parseInt(document.getElementById('p-cartoon').value)||0,inbox:parseInt(document.getElementById('p-inbox').value)||0};if(_editProd){await sb.from('products').update(obj).eq('id',_editProd.id);const idx=_products.findIndex(p=>p.id===_editProd.id);if(idx>=0)_products[idx]={..._editProd,...obj};}else{const{data}=await sb.from('products').insert(obj).select().single();if(data)_products.push(data);}cm('m-prod');renderProducts();toast('저장됐습니다!');}
-async function delProd(id){if(!confirm('삭제하시겠습니까?'))return;await sb.from('products').delete().eq('id',id);_products=_products.filter(p=>p.id!==id);renderProducts();}
+async function saveProd(){const name=document.getElementById('p-name').value.trim();if(!name){alert('제품명 필수');return;}const obj={name,barcode:document.getElementById('p-barcode').value,price:parseFloat(document.getElementById('p-price').value)||0,cat:document.getElementById('p-cat').value,status:document.getElementById('p-status').value,name_eng:document.getElementById('p-name-eng').value,cartoon:parseInt(document.getElementById('p-cartoon').value)||0,inbox:parseInt(document.getElementById('p-inbox').value)||0};if(await requestRow('products',_editProd?'update':'insert',_editProd?{id:_editProd.id}:{},obj,_editProd)){cm('m-prod');renderProducts();}
+}
+async function delProd(id){
+  if(!confirm('삭제를 요청할까요? 승인 전 자료는 유지됩니다.'))return;
+  await requestRow('products','delete',{id},null,_products.find(r=>r.id===id));
+}
 
 // ─── Storage 사용량 체크 ───
 async function runStorageCheck(el){
@@ -3818,15 +3609,9 @@ function setGoalQuick(v){
 async function saveGoal(){
   const v=parseFloat(document.getElementById('goal-input')?.value)||0;
   if(v<=0){toast('금액을 입력해주세요.');return;}
-  _revenueGoal=v;
-  localStorage.setItem('revenue_goal',v);
-  // Supabase에도 저장 (upsert)
-  try{
-    await sb.from('app_settings').upsert({key:'revenue_goal',value:String(v)},{onConflict:'key'});
-  }catch(e){console.warn('app_settings 저장 실패 (테이블 없으면 무시):', e);}
-  cm('m-goal');
-  renderDash();
-  toast('🎯 목표 매출 저장됐습니다!');
+  try{const before=await changeRequests.read('app_settings',{key:'revenue_goal'});
+    if(await requestRow('app_settings',before?'update':'insert',{key:'revenue_goal'},{key:'revenue_goal',value:String(v)},before))cm('m-goal');
+  }catch(e){toast('요청 실패: '+e.message);}
 }
 
 // ─── Storage 사용량 체크 ───
@@ -4793,32 +4578,15 @@ function handleRspFile(file){
 }
 
 async function confirmRspUpload(){
-  if(!_rspPreview||!_rspPreview.rows.length)return;
-  const btn=document.getElementById('rsp-confirm');btn.disabled=true;btn.textContent='반영 중...';
+  if(!_rspPreview?.rows.length)return;
+  const btn=document.getElementById('rsp-confirm');if(btn.disabled)return;btn.disabled=true;btn.textContent='요청 중...';
   try{
-    const now=new Date().toISOString();
-    const rows=_rspPreview.rows.map(r=>({...r,updated_at:now}));
-    for(let i=0;i<rows.length;i+=50){
-      const{error}=await sb.from('product_details').upsert(rows.slice(i,i+50),{onConflict:'barcode'});
-      if(error)throw error;
-    }
-    // products 동기화: 신규 등록 + 소비자가 갱신 (+ 비어있던 영문명/입수량 보완)
-    const{priceDiffs}=_rspPreview.stats;
-    // 가격 미정(retail_krw null) 신제품은 products 등록 보류 — 0원 제품이 매출 집계를 깨는 것을 방지
-    const newProducts=_rspPreview.stats.newProducts.filter(r=>r.retail_krw!==null);
-    if(newProducts.length){
-      const ins=newProducts.map(r=>({barcode:r.barcode,name:r.name_kr||r.barcode,name_eng:r.name_us||'',price:r.retail_krw,cat:'',status:'',cartoon:r.carton_take_in||0,inbox:r.inbox_take_in||0}));
-      const{data,error}=await sb.from('products').insert(ins).select();
-      if(error)throw error;if(data)_products.push(...data);
-    }
-    for(const d of priceDiffs){
-      const p=_products.find(x=>String(x.barcode||'').trim()===d.barcode);if(!p)continue;
-      const{error}=await sb.from('products').update({price:d.to}).eq('id',p.id);
-      if(error)throw error;p.price=d.to;
-    }
-    await loadProductDetails(true);
-    toast(`✅ RSP 반영 완료 — 상세 ${rows.length}개, 신규 제품 ${newProducts.length}개, 가격 갱신 ${priceDiffs.length}개`);
-    cm('m-rsp');_rspPreview=null;
-    renderProductAnalysis();
-  }catch(err){console.error(err);toast('❌ 반영 실패: '+err.message);btn.disabled=false;btn.innerHTML='<i class="ti ti-database-import"></i> DB에 반영';}
+    const operations=[];
+    for(const row of _rspPreview.rows){const before=(_pd||[]).find(p=>p.barcode===row.barcode)||null;operations.push(await rowChange('product_details',before?'update':'insert',{barcode:row.barcode},row,before));}
+    for(const row of _rspPreview.stats.newProducts.filter(r=>r.retail_krw!==null))operations.push(await rowChange('products','insert',{}, {barcode:row.barcode,name:row.name_kr||row.barcode,name_eng:row.name_us||'',price:row.retail_krw,cat:'',status:'',cartoon:row.carton_take_in||0,inbox:row.inbox_take_in||0},null));
+    for(const d of _rspPreview.stats.priceDiffs){const p=_products.find(x=>String(x.barcode||'').trim()===d.barcode);if(p)operations.push(await rowChange('products','update',{id:p.id},{price:d.to},p));}
+    if(await queueChanges(operations)){cm('m-rsp');_rspPreview=null;}
+  }catch(error){toast('요청 실패: '+error.message);}finally{btn.disabled=false;btn.textContent='변경 요청 제출';}
 }
+
+async function delStock(id){if(confirm('입고 예정 삭제를 요청할까요?'))await requestRow('stocks','delete',{id},null,_stocks.find(r=>r.id===id));}
