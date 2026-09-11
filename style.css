@@ -377,3 +377,15 @@ tr:hover td{background:var(--bg3)}
 .drive-order-link{border:0;padding:0;background:none;color:var(--purple);font:inherit;cursor:pointer}
 .drive-detail{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
 .drive-detail-heading{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:12px}
+.invoice-proof-warning{padding:10px 12px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg3);color:var(--text2);font-size:12px;line-height:1.65;margin:8px 0 12px}
+.invoice-amount-help{font-size:12px;line-height:1.6;color:var(--text2);margin:8px 0}
+.invoice-amount-error{font-size:12px;line-height:1.6;color:var(--red);white-space:pre-wrap}
+.modal.invoice-amount-modal{width:min(1120px,96vw);max-width:1120px}
+.invoice-amount-table{min-width:900px;width:100%}
+.invoice-amount-table th,.invoice-amount-table td{vertical-align:top}
+.invoice-amount-table small{display:block;color:var(--text3);margin-top:4px;overflow-wrap:anywhere}
+.invoice-amount-table .amount-number{text-align:right;white-space:nowrap}
+.invoice-amount-table input{width:120px}
+.invoice-amount-table textarea{width:100%;min-width:190px;min-height:66px;resize:vertical}
+.invoice-amount-table input,.invoice-amount-table textarea{border:1px solid var(--border2);border-radius:5px;padding:7px;font:inherit;background:var(--bg);color:var(--text)}
+.invoice-amount-table input:disabled,.invoice-amount-table textarea:disabled{opacity:.65}

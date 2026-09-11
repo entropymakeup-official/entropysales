@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="style.css?v=20260911-annual-1"/>
+<link rel="stylesheet" href="style.css?v=20260911-evidence-amount-1"/>
 </head>
 <body>
   </div>
@@ -146,6 +146,7 @@
       <div class="fg"><label>메모</label><input id="inv-note"/></div>
     </div>
     <div class="sdiv">품목</div>
+    <p id="inv-proof-warning" class="invoice-proof-warning" hidden></p>
     <table class="it"><thead><tr><th style="min-width:140px">제품명</th><th>Barcode</th><th>Sales Type</th><th>수량</th><th>단가(₩)</th><th>금액</th><th></th></tr></thead>
     <tbody id="inv-items"></tbody></table>
     <button class="btn btn-sm" onclick="addInvItem()"><i class="ti ti-plus"></i> 품목 추가</button>
@@ -585,6 +586,7 @@
     <button class="btn btn-red" id="view-del-btn" style="margin-right:auto"><i class="ti ti-trash"></i> 삭제</button>
     <button class="btn" onclick="cm('m-inv-view')">닫기</button>
     <button class="btn btn-green" id="view-dl-btn"><i class="ti ti-download"></i> 거래명세서</button>
+    <button class="btn" id="view-amount-btn">증빙 금액</button>
     <button class="btn btn-primary" id="view-edit-btn"><i class="ti ti-pencil"></i> 수정</button>
   </div>
 </div>
@@ -603,14 +605,32 @@
     <div class="mft"><button class="btn" onclick="cm('m-drive-doc')">취소</button><button id="drive-save" class="btn btn-primary" onclick="saveDriveDoc()">증빙 연결</button></div>
   </div>
 </div>
-<script src="change-requests.js?v=20260911-approvals-1"></script>
-<script src="drive-documents.js?v=20260911-approvals-1"></script>
-<script src="dashboard-model.js?v=20260910-raw-upload-1"></script>
-<script src="dashboard-ui.js?v=20260910-raw-upload-1"></script>
-<script src="sheet-sync-status.js?v=20260910-raw-upload-1"></script>
-<script src="inventory-history.js?v=20260910-history-1"></script>
-<script src="inventory-monthly.js?v=20260911-annual-1"></script>
-<script src="live-inventory.js?v=20260910-history-1"></script>
-<script src="app.js?v=20260911-approvals-1"></script>
+<!-- 증빙 금액 승인 요청 -->
+<div class="modal-bg" id="m-invoice-amount">
+<div class="modal wide invoice-amount-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-amount-title">
+  <div class="mhd"><h2 id="invoice-amount-title">증빙 금액</h2><button class="btn btn-sm" aria-label="닫기" onclick="invoiceAmounts.close()"><i class="ti ti-x"></i></button></div>
+  <div class="mbody">
+    <p class="invoice-proof-warning">Paid 품목의 수량·단가는 보존합니다. 증빙 금액을 입력하면 문서명·페이지·원본 링크 등 근거를 함께 적어 주세요. 금액을 비우면 금액과 근거가 함께 해제됩니다. 0과 음수도 입력할 수 있습니다.</p>
+    <p class="invoice-amount-help">관리자 승인 후 집계에 반영됩니다. 현재 적용 금액은 승인된 자료이며, 입력한 값은 변경 요청입니다.</p>
+    <div class="tw" tabindex="0" role="region" aria-label="Paid 품목 증빙 금액 입력">
+      <table class="invoice-amount-table"><thead><tr><th>품목 / 바코드</th><th>원래 수량</th><th>원래 단가</th><th>수량 × 단가</th><th>현재 적용 금액</th><th>증빙 금액 (선택)</th><th>증빙 근거</th></tr></thead><tbody id="invoice-amount-rows"></tbody></table>
+    </div>
+    <p id="invoice-amount-error" class="invoice-amount-error" role="alert"></p>
+    <p id="invoice-amount-message" class="invoice-amount-help" role="status"></p>
+  </div>
+  <div class="mft"><button class="btn" onclick="invoiceAmounts.close()">취소</button><button class="btn btn-primary" id="invoice-amount-submit" onclick="invoiceAmounts.submit()">변경 요청 제출</button></div>
+</div>
+</div>
+
+<script src="change-requests.js?v=20260911-evidence-amount-1"></script>
+<script src="drive-documents.js?v=20260911-evidence-amount-1"></script>
+<script src="invoice-amounts.js?v=20260911-evidence-amount-1"></script>
+<script src="dashboard-model.js?v=20260911-evidence-amount-1"></script>
+<script src="dashboard-ui.js?v=20260911-evidence-amount-1"></script>
+<script src="sheet-sync-status.js?v=20260911-evidence-amount-1"></script>
+<script src="inventory-history.js?v=20260911-evidence-amount-1"></script>
+<script src="inventory-monthly.js?v=20260911-evidence-amount-1"></script>
+<script src="live-inventory.js?v=20260911-evidence-amount-1"></script>
+<script src="app.js?v=20260911-evidence-amount-1"></script>
 </body>
 </html>

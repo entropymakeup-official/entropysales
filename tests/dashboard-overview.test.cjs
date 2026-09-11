@@ -13,7 +13,7 @@ test('registered total evidence includes pending tax amounts and excludes cancel
  const evidence=model.evidence(result,'recordedRevenue');
  assert.deepEqual(evidence.rows.map(r=>r.invoice.id),['a','b']);
  assert.deepEqual(evidence.rows.map(r=>r.recordedRevenue),[100.4,200.4]);
- assert.equal(evidence.displayTotal,301);assert.equal(evidence.adjustment,1);
+ assert.equal(evidence.displayTotal,300.8);assert.equal(evidence.adjustment,0);
  assert.equal(result.revenue,100.4);assert.equal(result.pendingRevenue,200.4);
 });
 

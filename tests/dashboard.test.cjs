@@ -60,8 +60,8 @@ test('display rounding adjustment reconciles rounded evidence rows with the KPI'
  const m=model();assert.equal(typeof m.evidence,'function');
  const inv=[{id:'a',order_date:'2026-01-01'},{id:'b',order_date:'2026-01-02'}];
  for(const [type,metric] of [['Paid','revenue'],['Sample','foc'],['Lost','lost']]){
-   const lines=inv.map(v=>({invoice_id:v.id,sales_type:type,qty:1,price:10.4}));
+   const lines=inv.map(v=>({invoice_id:v.id,sales_type:type,qty:1,price:10.004}));
    const e=m.evidence(m.summarize(inv,lines,{start:'2026-01-01',end:'2026-01-31'}),metric);
-   assert.equal(e.roundedRows,20);assert.equal(e.displayTotal,21);assert.equal(e.adjustment,1);
+   assert.equal(e.roundedRows,20);assert.equal(e.displayTotal,20.01);assert.equal(e.adjustment,0.01);
  }
 });

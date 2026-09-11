@@ -28,7 +28,7 @@ function harness({response,execute,date='2026-09-10',confirm=true,invoice={}}={}
    const q={eq:(key,value)=>{request.filters.push(['eq',key,value]);return q;},is:(key,value)=>{request.filters.push(['is',key,value]);return q;},select:selection=>{request.selection=selection;return q;},then:(ok,bad)=>run().then(ok,bad)};return q;
   }})}
  });
- vm.runInContext(fs.readFileSync(path.join(__dirname,'../../dashboard-model.js'),'utf8'),ctx);
+ vm.runInContext(fs.readFileSync(path.join(__dirname,'../../invoice-amounts.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../../dashboard-model.js'),'utf8'),ctx);
  vm.runInContext(statusCode(),ctx);
  const run=(kind='pay')=>kind==='pay'?ctx.togglePayStatus('inv-a',inv.pay_date,inv.status):ctx.updShipSt('inv-a','출고완료',elements['inv-ship-inv-a']);
  return {ctx,inv,calls,notices,dialogs,renders,elements,run,notified:()=>notified};

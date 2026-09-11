@@ -6,6 +6,7 @@
   'use strict';
   const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const labels={customers:'거래처',products:'제품',invoices:'주문',invoice_items:'주문 품목',stocks:'재고',documents:'서류',schedules:'일정',app_settings:'설정',tax_records:'세금계산서',invoice_drive_documents:'주문 연결 문서',invoice:'주문 정보',items:'품목',id:'식별번호',name:'이름',customer_id:'거래처 식별번호',product_id:'제품 식별번호',invoice_id:'주문 식별번호',invoice_no:'주문번호',qty:'수량',quantity:'수량',price:'단가',unit_price:'단가',amount:'금액',total:'합계',currency:'통화',status:'상태',order_date:'주문일',ship_date:'출고일',ship_status:'출고 상태',tracking_num:'운송장번호',sales_type:'판매 유형',sku:'제품 코드',barcode:'바코드',date:'날짜',month:'월',email:'이메일',phone:'전화번호',country:'국가',manager:'담당자',note:'메모',notes:'메모',memo:'메모',reason:'사유',title:'제목',type:'유형',url:'주소',file_name:'파일명',file_id:'파일 식별번호',value:'설정값',key:'설정 항목',created_at:'등록 시각',updated_at:'수정 시각',tax_status:'세금계산서 상태',address:'주소',brand:'브랜드',discount:'할인',shipping:'배송비',payment_date:'입금일',payment_method:'결제 방식',paid_amount:'입금액',description:'설명',contact:'연락처',contact_name:'연락 담당자'};
+  Object.assign(labels,{amount_override:'증빙 금액',amount_reference:'증빙 근거'});
   const statusLabels={pending:'승인 대기',approved:'승인 완료',rejected:'반려'};
   Object.assign(labels,{no:'주문번호',mgr:'담당자',pay_date:'입금일',product_details:'제품 상세',before_items:'함께 삭제되는 주문 품목',before_drive_documents:'함께 삭제되는 연결 문서'});
   const field=key=>labels[key]||`기타 항목 (${key})`;

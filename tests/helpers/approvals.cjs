@@ -19,7 +19,7 @@ function harness({response={data:{id:'request-1',status:'pending'}},execute,reas
  prompt:()=>reason,confirm:()=>confirm,toast:s=>notices.push(s),alert:s=>notices.push(s),cm:id=>closed.push(id),om(){},esc:s=>String(s||''),today:()=> '2026-09-11',custByName:()=>({mgr:'M',code:'D'}),getInvItems:id=>ctx._items.filter(i=>i.invoice_id===id),itemsRev:()=>10,
  renderInvoices(){},filterInv(){},renderRaw(){},filterRaw(){},renderProducts(){},filterProd(){},renderCustomers(){},renderForecast(){},filterDocs(){},buildCalendar(){},cancelRawUpload(){},downloadMeongse:inv=>downloads.push(inv),invoiceSheetStatus:{saved(){throw Error('pending request must not sync');}},
  sb:{rpc:async(name,args)=>{calls.push({name,args:JSON.parse(JSON.stringify(args))});return execute?execute(name,args):response;},from:table=>({select:()=>({eq:async()=>({data:[],error:null})})})}};
- vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../../change-requests.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../../dashboard-model.js'),'utf8'),ctx);
+ vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../../change-requests.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../../invoice-amounts.js'),'utf8'),ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../../dashboard-model.js'),'utf8'),ctx);
  vm.runInContext(source.slice(source.indexOf('const changeRequests='),source.indexOf('globalThis.invoiceSheetStatus =')),ctx);
  function load(...names){for(const name of names)vm.runInContext(code(name),ctx);}
  return{ctx,calls,notices,closed,downloads,elements,element,load,source,code};
