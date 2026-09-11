@@ -9,7 +9,7 @@ function setup(){
  const c={_invoices:invoices,_items:items,_customers:[{name:'Zero',tax:'영세'},{name:'Tax',tax:'과세'}],_revenueGoal:5000000000,
  document:{getElementById:id=>nodes[id]},window:{},setTimeout:()=>{},today:()=> '2026-09-09',fmt:n=>'₩'+Math.round(n),esc:s=>String(s||''),
  getInvItems:id=>items.filter(i=>i.invoice_id===id),itemsRev:xs=>xs.reduce((a,x)=>a+x.qty*x.price,0),itemsByType:()=>0};
- vm.createContext(c);for(const f of ['dashboard-model.js','dashboard-ui.js'])vm.runInContext(fs.readFileSync(path.join(root,f),'utf8'),c);
+ vm.createContext(c);for(const f of ['invoice-amounts.js','dashboard-model.js','dashboard-ui.js'])vm.runInContext(fs.readFileSync(path.join(root,f),'utf8'),c);
  const app=fs.readFileSync(path.join(root,'app.js'),'utf8'),start=app.indexOf('function renderDash(){'),end=app.indexOf('\nfunction ',start+1);
  vm.runInContext(app.slice(start,end),c);return {c,nodes};
 }

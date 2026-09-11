@@ -35,6 +35,7 @@ const SURL = "https://qqmhxnwmasamkqsbnrvw.supabase.co";
 const SKEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxbWh4bndtYXNhbWtxc2JucnZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNzEyMTgsImV4cCI6MjA5Njc0NzIxOH0.Un7Q3tOIIjalgaSFOyrgjMa-MuZ6GXhtt6DsVnE3Vy8";
 const sb = supabase.createClient(SURL, SKEY);
 const changeRequests=ChangeRequests.createClient({sb});
+globalThis.invoiceAmounts=InvoiceAmounts.mount({document,client:changeRequests,auth:sb.auth,onMessage:message=>toast(message)});
 async function queueChanges(operations,options={}){
   try{const result=await changeRequests.submit(await operations,options);if(result)toast(ChangeRequests.message(result));return result;}
   catch(error){toast('요청 실패 또는 접수 확인 필요: '+(error?.message||String(error))+' — 입력을 유지했습니다. 변경 요청 목록을 확인해 주세요.');return null;}
@@ -103,7 +104,7 @@ let _editInv=null, _editCust=null, _editProd=null;
 let _uploadData=null;
 
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
-function fmt(n){if(!n&&n!==0)return'-';const v=parseFloat(n);if(isNaN(v))return'-';return'₩'+Math.round(v).toLocaleString('ko-KR');}
+function fmt(n){if(!n&&n!==0)return'-';const v=parseFloat(n);if(!Number.isFinite(v))return'-';return'₩'+(v===0?0:v).toLocaleString('ko-KR',{maximumFractionDigits:2});}
 function fmtN(n){return Math.round(parseFloat(n)||0).toLocaleString('ko-KR');}
 function today(){const d=new Date();d.setHours(d.getHours()+9);return d.toISOString().split('T')[0];}
 function om(id){document.getElementById(id).classList.add('open');}
@@ -111,8 +112,8 @@ function cm(id){document.getElementById(id).classList.remove('open');}
 function custByName(n){return _customers.find(x=>x.name===n);}
 function loading(){return '<div class="loading"><i class="ti ti-loader"></i>불러오는 중...</div>';}
 
-function itemsRev(items){return(items||[]).filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);}
-function itemsByType(items,t){return(items||[]).filter(i=>i.sales_type===t).reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);}
+function itemsRev(items){return(items||[]).filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);}
+function itemsByType(items,t){return(items||[]).filter(i=>i.sales_type===t).reduce((a,i)=>a+InvoiceAmounts.amount(i),0);}
 function getInvItems(invId){return _items.filter(i=>i.invoice_id===invId);}
 
 function genInvNo(code,date){
@@ -493,7 +494,7 @@ function _generateReport(yr,weekNum,wStart,wEnd){
   const thisWeekInvs=_invoices.filter(v=>(v.order_date||'')>=wStart&&(v.order_date||'')<=wEnd);
   const lastWeekInvs=_invoices.filter(v=>(v.order_date||'')>=lwStart&&(v.order_date||'')<=lwEnd);
 
-  const calcRev=invs=>invs.reduce((a,v)=>a+getInvItems(v.id).filter(i=>i.sales_type==='Paid').reduce((b,i)=>b+(i.qty||0)*(i.price||0),0),0);
+  const calcRev=invs=>invs.reduce((a,v)=>a+getInvItems(v.id).filter(i=>i.sales_type==='Paid').reduce((b,i)=>b+InvoiceAmounts.amount(i),0),0);
   const thisRev=calcRev(thisWeekInvs);
   const lastRev=calcRev(lastWeekInvs);
   const revDiff=lastRev>0?((thisRev-lastRev)/lastRev*100).toFixed(1):null;
@@ -501,8 +502,8 @@ function _generateReport(yr,weekNum,wStart,wEnd){
 
   const custRevMap={};
   thisWeekInvs.forEach(v=>{
-    const rev=getInvItems(v.id).filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-    if(rev>0)custRevMap[v.customer]=(custRevMap[v.customer]||0)+rev;
+    const rev=getInvItems(v.id).filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+    if(getInvItems(v.id).some(i=>i.sales_type==='Paid'))custRevMap[v.customer]=(custRevMap[v.customer]||0)+rev;
   });
   const custTop3=Object.entries(custRevMap).sort((a,b)=>b[1]-a[1]).slice(0,3);
   const custMax=custTop3[0]?custTop3[0][1]:1;
@@ -518,7 +519,7 @@ function _generateReport(yr,weekNum,wStart,wEnd){
   const itemTop5=Object.entries(itemMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const itemMax=itemTop5[0]?itemTop5[0][1]:1;
   const dateRange=wStart.slice(5).replace('-','/')+' ~ '+wEnd.slice(5).replace('-','/');
-  const fmtW=n=>'\u20a9'+Number(n||0).toLocaleString();
+  const fmtW=n=>fmt(n??0);
 
   const html='<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"/>'
     +'<meta name="viewport" content="width=device-width,initial-scale=1"/>'
@@ -704,11 +705,11 @@ function downloadMeongse(inv){
   const S={name:'㈜브랜드지놈',addr:'서울특별시 용산구 독서당로 94, 4층',ceo:'박소희',contact:invMgr,phone:mgrPhone[invMgr]||'010-3170-3423',bizType:'도매 및 소매업'};
   const stampB64='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';
   const totalQty=items.reduce((a,it)=>a+(it.qty||0),0);
-  const totalAmt=items.reduce((a,it)=>a+(it.qty||0)*(it.price||0),0);
+  const totalAmt=items.reduce((a,it)=>a+InvoiceAmounts.amount(it),0);
 
   const fmtN2=n=>n==null?'':Number(n).toLocaleString();
   const itemRows=items.map(it=>{
-    const qty=Number(it.qty)||0;const price=Number(it.price)||0;const amt=qty*price;
+    const qty=Number(it.qty)||0;const price=Number(it.price)||0;const amt=InvoiceAmounts.amount(it);
     const sType=(it.sales_type||it.salesType||it.st||'Paid').toUpperCase();
     const isPaid=sType==='PAID';
     const typeColors={'PAID':'#1D4ED8','FOC':'#DC2626','SAMPLE':'#7C3AED','REPLACEMENT':'#D97706','LOST':'#993C1D'};
@@ -717,9 +718,9 @@ function downloadMeongse(inv){
       <td>${it.barcode||''}</td>
       <td style="text-align:left">${it.name||''}</td>
       <td>${fmtN2(qty)}</td>
-      <td>₩${fmtN2(price)}</td>
-      <td>₩${fmtN2(amt)}</td>
-      <td style="${isPaid?'':'color:#999'}">${isPaid?'₩'+fmtN2(amt):'-'}</td>
+      <td>${fmt(price)}</td>
+      <td>${fmt(amt)}</td>
+      <td style="${isPaid?'':'color:#999'}">${isPaid?fmt(amt):'-'}</td>
       <td colspan="2" style="text-align:center;font-weight:700;font-size:10px;color:${tColor}">${sType}</td>
     </tr>`;
   }).join('');
@@ -797,8 +798,8 @@ function downloadMeongse(inv){
       <td colspan="2">TOTAL</td>
       <td>${fmtN2(totalQty)}</td>
       <td>-</td>
-      <td>₩${fmtN2(totalAmt)}</td>
-      <td>₩${fmtN2(totalAmt)}</td>
+      <td>${fmt(totalAmt)}</td>
+      <td>${fmt(totalAmt)}</td>
       <td colspan="2"></td>
     </tr>
     <tr><td colspan="8" style="border:none;padding:4px 0"></td></tr>
@@ -1161,8 +1162,8 @@ function addInvItem(it={}){
   const tbody=document.getElementById('inv-items');
   const id2='dl-'+tbody.children.length;
   const tr=document.createElement('tr');
-  tr.innerHTML=`<td style="min-width:130px"><input list="${id2}" placeholder="제품명" value="${esc(it.name)}" style="width:100%"/><datalist id="${id2}">${_products.map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist></td>
-    <td><input placeholder="바코드" value="${esc(it.barcode)}" style="width:90px"/></td>
+  tr.innerHTML=`<td style="min-width:130px"><input list="${id2}" placeholder="제품명" value="${esc(it.name)}" oninput="calcInvTotal()" style="width:100%"/><datalist id="${id2}">${_products.map(p=>`<option value="${esc(p.name)}">`).join('')}</datalist></td>
+    <td><input placeholder="바코드" value="${esc(it.barcode)}" oninput="calcInvTotal()" style="width:90px"/></td>
     <td><select onchange="calcInvTotal()">${SALES_TYPES.map(s=>`<option ${(it.sales_type||it.st)===s?'selected':''}>${s}</option>`).join('')}</select></td>
     <td><input type="number" value="${it.qty||''}" style="width:55px" oninput="calcInvTotal()"/></td>
     <td><input type="number" value="${it.price||''}" style="width:70px" oninput="calcInvTotal()"/></td>
@@ -1171,14 +1172,15 @@ function addInvItem(it={}){
   tbody.appendChild(tr);calcInvTotal();
 }
 function calcInvTotal(){
-  let t=0;
-  document.querySelectorAll('#inv-items tr').forEach(tr=>{
-    const inp=tr.querySelectorAll('input');const sel=tr.querySelector('select');
-    const r=(parseFloat(inp[2]?.value)||0)*(parseFloat(inp[3]?.value)||0);
-    if(sel?.value==='Paid')t+=r;
-    const td=tr.querySelectorAll('td')[5];if(td)td.textContent='₩'+Math.round(r).toLocaleString('ko-KR');
-  });
-  document.getElementById('inv-total').textContent='₩'+Math.round(t).toLocaleString('ko-KR');
+  const rows=Array.from(document.querySelectorAll('#inv-items tr'));
+  const items=rows.map(tr=>{const inp=tr.querySelectorAll('input');return {name:inp[0]?.value||'',barcode:inp[1]?.value||'',sales_type:tr.querySelector('select')?.value||'Paid',qty:parseFloat(inp[2]?.value)||0,price:parseFloat(inp[3]?.value)||0};});
+  const before=_editInv?(_editInvBefore?.items||[]):[];
+  const amounts=InvoiceAmounts.previewAmounts(items,before);
+  const warning=document.getElementById('inv-proof-warning');
+  if(warning){warning.textContent=InvoiceAmounts.editorWarning(before);warning.hidden=!warning.textContent;}
+  let total=0;
+  rows.forEach((tr,index)=>{if(items[index].sales_type==='Paid')total+=amounts[index];const td=tr.querySelectorAll('td')[5];if(td)td.textContent=fmt(amounts[index]);});
+  document.getElementById('inv-total').textContent=fmt(total);
 }
 
 // ─── 인보이스 상세 보기 ───
@@ -1202,7 +1204,7 @@ function viewInv(id){
   if(!items.length){tbody.innerHTML='<tr><td colspan="6"><div class="est"><i class="ti ti-box"></i>품목 없음</div></td></tr>';}
   else{
     tbody.innerHTML=items.map(it=>{
-      const amt=(it.qty||0)*(it.price||0);
+      const amt=InvoiceAmounts.amount(it);
       return`<tr>
         <td><strong style="font-weight:500">${it.name}</strong></td>
         <td style="font-size:10px;color:var(--text3)">${it.barcode||'-'}</td>
@@ -1220,6 +1222,7 @@ function viewInv(id){
   // 버튼 연결
   document.getElementById('view-del-btn').onclick=()=>delInv(id);
   document.getElementById('view-dl-btn').onclick=()=>{cm('m-inv-view');downloadMeongse(v);};
+  document.getElementById('view-amount-btn').onclick=()=>invoiceAmounts.open(v,items);
   document.getElementById('view-edit-btn').onclick=()=>{cm('m-inv-view');editInv(id);};
   // 첨부 파일 목록 로드 (캐시 무효화 후)
   delete _invFileCache[id];
@@ -1252,7 +1255,7 @@ async function saveInv(){
   if(btn){btn.disabled=true;btn.textContent='요청 중...';}
   let saved=null;
   try{
-    saved=await changeRequests.submit([await invoiceChange(editId,payload,items,_editInvBefore)]);
+    saved=await changeRequests.submit([await invoiceChange(editId,payload,InvoiceAmounts.preserveBlankBarcodes(items,isNew?[]:_editInvBefore?.items||getInvItems(editId)),_editInvBefore)]);
   }catch(error){
     const reason=typeof error?.message==='string'?error.message:'통신 오류';
     alert('저장 실패 또는 결과 확인 불가: '+reason+'\n입력 내용은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
@@ -1302,7 +1305,7 @@ function renderRaw(){
         pdate:inv.pay_date||'', sdate:inv.ship_date||'', status:inv.status||'',
         ship:inv.ship_status||'', barcode:String(it.barcode||''), product:String(it.name||''),
         st:String(it.sales_type||''), qty:parseFloat(it.qty)||0, price:parseFloat(it.price)||0,
-        amount:(parseFloat(it.qty)||0)*(parseFloat(it.price)||0)
+        amount:InvoiceAmounts.amount(it)
       });
     });
   });
@@ -1417,6 +1420,7 @@ function editRawItem(invId){
   area.innerHTML=`
   <div class="card" style="margin-bottom:12px">
     <div class="card-hd"><h3>✏️ 수기 수정 — ${inv.no}</h3></div>
+    ${InvoiceAmounts.editorWarning(items)?`<p class="invoice-proof-warning">${esc(InvoiceAmounts.editorWarning(items))}</p>`:''}
     <div style="padding:12px 14px">
       <div class="frow c4" style="margin-bottom:8px">
         <div class="fg"><label>거래처 *</label>
@@ -1727,6 +1731,13 @@ function xgParseBarcode(tr){
 }
 
 function xgCalcAmt(tr){
+  if(window._editRawInvId&&window._editRawBefore){
+    const rows=Array.from(document.querySelectorAll('#xg-body tr'));
+    const items=rows.map(row=>({name:row.querySelector('[data-col="1"] input')?.value||'',barcode:row.querySelector('[data-col="0"] input')?.value||'',sales_type:row.querySelector('[data-col="3"] select')?.value||'Paid',qty:parseFloat(row.querySelector('[data-col="4"] input')?.value)||0,price:parseFloat(row.querySelector('[data-col="5"] input')?.value)||0}));
+    const amounts=InvoiceAmounts.previewAmounts(items,window._editRawBefore.items||[]);
+    rows.forEach((row,index)=>{const cell=row.querySelector('[data-col="6"]');if(cell)cell.textContent=fmt(amounts[index]);});
+    return;
+  }
   const qty=parseFloat(tr.querySelector('[data-col="4"] input')?.value)||0;
   const price=parseFloat(tr.querySelector('[data-col="5"] input')?.value)||0;
   const amtEl=tr.querySelector('[data-col="6"]');
@@ -1805,7 +1816,7 @@ function xgGetItems(){
     const salesType=tr.querySelector('[data-col="3"] select')?.value||'Paid';
     const qty=parseFloat(tr.querySelector('[data-col="4"] input')?.value)||0;
     const price=parseFloat(tr.querySelector('[data-col="5"] input')?.value)||0;
-    if(!barcode)return null; // 바코드 없으면 제외
+    if(!barcode&&!(window._editRawInvId&&name))return null; // 기존 이름 있는 빈 바코드는 저장 시 원본과 대조
     return{barcode,name:name||barcode,salesType,qty,price};
   }).filter(Boolean);
 }
@@ -1905,7 +1916,8 @@ async function saveRawManual(){
   if(!cust||!odate){toast('거래처와 발주일은 필수입니다.');return;}
 
   const items=xgGetItems();
-  const invalid=items.filter(i=>!i.barcode||!i.qty);
+  const replacements=InvoiceAmounts.preserveBlankBarcodes(items.map(i=>({...i,sales_type:i.salesType})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
+  const invalid=items.filter((i,index)=>(!i.barcode&&replacements[index].barcode!==null)||!i.qty);
   if(invalid.length){toast('바코드와 수량은 필수값입니다.');return;}
   if(!items.length){toast('품목을 1개 이상 입력하세요.');return;}
 
@@ -1936,7 +1948,8 @@ async function saveRawManual(){
 
 function _showRawConfirmModal(){
   const {cust,invNo,odate,items}=window._pendingRaw;
-  const paidAmt=items.filter(i=>i.salesType==='Paid').reduce((a,i)=>a+i.qty*i.price,0);
+  const amounts=InvoiceAmounts.previewAmounts(items.map(it=>({...it,sales_type:it.salesType})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
+  const paidAmt=items.reduce((total,it,index)=>total+(it.salesType==='Paid'?amounts[index]:0),0);
   const focItems=items.filter(i=>i.salesType!=='Paid');
   document.getElementById('raw-confirm-no').textContent=invNo;
   document.getElementById('raw-confirm-cust').textContent=cust;
@@ -1945,13 +1958,13 @@ function _showRawConfirmModal(){
   document.getElementById('raw-confirm-paid').textContent=fmt(paidAmt);
   document.getElementById('raw-confirm-foc').textContent=focItems.length?focItems.length+'개':'-';
   const tbody=document.getElementById('raw-confirm-tbody');
-  tbody.innerHTML=items.map(it=>`<tr>
+  tbody.innerHTML=items.map((it,index)=>`<tr>
     <td style="padding:4px 8px;font-size:10px;color:var(--text3)">${it.barcode}</td>
     <td style="padding:4px 8px;font-size:11px">${it.name||'-'}</td>
     <td style="padding:4px 8px;text-align:center">${stBadge(it.salesType)}</td>
     <td style="padding:4px 8px;text-align:right">${fmtN(it.qty)}</td>
     <td style="padding:4px 8px;text-align:right">${fmt(it.price)}</td>
-    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmt(it.qty*it.price)}</td>
+    <td style="padding:4px 8px;text-align:right;font-weight:600">${fmt(amounts[index])}</td>
   </tr>`).join('');
   om('m-raw-confirm');
 }
@@ -1987,7 +2000,8 @@ async function persistRawInvoice(id,invoice,items,options={}){
   buttons.forEach(button=>{button.disabled=true;button.textContent='요청 중...';});
   try{
     const payload=Object.fromEntries(['no','customer','mgr','order_date','pay_date','ship_date','status','ship_status','foc','note'].filter(key=>Object.prototype.hasOwnProperty.call(invoice,key)).map(key=>[key,invoice[key]]));
-    return await changeRequests.submit([await invoiceChange(id,payload,items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price})),id===null?null:window._editRawBefore)],options);
+    const replacements=items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}));
+    return await changeRequests.submit([await invoiceChange(id,payload,InvoiceAmounts.preserveBlankBarcodes(replacements,id===null?[]:window._editRawBefore?.items||getInvItems(id)),id===null?null:window._editRawBefore)],options);
   }catch(error){
     if(options.onFailure)options.onFailure(error,/^[0-9A-Z]{5}$/.test(error.code||''));
     else toast('요청 실패 또는 접수 확인 필요: '+(error?.message||String(error))+' — 입력은 유지했습니다. 변경 요청 목록을 확인해 주세요.');
@@ -2440,8 +2454,9 @@ function buildMonthly(){
   const typeMap={revenue:inv=>itemsRev(getInvItems(inv.id)),lost:inv=>itemsByType(getInvItems(inv.id),'Lost'),foc:inv=>itemsByType(getInvItems(inv.id),'FOC')+itemsByType(getInvItems(inv.id),'GWP')+itemsByType(getInvItems(inv.id),'Sample')+(parseFloat(inv.foc)||0)};
   const getAmt=typeMap[tf]||typeMap.revenue;
   const data={};
+  const recorded=new Set(),recordedMonths=new Set(),recordKey=(customer,month)=>JSON.stringify([customer,month]);
   custList.forEach(c=>{data[c]={};months.forEach(m=>{data[c][m]=0;});});
-  invs.forEach(inv=>{const m=(inv.order_date||'').slice(5,7);if(!m||!data[inv.customer])return;data[inv.customer][m]=(data[inv.customer][m]||0)+getAmt(inv);});
+  invs.forEach(inv=>{const m=(inv.order_date||'').slice(5,7);if(!m||!data[inv.customer])return;data[inv.customer][m]=(data[inv.customer][m]||0)+getAmt(inv);if(tf==='revenue'&&getInvItems(inv.id).some(i=>i.sales_type==='Paid')){recorded.add(recordKey(inv.customer,m));recordedMonths.add(m);}});
   const totals={};months.forEach(m=>{totals[m]=custList.reduce((a,c)=>a+(data[c]?.[m]||0),0);});
   const maxM=Math.max(...Object.values(totals),1);
   const colors={revenue:'#AFA9EC',lost:'#F09595',sample:'#85B7EB',foc:'#EF9F27'};
@@ -2473,7 +2488,7 @@ function buildMonthly(){
     });
     return custList.map(c=>{
       const rt=months.reduce((a,m)=>a+(data[c]?.[m]||0),0);
-      if(!rt)return'';
+      if(!rt&&!months.some(m=>recorded.has(recordKey(c,m))))return'';
       const pct=totalAll>0?Math.round(rt/totalAll*100):0;
       const custObj=(_customers||[]).find(x=>x.name===c);
       const isTerminated=custObj?.status==='계약종료';
@@ -2483,11 +2498,11 @@ function buildMonthly(){
         const isMax=v>0&&monthMax[m]===v;
         const isMin=v>0&&monthMin[m]===v;
         const style=isMax?'color:var(--red);font-weight:700':isMin?'color:#4472C4;font-weight:700':'color:'+( v>0?'var(--text)':'var(--text3)');
-        return`<td style="text-align:right;${style}">${v>0?fmt(v):'-'}</td>`;
+        return`<td style="text-align:right;${style}">${v!==0||recorded.has(recordKey(c,m))?fmt(v):'-'}</td>`;
       }).join('')}<td style="text-align:right;font-weight:600">${fmt(rt)}</td><td style="text-align:right;font-size:11px;color:var(--text2)">${pct}%</td></tr>`;
     }).join('');
   })()}
-  <tr style="border-top:1px solid var(--border2)"><td style="font-weight:500;color:var(--text2)">합계</td>${months.map(m=>`<td style="text-align:right;font-weight:600">${totals[m]>0?fmt(totals[m]):'-'}</td>`).join('')}<td style="text-align:right;font-weight:600">${fmt(totalAll)}</td><td style="text-align:right;font-size:11px;color:var(--text2)">100%</td></tr>
+  <tr style="border-top:1px solid var(--border2)"><td style="font-weight:500;color:var(--text2)">합계</td>${months.map(m=>`<td style="text-align:right;font-weight:600">${totals[m]!==0||recordedMonths.has(m)?fmt(totals[m]):'-'}</td>`).join('')}<td style="text-align:right;font-weight:600">${fmt(totalAll)}</td><td style="text-align:right;font-size:11px;color:var(--text2)">100%</td></tr>
   </tbody></table></div></div>
   `;
 }
@@ -2503,7 +2518,7 @@ function renderForecast(){
       const key=it.barcode||it.name;
       if(!lostMap[key])lostMap[key]={name:it.name,barcode:it.barcode||'',lostQty:0,lostAmt:0,orders:[]};
       lostMap[key].lostQty+=it.qty||0;
-      lostMap[key].lostAmt+=(it.qty||0)*(it.price||0);
+      lostMap[key].lostAmt+=InvoiceAmounts.amount(it);
       lostMap[key].orders.push({invId:inv.id,invNo:inv.no,customer:inv.customer,qty:it.qty,price:it.price,itemId:it.id});
     });
   });
@@ -2895,7 +2910,7 @@ function buildCalendar(){
   const dayRevMap={};
   _invoices.filter(v=>v.order_date&&v.order_date.startsWith(yr+'-'+moStr)).forEach(v=>{
     const rev=itemsRev(getInvItems(v.id));
-    if(rev>0)dayRevMap[v.order_date]=(dayRevMap[v.order_date]||0)+rev;
+    if(getInvItems(v.id).some(i=>i.sales_type==='Paid'))dayRevMap[v.order_date]=(dayRevMap[v.order_date]||0)+rev;
   });
   // 월 누계
   const monthTotal=Object.values(dayRevMap).reduce((a,v)=>a+v,0);
@@ -2935,7 +2950,7 @@ function buildCalendar(){
       const isSun=dow===0,isSat=dow===6;
       const dayRev=dayRevMap[dateStr]||0;
       const barWidth=dayRev>0?Math.max(8,Math.round(dayRev/maxDayRev*100)):0;
-      const revHtml=dayRev>0
+      const revHtml=Object.hasOwn(dayRevMap,dateStr)
         ?`<div style="margin-top:2px;margin-bottom:3px">
             <div style="font-size:9px;font-weight:600;color:#1D4ED8;line-height:1.2">${fmt(dayRev)}</div>
             <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:1px;overflow:hidden">
@@ -2968,7 +2983,7 @@ function buildCalendar(){
       <button class="btn btn-sm" onclick="_calMonth--;if(_calMonth<0){_calMonth=11;_calYear--;}buildCalendar()">◀</button>
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
         <strong style="font-size:15px">${yr}년 ${mo+1}월</strong>
-        ${monthTotal>0?`<div style="display:flex;align-items:center;gap:5px;background:var(--purple-light);border:0.5px solid #AFA9EC;border-radius:20px;padding:2px 10px">
+        ${Object.keys(dayRevMap).length?`<div style="display:flex;align-items:center;gap:5px;background:var(--purple-light);border:0.5px solid #AFA9EC;border-radius:20px;padding:2px 10px">
           <i class="ti ti-coins" style="font-size:11px;color:var(--purple-dark)"></i>
           <span style="font-size:11px;font-weight:700;color:var(--purple-dark)">${fmt(monthTotal)}</span>
           <span style="font-size:10px;color:var(--text3)">월 누계</span>
@@ -3817,10 +3832,10 @@ function buildCustAnalysis(cust){
   const items=_items.filter(i=>invs.find(v=>v.id===i.invoice_id));
 
   // 타입별 금액
-  const paid=items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-  const foc=items.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-  const sample=items.filter(i=>i.sales_type==='Sample').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-  const lost=items.filter(i=>i.sales_type==='Lost').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
+  const paid=items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+  const foc=items.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+  const sample=items.filter(i=>i.sales_type==='Sample').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+  const lost=items.filter(i=>i.sales_type==='Lost').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
   const total=paid+foc+sample+lost;
   const pct=(v)=>total>0?((v/total)*100).toFixed(1):0;
 
@@ -3832,7 +3847,8 @@ function buildCustAnalysis(cust){
     if(!monthMap[m])monthMap[m]={paid:0,foc:0,sample:0,lost:0};
     const iItems=_items.filter(i=>i.invoice_id===v.id);
     iItems.forEach(i=>{
-      const amt=(i.qty||0)*(i.price||0);
+      const amt=InvoiceAmounts.amount(i);
+      if(i.sales_type==='Paid')monthMap[m].hasPaid=true;
       const t=(i.sales_type||'').toLowerCase();
       if(t==='paid')monthMap[m].paid+=amt;
       else if(t==='foc')monthMap[m].foc+=amt;
@@ -3848,14 +3864,14 @@ function buildCustAnalysis(cust){
     const k=i.product_name||i.name||'기타';
     if(!prodMap[k])prodMap[k]={qty:0,amt:0};
     prodMap[k].qty+=(i.qty||0);
-    prodMap[k].amt+=(i.qty||0)*(i.price||0);
+    prodMap[k].amt+=InvoiceAmounts.amount(i);
   });
   const topProds=Object.entries(prodMap).sort((a,b)=>b[1].amt-a[1].amt).slice(0,5);
   const maxAmt=topProds[0]?.[1]?.amt||1;
 
   // 최근 발주일
   const lastOrder=invs.sort((a,b)=>(b.order_date||'').localeCompare(a.order_date||''))[0]?.order_date||'-';
-  const avgOrder=invs.length>0?Math.round(paid/invs.length):0;
+  const avgOrder=invs.length>0?paid/invs.length:0;
 
   // 차트 데이터
   const chartId='ca-chart-'+Date.now();
@@ -3935,13 +3951,13 @@ function buildCustAnalysis(cust){
       <thead><tr><th>인보이스 번호</th><th>발주일</th><th>담당자</th><th style="text-align:right">Paid</th><th style="text-align:right">FOC</th><th>입금</th><th>출고</th></tr></thead>
       <tbody>${invs.slice(0,50).map(v=>{
         const vi=_items.filter(i=>i.invoice_id===v.id);
-        const vp=vi.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-        const vf=vi.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
+        const vp=vi.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+        const vf=vi.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
         return`<tr>
           <td><span class="alink" onclick="viewInv('${v.id}')">${v.no}</span></td>
           <td style="font-size:11px">${v.order_date||'-'}</td>
           <td style="font-size:11px">${v.manager||'-'}</td>
-          <td style="text-align:right;font-size:11px">${vp>0?fmt(vp):'-'}</td>
+          <td style="text-align:right;font-size:11px">${vi.some(i=>i.sales_type==='Paid')?fmt(vp):'-'}</td>
           <td style="text-align:right;font-size:11px;color:var(--red)">${vf>0?fmt(vf):'-'}</td>
           <td><span class="badge ${v.status==='Paid'?'bg-green':'bg-amber'}">${v.status==='Paid'?'입금완료':'미입금'}</span></td>
           <td><span class="badge ${v.ship_status==='출고완료'?'bg-green':'bg-amber'}">${v.ship_status||'미출고'}</span></td>
@@ -3983,10 +3999,10 @@ function printCustReport(){
   const invs=_invoices.filter(v=>v.customer===cust);
   const items=_items.filter(i=>invs.find(v=>v.id===i.invoice_id));
 
-  const paid=items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-  const foc=items.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-  const sample=items.filter(i=>i.sales_type==='Sample').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-  const lost=items.filter(i=>i.sales_type==='Lost').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
+  const paid=items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+  const foc=items.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+  const sample=items.filter(i=>i.sales_type==='Sample').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+  const lost=items.filter(i=>i.sales_type==='Lost').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
   const total=paid+foc+sample+lost;
   const pct=v=>total>0?((v/total)*100).toFixed(1):0;
   const lastOrder=invs.sort((a,b)=>(b.order_date||'').localeCompare(a.order_date||''))[0]?.order_date||'-';
@@ -3996,10 +4012,11 @@ function printCustReport(){
   invs.forEach(v=>{
     if(!v.order_date)return;
     const m=v.order_date.slice(0,7);
-    if(!monthMap[m])monthMap[m]={paid:0,foc:0,sample:0,lost:0,cnt:0};
+    if(!monthMap[m])monthMap[m]={paid:0,foc:0,sample:0,lost:0,cnt:0,hasPaid:false};
     monthMap[m].cnt++;
     _items.filter(i=>i.invoice_id===v.id).forEach(i=>{
-      const amt=(i.qty||0)*(i.price||0);
+      const amt=InvoiceAmounts.amount(i);
+      if(i.sales_type==='Paid')monthMap[m].hasPaid=true;
       const t=(i.sales_type||'').toLowerCase();
       if(t==='paid')monthMap[m].paid+=amt;
       else if(t==='foc')monthMap[m].foc+=amt;
@@ -4015,7 +4032,7 @@ function printCustReport(){
     const k=i.product_name||i.name||'기타';
     if(!prodMap[k])prodMap[k]={qty:0,amt:0};
     prodMap[k].qty+=(i.qty||0);
-    prodMap[k].amt+=(i.qty||0)*(i.price||0);
+    prodMap[k].amt+=InvoiceAmounts.amount(i);
   });
   const topProds=Object.entries(prodMap).sort((a,b)=>b[1].amt-a[1].amt).slice(0,5);
 
@@ -4101,7 +4118,7 @@ function printCustReport(){
 
     <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
       <div class="kpi"><div class="kpi-lbl">총 발주 건수</div><div class="kpi-val">${invs.length}건</div></div>
-      <div class="kpi"><div class="kpi-lbl">건당 평균 매출</div><div class="kpi-val">${fmt(Math.round(paid/Math.max(invs.length,1)))}</div></div>
+      <div class="kpi"><div class="kpi-lbl">건당 평균 매출</div><div class="kpi-val">${fmt(paid/Math.max(invs.length,1))}</div></div>
       <div class="kpi"><div class="kpi-lbl">마지막 발주일</div><div class="kpi-val" style="font-size:13px">${lastOrder}</div></div>
     </div>
   </div>
@@ -4118,7 +4135,7 @@ function printCustReport(){
           return`<tr>
             <td><strong>${m}</strong></td>
             <td>${r.cnt}건</td>
-            <td class="num">${r.paid>0?fmt(r.paid):'-'}</td>
+            <td class="num">${r.hasPaid?fmt(r.paid):'-'}</td>
             <td class="num" style="color:#DC2626">${r.foc>0?fmt(r.foc):'-'}</td>
             <td class="num" style="color:#7C3AED">${r.sample>0?fmt(r.sample):'-'}</td>
             <td class="num" style="color:#993C1D">${r.lost>0?fmt(r.lost):'-'}</td>
@@ -4163,13 +4180,13 @@ function printCustReport(){
       <tbody>
         ${invs.slice(0,30).map(v=>{
           const vi=_items.filter(i=>i.invoice_id===v.id);
-          const vp=vi.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
-          const vf=vi.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
+          const vp=vi.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
+          const vf=vi.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
           return`<tr>
             <td><strong>${v.no}</strong></td>
             <td>${v.order_date||'-'}</td>
             <td>${v.manager||'-'}</td>
-            <td class="num">${vp>0?fmt(vp):'-'}</td>
+            <td class="num">${vi.some(i=>i.sales_type==='Paid')?fmt(vp):'-'}</td>
             <td class="num" style="color:#DC2626">${vf>0?fmt(vf):'-'}</td>
             <td><span class="badge ${v.status==='Paid'?'b-blue':'b-gray'}">${v.status==='Paid'?'입금완료':'미입금'}</span></td>
             <td><span class="badge ${v.ship_status==='출고완료'?'b-blue':'b-gray'}">${v.ship_status||'미출고'}</span></td>
@@ -4367,7 +4384,7 @@ let _pdQuery='';       // 검색어
 let _rspPreview=null;  // 업로드 미리보기 {rows,suffixMap,warnings,sheets,stats}
 
 const PD_NUM=v=>(v===null||v===undefined||v==='')?'-':Number(v).toLocaleString('ko-KR');
-const PD_KRW=v=>(v===null||v===undefined||v==='')?'-':'₩'+Math.round(Number(v)).toLocaleString('ko-KR');
+const PD_KRW=v=>fmt(v);
 const PD_PCT=v=>(v===null||v===undefined||v==='')?'-':(Number(v)*100).toFixed(0)+'%';
 const PD_TXT=v=>(v===null||v===undefined||String(v).trim()==='')?'<span style="color:var(--text3)">-</span>':esc(String(v));
 const PD_BRAND_COLOR={ENTROPY:'#2563EB',MORANDI:'#7C3AED',DAISO:'var(--amber)',GWP:'var(--green)'};
@@ -4438,7 +4455,7 @@ function pdSales(bc){
   const its=_items.filter(i=>{const b=String(i.barcode||'').trim();return b===bc||(bc!==base&&b===base);});
   const paid=its.filter(i=>i.sales_type==='Paid');
   const qty=paid.reduce((a,i)=>a+(i.qty||0),0);
-  const rev=paid.reduce((a,i)=>a+(i.qty||0)*(i.price||0),0);
+  const rev=paid.reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
   const focQty=its.filter(i=>['FOC','GWP','Sample'].includes(i.sales_type)).reduce((a,i)=>a+(i.qty||0),0);
   const invIds=new Set(its.map(i=>i.invoice_id));
   const invs=_invoices.filter(v=>invIds.has(v.id));

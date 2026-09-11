@@ -33,8 +33,8 @@ test('full Korean VAT names and English tax notes are never silently accepted as
  }
 });
 test('cross-card rounding is disclosed without changing recorded amounts',()=>{
- const i=[{invoice_id:'a',sales_type:'Paid',qty:1,price:10.4},{invoice_id:'b',sales_type:'Paid',qty:1,price:10.4}];
+ const i=[{invoice_id:'a',sales_type:'Paid',qty:1,price:10.004},{invoice_id:'b',sales_type:'Paid',qty:1,price:10.004}];
  const s=m.summarizeSupply(inv.slice(0,2),i,p,customers);
- assert.equal(s.displayAdjustment,1);assert.equal(s.recordedRevenue,20.8);
- assert.equal(Math.round(s.revenue)+Math.round(s.pendingRevenue)+s.displayAdjustment,Math.round(s.recordedRevenue));
+ assert.equal(s.displayAdjustment,0.01);assert.equal(s.recordedRevenue,20.008);
+ assert.equal(Math.round(s.revenue*100)+Math.round(s.pendingRevenue*100)+Math.round(s.displayAdjustment*100),Math.round(s.recordedRevenue*100));
 });

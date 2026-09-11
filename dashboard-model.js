@@ -1,5 +1,7 @@
 (function(root){
   'use strict';
+  const amounts=typeof module==='object'&&module.exports?require('./invoice-amounts.js'):root.InvoiceAmounts;
+  const displayCents=value=>Math.round(Number(Number(value).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:2}))*100);
   function validDate(value){
     return typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
       !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value;
@@ -25,7 +27,7 @@
     const selected=invoices.filter(v=>!period.customer||v.customer===period.customer);
     const rows=selected.filter(v=>validDate(v.order_date)&&v.order_date>=period.start&&v.order_date<=period.end).map(invoice=>{
       const lines=grouped.get(invoice.id)||[];
-      const sum=types=>lines.filter(x=>types.includes(x.sales_type)).reduce((a,x)=>a+number(x.qty)*number(x.price),0);
+      const sum=types=>lines.filter(x=>types.includes(x.sales_type)).reduce((a,x)=>a+amounts.amount(x),0);
       return {invoice,lines,revenue:sum(['Paid']),foc:number(invoice.foc)+sum(['FOC','GWP','Sample']),lost:sum(['Lost'])};
     });
     const result={rows,months,byMonth:Object.fromEntries(months.map(m=>[m,0])),byCustomer:Object.create(null),byManager:Object.create(null),revenue:0,foc:0,lost:0,missingDates:selected.filter(v=>!validDate(v.order_date)).length};
@@ -45,9 +47,8 @@
       if(metric==='revenue'&&r.tax?.pending)return false;
       return r.lines.some(i=>types[metric].includes(i.sales_type))||(metric==='foc'&&Number(r.invoice.foc));
     });
-    const roundedRows=rows.reduce((sum,r)=>sum+Math.round(r[metric]),0);
-    const displayTotal=Math.round(summary[metric]);
-    return {rows,roundedRows,displayTotal,adjustment:displayTotal-roundedRows};
+    const rowCents=rows.reduce((sum,r)=>sum+displayCents(r[metric]),0),totalCents=displayCents(summary[metric]);
+    return {rows,roundedRows:rowCents/100,displayTotal:totalCents/100,adjustment:(totalCents-rowCents)/100};
   }
   function summarizeSupply(invoices,items,period,customers){
     const original=summarize(invoices,items,period);
@@ -75,7 +76,7 @@
       result.byManager[m]=(result.byManager[m]||0)+r.revenue;
     });
     result.pendingCount=evidence(result,'pendingRevenue').rows.length;
-    result.displayAdjustment=Math.round(result.recordedRevenue)-Math.round(result.revenue)-Math.round(result.pendingRevenue);
+    result.displayAdjustment=(displayCents(result.recordedRevenue)-displayCents(result.revenue)-displayCents(result.pendingRevenue))/100;
     return result;
   }
   const api={summarize,summarizeSupply,validDate,allTimePeriod,evidence};
