@@ -615,6 +615,7 @@
     <div class="tw" tabindex="0" role="region" aria-label="Paid 품목 증빙 금액 입력">
       <table class="invoice-amount-table"><thead><tr><th>품목 / 바코드</th><th>원래 수량</th><th>원래 단가</th><th>수량 × 단가</th><th>현재 적용 금액</th><th>증빙 금액 (선택)</th><th>증빙 근거</th></tr></thead><tbody id="invoice-amount-rows"></tbody></table>
     </div>
+    <div class="fg"><label for="invoice-amount-reason">변경 사유 (필수)</label><textarea id="invoice-amount-reason" rows="2" maxlength="2000" required placeholder="증빙 기준으로 금액을 정정하는 이유를 입력해 주세요."></textarea></div>
     <p id="invoice-amount-error" class="invoice-amount-error" role="alert"></p>
     <p id="invoice-amount-message" class="invoice-amount-help" role="status"></p>
   </div>
@@ -624,7 +625,7 @@
 
 <script src="change-requests.js?v=20260911-evidence-amount-1"></script>
 <script src="drive-documents.js?v=20260911-evidence-amount-1"></script>
-<script src="invoice-amounts.js?v=20260911-evidence-amount-1"></script>
+<script src="invoice-amounts.js?v=20260911-evidence-reason-1"></script>
 <script src="dashboard-model.js?v=20260911-evidence-amount-1"></script>
 <script src="dashboard-ui.js?v=20260911-evidence-amount-1"></script>
 <script src="sheet-sync-status.js?v=20260911-evidence-amount-1"></script>

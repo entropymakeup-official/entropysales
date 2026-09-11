@@ -37,7 +37,7 @@
     const state={rows:[],busy:false,error:'',message:''};let epoch=0,pending=null,attempt=null;
     function reset(){epoch++;pending=null;attempt=null;Object.assign(state,{rows:[],busy:false,error:'',message:''});onChange();}
     function open(items){reset();state.rows=items.filter(item=>item.sales_type==='Paid').map(item=>({before:clone(item),override:hasOverride(item)?String(item.amount_override):'',reference:item.amount_reference??''}));onChange();}
-    function submit(){
+    function submit(options={}){
       if(pending)return pending;
       const started=epoch,rows=clone(state.rows);state.busy=true;state.error='';state.message='';onChange();
       pending=Promise.resolve().then(async()=>{
@@ -52,7 +52,7 @@
             const key=JSON.stringify(operations);
             if(!attempt||attempt.key!==key){
               const current={key};attempt=current;
-              current.promise=Promise.resolve().then(()=>started===epoch?client.submit(operations):null).catch(error=>{if(attempt===current)attempt=null;throw error;});
+              current.promise=Promise.resolve().then(()=>started===epoch?client.submit(operations,options):null).catch(error=>{if(attempt===current)attempt=null;throw error;});
             }
             return attempt.promise;
           };
@@ -80,6 +80,7 @@
       el('invoice-amount-message').textContent=s.message;
       el('invoice-amount-submit').disabled=s.busy||!s.rows.length;
       el('invoice-amount-submit').textContent=s.busy?'요청 중...':'변경 요청 제출';
+      el('invoice-amount-reason').disabled=s.busy;
       el('invoice-amount-rows').querySelectorAll('input,textarea').forEach(input=>{input.disabled=s.busy;});
     }
     controller=createController({client,timeoutMs,onChange:update});
@@ -87,9 +88,11 @@
       generation++;controller.reset();
       el('m-invoice-amount').classList.remove('open');
       el('invoice-amount-rows').innerHTML='';el('invoice-amount-title').textContent='';
+      el('invoice-amount-reason').value='';
     }
     function open(invoice,items){
       generation++;controller.open(items);
+      el('invoice-amount-reason').value='';
       el('invoice-amount-title').textContent=invoice.no+' · 증빙 금액';
       el('invoice-amount-rows').innerHTML=controller.state.rows.map((row,index)=>{
         const item=row.before;
@@ -103,9 +106,11 @@
     }
     async function submit(){
       if(controller.state.busy)return null;
+      const reason=el('invoice-amount-reason').value.trim();
+      if(!reason||reason.length>2000){controller.state.error='변경 사유를 1~2000자로 입력해 주세요.';update();return null;}
       const started=generation;
       controller.state.rows.forEach((row,index)=>{row.override=el('invoice-amount-value-'+index).value;row.reference=el('invoice-amount-reference-'+index).value;});
-      const result=await controller.submit();
+      const result=await controller.submit({reason});
       if(result&&started===generation){const message=controller.state.message;close();onMessage(message);}
       return result;
     }
