@@ -2689,21 +2689,16 @@ function renderTax(){
   });
 
   const months=Object.keys(monthMap).sort();
-  const allRows=[];
-  months.forEach(m=>{Object.values(monthMap[m]).forEach(r=>allRows.push({...r,month:m}));});
-
-  const totalAmt=allRows.reduce((a,r)=>a+r.amt,0);
-  const pend=allRows.filter(r=>r.taxStatus==='발행예정').length;
-  const done=allRows.filter(r=>r.taxStatus==='발행완료').length;
+  const years=[...new Set(months.map(m=>m.slice(0,4)))].sort().reverse();
+  const dashPeriod=typeof dashboardPeriod==='function'?dashboardPeriod():null;
+  const dashYear=dashPeriod&&!dashPeriod.allTime&&dashPeriod.start.slice(0,4)===dashPeriod.end.slice(0,4)?dashPeriod.start.slice(0,4):'';
+  const defaultYear=years.includes(dashYear)?dashYear:(years.includes(today().slice(0,4))?today().slice(0,4):years[0]||'');
 
   document.getElementById('content').innerHTML=`
-  <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
-    <div class="kpi"><div class="lbl">총 공급가액</div><div class="val">${fmt(totalAmt)}</div></div>
-    <div class="kpi"><div class="lbl">발행 예정</div><div class="val" style="color:var(--amber)">${pend}건</div></div>
-    <div class="kpi"><div class="lbl">발행 완료</div><div class="val" style="color:var(--teal)">${done}건</div></div>
-  </div>
+  <div id="tax-kpis" class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px"></div>
   <div class="fb">
-    <select id="ft-m" onchange="filterTax()"><option value="">전체 월</option>${months.map(m=>`<option>${m}</option>`).join('')}</select>
+    <select id="ft-y" onchange="document.getElementById('ft-m').value='';filterTax()"><option value="">전체 연도</option>${years.map(y=>`<option>${y}</option>`).join('')}</select>
+    <select id="ft-m" onchange="selectTaxMonth(this.value)"><option value="">전체 월</option>${months.map(m=>`<option>${m}</option>`).join('')}</select>
     <select id="ft-st" onchange="filterTax()"><option value="">상태 전체</option>${TAX_ST.map(s=>`<option>${s}</option>`).join('')}</select>
     <select id="ft-tax" onchange="filterTax()"><option value="">과세구분 전체</option><option>과세</option><option>영세</option></select>
   </div>
@@ -2711,6 +2706,13 @@ function renderTax(){
 
   window._taxMonthMap=monthMap;
   window._taxMonths=months;
+  const yearFilter=document.getElementById('ft-y');if(yearFilter)yearFilter.value=defaultYear;
+  filterTax();
+}
+
+function selectTaxMonth(month){
+  const monthFilter=document.getElementById('ft-m');if(monthFilter)monthFilter.value=month;
+  const yearFilter=document.getElementById('ft-y');if(yearFilter&&month)yearFilter.value=month.slice(0,4);
   filterTax();
 }
 
@@ -2733,22 +2735,23 @@ function taxRowHtml(r,m){
 }
 
 function filterTax(){
+  const fy=(document.getElementById('ft-y')||{value:''}).value;
   const fm=(document.getElementById('ft-m')||{value:''}).value;
   const fst=(document.getElementById('ft-st')||{value:''}).value;
   const ftax=(document.getElementById('ft-tax')||{value:''}).value;
   const el=document.getElementById('tax-content');if(!el)return;
   const monthMap=window._taxMonthMap||{};
   // 최신 월이 위로
-  const months=[...(window._taxMonths||[])].reverse().filter(m=>!fm||m===fm);
-
-  if(!months.length){el.innerHTML='<div class="est"><i class="ti ti-receipt-2"></i>데이터 없음</div>';return;}
+  const months=[...(window._taxMonths||[])].reverse().filter(m=>(!fy||m.slice(0,4)===fy)&&(!fm||m===fm));
 
   let html='';
+  const visibleRows=[];
   months.forEach(function(m){
     const rows=Object.values(monthMap[m]||{}).filter(function(r){
       return(!fst||r.taxStatus===fst)&&(!ftax||r.taxType===ftax);
     });
     if(!rows.length)return;
+    rows.forEach(function(r){visibleRows.push(r);});
     const monthTotal=rows.reduce(function(a,r){return a+r.amt;},0);
     const monthVat=rows.filter(function(r){return r.taxType==='과세';}).reduce(function(a,r){return a+Math.round(r.amt*0.1);},0);
     const vatStr=monthVat?'&nbsp;<span style="color:var(--text2);font-weight:400;font-size:10px">+VAT '+fmt(monthVat)+'</span>':'';
@@ -2765,6 +2768,13 @@ function filterTax(){
       +'<tbody>'+rowsHtml+'</tbody>'
       +'</table></div></div>';
   });
+  const totalAmt=visibleRows.reduce(function(a,r){return a+r.amt;},0);
+  const pend=visibleRows.filter(function(r){return r.taxStatus==='발행예정';}).length;
+  const done=visibleRows.filter(function(r){return r.taxStatus==='발행완료';}).length;
+  const kpis=document.getElementById('tax-kpis');
+  if(kpis)kpis.innerHTML='<div class="kpi"><div class="lbl">총 공급가액</div><div class="val">'+fmt(totalAmt)+'</div></div>'
+    +'<div class="kpi"><div class="lbl">발행 예정</div><div class="val" style="color:var(--amber)">'+pend+'건</div></div>'
+    +'<div class="kpi"><div class="lbl">발행 완료</div><div class="val" style="color:var(--teal)">'+done+'건</div></div>';
   el.innerHTML=html||'<div class="est"><i class="ti ti-receipt-2"></i>데이터 없음</div>';
 }
 
