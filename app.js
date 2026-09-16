@@ -93,7 +93,7 @@ globalThis.liveInventory = globalThis.LiveInventory?.mount({
 const MGRS = ['liah','Grace','Raye','Chloe','Ethan'];
 const SALES_TYPES = ['Paid','FOC','GWP','Sample','Replacement','Lost'];
 const INV_ST = ['Ordered','Paid','Closed','Cancelled'];
-const TAX_ST = ['발행예정','발행완료','취소'];
+const TAX_ST = ['발행예정','발행완료','직접입금','취소'];
 let _taxRecords=[]; // {customer_id, month, status}
 const DOC_TYPES = ['사업자등록증','통장사본','LOA','인증서','제품 서류','계약서','기타'];
 const SUPPLIER = {name:'㈜브랜드지놈',addr:'서울특별시 용산구 독서당로 94, 4층',ceo:'박소희',contact:'박주현',phone:'010-3170-3423',bizType:'도매 및 소매업'};
@@ -2695,7 +2695,8 @@ function renderTax(){
   const defaultYear=years.includes(dashYear)?dashYear:(years.includes(today().slice(0,4))?today().slice(0,4):years[0]||'');
 
   document.getElementById('content').innerHTML=`
-  <div id="tax-kpis" class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px"></div>
+  <div id="tax-kpis" class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:12px"></div>
+  <p style="color:var(--text2);font-size:12px">직접입금은 세금계산서 미처리 정산 방식입니다. 실제 입금 여부는 주문의 입금 상태와 증빙에서 확인하세요.</p>
   <div class="fb">
     <select id="ft-y" onchange="document.getElementById('ft-m').value='';filterTax()"><option value="">전체 연도</option>${years.map(y=>`<option>${y}</option>`).join('')}</select>
     <select id="ft-m" onchange="selectTaxMonth(this.value)"><option value="">전체 월</option>${months.map(m=>`<option>${m}</option>`).join('')}</select>
@@ -2771,17 +2772,19 @@ function filterTax(){
   const totalAmt=visibleRows.reduce(function(a,r){return a+r.amt;},0);
   const pend=visibleRows.filter(function(r){return r.taxStatus==='발행예정';}).length;
   const done=visibleRows.filter(function(r){return r.taxStatus==='발행완료';}).length;
+  const direct=visibleRows.filter(function(r){return r.taxStatus==='직접입금';}).length;
   const kpis=document.getElementById('tax-kpis');
   if(kpis)kpis.innerHTML='<div class="kpi"><div class="lbl">총 공급가액</div><div class="val">'+fmt(totalAmt)+'</div></div>'
     +'<div class="kpi"><div class="lbl">발행 예정</div><div class="val" style="color:var(--amber)">'+pend+'건</div></div>'
-    +'<div class="kpi"><div class="lbl">발행 완료</div><div class="val" style="color:var(--teal)">'+done+'건</div></div>';
+    +'<div class="kpi"><div class="lbl">발행 완료</div><div class="val" style="color:var(--teal)">'+done+'건</div></div>'
+    +'<div class="kpi"><div class="lbl">직접입금 · 세금계산서 미처리</div><div class="val">'+direct+'건</div></div>';
   el.innerHTML=html||'<div class="est"><i class="ti ti-receipt-2"></i>데이터 없음</div>';
 }
 
 async function updTaxSt2(custId,name,month,val,el){
   const before=_taxRecords.find(r=>r.customer_id===custId&&r.month===month)||null;
   await requestRow('tax_records',before?'update':'insert',before?{id:before.id}:{},{customer_id:custId,month,status:val},before);
-  if(el){el.value=before?.status||'미발행';el.className='ss s'+el.value;}
+  if(el){el.value=before?.status||'발행예정';el.className='ss s'+el.value;}
 }
 
 function exportTax(){

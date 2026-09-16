@@ -78,3 +78,17 @@ test('tax page follows a non-current dashboard year and selecting a month synchr
   assert.match(nodes['tax-content'].innerHTML,/2026-01/);
   assert.doesNotMatch(nodes['tax-content'].innerHTML,/2025-12/);
 });
+
+test('direct deposits stay in revenue but are separate from issued and pending counts',()=>{
+  const {context,nodes}=setup();
+  context.TAX_ST.push('직접입금');
+  context._taxRecords[1].status='직접입금';
+  context.renderTax();
+  assert.match(nodes['tax-kpis'].innerHTML,/₩400/);
+  assert.match(nodes['tax-kpis'].innerHTML,/발행 완료[\s\S]*?0건/);
+  assert.match(nodes['tax-kpis'].innerHTML,/직접입금[\s\S]*?1건/);
+  nodes['ft-st'].value='직접입금';context.filterTax();
+  assert.match(nodes['tax-kpis'].innerHTML,/₩100/);
+  assert.match(nodes['tax-content'].innerHTML,/2026-01/);
+  assert.doesNotMatch(nodes['tax-content'].innerHTML,/2026-09/);
+});

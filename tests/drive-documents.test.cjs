@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const modelPath=path.join(__dirname,'../drive-documents.js');
-function model(){const ctx={URL,setTimeout,clearTimeout,TextEncoder,crypto:require("node:crypto").webcrypto,prompt:()=>"연결 사유"};vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../change-requests.js'),'utf8'),ctx);if(fs.existsSync(modelPath))vm.runInContext(fs.readFileSync(modelPath,'utf8'),ctx);assert.ok(ctx.DriveDocuments,'Drive document behavior is available');return ctx.DriveDocuments;}
+function model(){const ctx={URL,setTimeout,clearTimeout,TextEncoder,crypto:require("node:crypto").webcrypto,prompt:()=>"연결 사유"};vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.join(__dirname,'../change-requests.js'),'utf8'),ctx);const create=ctx.ChangeRequests.createClient;ctx.ChangeRequests.createClient=options=>create({...options,promptReason:ctx.prompt});if(fs.existsSync(modelPath))vm.runInContext(fs.readFileSync(modelPath,'utf8'),ctx);assert.ok(ctx.DriveDocuments,'Drive document behavior is available');return ctx.DriveDocuments;}
 const fileId='test_file_1234567890',invoiceId='00000000-0000-0000-0000-000000000001';
 const form={name:'  Statement.pdf  ',type:'거래명세서',invoice_id:invoiceId,url:'https://drive.google.com/file/d/'+fileId+'/view?usp=sharing'};
 const invoice={id:invoiceId,no:'TEST_001',customer:'테스트 거래처'};
