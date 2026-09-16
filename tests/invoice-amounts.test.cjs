@@ -5,7 +5,7 @@ const line=(extra={})=>({id:'line-a',invoice_id:'invoice-a',name:'Synthetic item
 function client(execute=async()=>({data:{id:'request-a',status:'pending'}})){
  const calls=[],c={TextEncoder,crypto:require('node:crypto').webcrypto,prompt:()=> 'Synthetic correction'};
  vm.createContext(c);vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../change-requests.js'),'utf8'),c);
- const api=c.ChangeRequests.createClient({sb:{rpc:async(name,args)=>{calls.push({name,args:JSON.parse(JSON.stringify(args))});return execute(name,args);}}});
+ const api=c.ChangeRequests.createClient({promptReason:c.prompt,sb:{rpc:async(name,args)=>{calls.push({name,args:JSON.parse(JSON.stringify(args))});return execute(name,args);}}});
  return {api,calls};
 }
 test('effective amount preserves zero, negatives and finite numeric strings without changing original fields',()=>{
