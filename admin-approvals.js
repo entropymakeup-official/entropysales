@@ -85,19 +85,39 @@
     function reset(){generation++;sessionEpoch++;Object.assign(state,{requests:[],isAdmin:false,loading:false,reviewing:false,notes:Object.create(null),error:'',message:''});notify();}
     return {state,load,review,reset};
   }
-  function mount({document,client,confirm=message=>globalThis.confirm(message)}){
+  function confirmReview(document,message){
+    return new Promise(resolve=>{
+      const dialog=document.createElement('dialog'),previous=document.activeElement;
+      dialog.setAttribute('aria-label','변경 요청 처리 확인');
+      dialog.style.cssText='border:1px solid #d1d5db;border-radius:12px;padding:24px;max-width:480px;width:calc(100% - 48px)';
+      dialog.innerHTML='<h2>변경 요청 처리 확인</h2><p>'+escape(message)+'</p><div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" data-cancel>취소</button><button type="button" data-confirm>확인 후 처리</button></div>';
+      let settled=false;
+      const finish=value=>{if(settled)return;settled=true;dialog.close();dialog.remove();previous?.focus?.();resolve(value);};
+      dialog.querySelector('[data-cancel]').addEventListener('click',()=>finish(false));
+      dialog.querySelector('[data-confirm]').addEventListener('click',()=>finish(true));
+      dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});
+      document.body.appendChild(dialog);dialog.showModal();dialog.querySelector('[data-cancel]').focus();
+    });
+  }
+  function mount({document,client,confirm=message=>confirmReview(document,message)}){
     const host=document.getElementById('approval-queue'),sessionPanel=document.getElementById('approval-session');
     const controller=createController({rpc:(...args)=>client.rpc(...args),onChange:state=>{host.innerHTML=render(state);}});
     host.addEventListener('input',event=>{if(event.target.matches('[data-note]'))controller.state.notes[event.target.dataset.note]=event.target.value;});
     host.addEventListener('change',event=>{if(event.target.matches('[data-filter]')){controller.state.filter=event.target.value;host.innerHTML=render(controller.state);}});
+    let confirming=false;
     host.addEventListener('click',async event=>{
       const button=event.target.closest('button');if(!button||button.disabled)return;
       if(button.hasAttribute('data-refresh'))await controller.load();
       else if(button.dataset.page)await controller.load(controller.state.offset+(button.dataset.page==='next'?1:-1)*controller.state.pageSize);
       else if(button.dataset.review){
+        if(confirming)return;
         const approve=button.dataset.review==='approve',id=button.dataset.id,note=controller.state.notes[id]||'';
         if(!approve&&!note.trim()){await controller.review(id,false,note);return;}
-        if(confirm(approve?'변경 전후 내용과 증빙을 확인했습니까? 승인하면 확정 자료에 반영됩니다. 본인 요청도 같은 검증을 거칩니다.':'이 요청을 반려하시겠습니까?'))await controller.review(id,approve,note);
+        const generation=sessionGeneration;confirming=true;
+        try{
+          const accepted=await confirm(approve?'변경 전후 내용과 증빙을 확인했습니까? 승인하면 확정 자료에 반영됩니다. 본인 요청도 같은 검증을 거칩니다.':'이 요청을 반려하시겠습니까?');
+          if(accepted&&generation===sessionGeneration)await controller.review(id,approve,note);
+        }finally{confirming=false;}
       }
     });
     let sessionGeneration=0;
