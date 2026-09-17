@@ -1,0 +1,56 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');const path=require('node:path');const {PGlite}=require('@electric-sql/pglite');
+const A='00000000-0000-0000-0000-000000000001',U='00000000-0000-0000-0000-000000000002',O='00000000-0000-0000-0000-000000000003',C='10000000-0000-0000-0000-000000000001';
+test('contacts preserve approval isolation, existing requests, validation, uniqueness and stale guards',async()=>{
+ const file=path.join(__dirname,'../sql/contacts.sql');assert.ok(fs.existsSync(file),'contacts schema must exist');const db=new PGlite();
+ try{
+  await db.exec(`create role anon;create role authenticated;create schema auth;create schema storage;
+   create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_app_meta_data jsonb default '{}');
+   insert into auth.users values('${A}','entropyadmin@entropy.internal',now(),'{}'),('${U}','member@entropymakeup.com',now(),'{}'),('${O}','outside@example.com',now(),'{}');
+   create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+   create table storage.objects(id uuid primary key,bucket_id text,name text);alter table storage.objects enable row level security;
+   create table customers(id uuid primary key default gen_random_uuid(),name text not null);
+   create table documents(id uuid primary key default gen_random_uuid(),name text,customer text,type text);
+   insert into customers values('${C}','Existing customer');grant usage on schema public,auth to authenticated,anon;`);
+  for(const table of ['invoices','invoice_items','products','stocks','schedules','tax_records','app_settings','product_details','invoice_drive_documents','tax_invoice_amounts'])await db.exec(`create table ${table}(id uuid primary key default gen_random_uuid(),name text)`);
+  const sql=name=>fs.readFileSync(path.join(__dirname,'../sql/'+name),'utf8');
+  await db.exec(sql('change-approvals.sql'));await db.exec(sql('contracts.sql'));
+  const login=async id=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role authenticated');};
+  const submit=async ops=>(await db.query('select submit_change_request($1::jsonb,$2,$3::uuid) r',[JSON.stringify(Array.isArray(ops)?ops:[ops]),'Contact review',crypto.randomUUID()])).rows[0].r;
+  const review=async(id,approve=true)=>(await db.query('select review_change_request($1::uuid,$2,$3) r',[id,approve,'Reviewed'])).rows[0].r;
+  const rows=async()=>(await db.query('select * from contacts order by company,person')).rows;
+  const insert=patch=>({table:'contacts',action:'insert',values:{company:'Sample',person:'Contact',email:'a@example.test',...patch}});
+  await login(U);const unrelated=await submit({table:'customers',action:'insert',values:{name:'Unrelated pending'}});
+  await db.exec('reset role');const snapshot=(await db.query('select to_jsonb(r) r from approval_private.requests r where id=$1',[unrelated.id])).rows[0].r;
+  const original=(await db.query("select pg_get_functiondef('approval_private.apply_operations(jsonb)'::regprocedure) d")).rows[0].d;
+  await db.exec(sql('contacts.sql'));
+  assert.deepEqual((await db.query('select to_jsonb(r) r from approval_private.requests r where id=$1',[unrelated.id])).rows[0].r,snapshot);
+  assert.equal((await db.query("select pg_get_functiondef('approval_private.apply_operations(jsonb)'::regprocedure) d")).rows[0].d,original.replace("'invoice_drive_documents','contracts') or a is null","'invoice_drive_documents','contracts','contacts') or a is null"));
+  await db.exec('set role anon');await assert.rejects(rows,/permission denied/);await assert.rejects(()=>submit(insert({})),/permission denied/);
+  await login(U);await assert.rejects(()=>db.exec("insert into contacts(company,person,email) values('Bypass','Person','x@example.test')"),/permission denied|APPROVAL_REQUIRED/);
+  for(const patch of [{company:''},{person:'\t\n '},{email:'bad'},{email:'a@b'},{email:'a@@b.test'},{email:' '},{mobile:'\t',email:''},{status:'wrong'},{note:'x'.repeat(4001)},{email:'x'.repeat(245)+'@example.test'},{customer_id:O}])await assert.rejects(()=>submit(insert(patch)));
+  const request=await submit(insert({company:'  Sample\t',person:' Contact\n',email:' A@example.test '}));
+  assert.equal(request.status,'pending');assert.equal((await rows()).length,0);await assert.rejects(()=>review(request.id),/FORBIDDEN|ADMIN/);
+  await login(A);assert.equal((await review(request.id)).status,'approved');let row=(await rows())[0];
+  assert.equal(row.company,'Sample');assert.equal(row.person,'Contact');assert.equal(row.email,'A@example.test');assert.equal(row.status,'활성');assert.equal(row.customer_id,null);assert.equal(row.mobile,'');
+  await login(O);await assert.rejects(rows,/UNAUTHORIZED/);await assert.rejects(()=>submit(insert({})),/UNAUTHORIZED/);await login(U);
+  for(const command of ["update contacts set person='Bypass'","delete from contacts","truncate contacts"])await assert.rejects(()=>db.exec(command),/permission denied|APPROVAL_REQUIRED/);
+  await assert.rejects(()=>submit(insert({company:'Different',person:'Different',email:'a@EXAMPLE.test'})),/unique|duplicate/);
+  await assert.rejects(()=>submit(insert({company:'sAMPLE',person:'cONTACT',email:'other@example.test'})),/unique|duplicate/);
+  await assert.rejects(()=>submit([insert({company:'Batch',email:'batch@example.test'}),insert({company:'Other',email:'BATCH@example.test'})]),/unique|duplicate/);assert.equal((await rows()).length,1);
+  const update={table:'contacts',action:'update',key:{id:row.id},before:row,values:{title:'Manager',customer_id:C}};
+  const first=await submit(update),stale=await submit({...update,values:{title:'Director'}});assert.equal((await rows())[0].title,'');
+  await login(A);await review(first.id);await assert.rejects(()=>review(stale.id),/STALE_DATA/);row=(await rows())[0];assert.equal(row.title,'Manager');assert.equal(row.customer_id,C);
+  const race1=await submit(insert({company:'Race one',email:'race@example.test'}));
+  const race2=await submit([insert({company:'Rollback',email:'rollback@example.test'}),insert({company:'Race two',email:'race@example.test'})]);
+  await review(race1.id);await assert.rejects(()=>review(race2.id),/unique|duplicate/);assert.equal((await rows()).length,2);
+  const noEmail=await submit([insert({company:'Phone one',email:'',phone:'001-234'}),insert({company:'Phone two',email:'',messenger:'handle'})]);await review(noEmail.id);assert.equal((await rows()).length,4);
+  await db.exec('reset role');assert.deepEqual((await db.query('select to_jsonb(r) r from approval_private.requests r where id=$1',[unrelated.id])).rows[0].r,snapshot);
+  await assert.rejects(()=>db.exec("update contacts set person='Direct owner write'"),/APPROVAL_REQUIRED/);await assert.rejects(()=>db.exec('truncate contacts'),/APPROVAL_REQUIRED/);
+  // An unexpected deployed allowlist must abort the entire additive migration.
+  await db.exec('drop table contacts;drop function approval_private.can_read_contacts();drop function approval_private.validate_contact();');
+  await assert.rejects(()=>db.exec(sql('contacts.sql')),/allowlist changed/);await db.exec('rollback');
+  assert.equal((await db.query("select to_regclass('public.contacts') r")).rows[0].r,null);
+ }finally{await db.close();}
+});
