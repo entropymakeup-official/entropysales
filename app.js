@@ -2007,7 +2007,9 @@ async function persistRawInvoice(id,invoice,items,options={}){
   try{
     const payload=Object.fromEntries(['no','customer','mgr','order_date','pay_date','ship_date','status','ship_status','foc','note'].filter(key=>Object.prototype.hasOwnProperty.call(invoice,key)).map(key=>[key,invoice[key]]));
     const replacements=items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}));
-    return await changeRequests.submit([await invoiceChange(id,payload,InvoiceAmounts.preserveBlankBarcodes(replacements,id===null?[]:window._editRawBefore?.items||getInvItems(id)),id===null?null:window._editRawBefore)],options);
+    const operation=await invoiceChange(id,payload,InvoiceAmounts.preserveBlankBarcodes(replacements,id===null?[]:window._editRawBefore?.items||getInvItems(id)),id===null?null:window._editRawBefore);
+    if(id===null)operation.auto_number=true;
+    return await changeRequests.submit([operation],options);
   }catch(error){
     if(options.onFailure)options.onFailure(error,/^[0-9A-Z]{5}$/.test(error.code||''));
     else toast('요청 실패 또는 접수 확인 필요: '+(error?.message||String(error))+' — 입력은 유지했습니다. 변경 요청 목록을 확인해 주세요.');
@@ -2378,7 +2380,7 @@ async function confirmRawUpload(){
         let no=baseNo,n=2;while(used.has(no))no=`${baseNo}_${n++}`;
         g._saveInvoice={no,customer:g.customer,mgr:c?.mgr||'',order_date:odate,pay_date:g.payDate||null,ship_date:g.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:''};
       }
-      operations.push(await invoiceChange(null,g._saveInvoice,g.items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType||'Paid',qty:it.qty,price:it.price}))));
+      operations.push({...await invoiceChange(null,g._saveInvoice,g.items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType||'Paid',qty:it.qty,price:it.price}))),auto_number:true});
       g._saveStatus='saving';g._saveError='';
     }
     renderRawUploadStatus(groups);

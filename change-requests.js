@@ -69,6 +69,11 @@ function createClient({sb,promptReason=promptReasonForm,notify=()=>{}}){
  async function review(id,approve,note=''){const {data,error}=await sb.rpc('review_change_request',{p_id:id,p_approve:approve,p_note:note});if(error)throw error;return data;}
  return {row,invoice,submit,list,review,read,reset};
 }
-function message(result){return result?.status==='approved'?'이 요청은 이미 승인됐습니다. 목록을 새로고침해 확정 자료를 확인해 주세요.':result?.status==='rejected'?'이 요청은 이미 반려됐습니다. 변경 요청 목록의 사유를 확인해 주세요.':'변경 요청이 접수됐습니다. 관리자 승인 대기 중입니다.';}
+function message(result){
+ if(result?.status==='approved')return '이 요청은 이미 승인됐습니다. 목록을 새로고침해 확정 자료를 확인해 주세요.';
+ if(result?.status==='rejected')return '이 요청은 이미 반려됐습니다. 변경 요청 목록의 사유를 확인해 주세요.';
+ const numbers=Array.isArray(result?.invoice_numbers)?result.invoice_numbers.filter(n=>typeof n==='string'&&n):[];
+ return '변경 요청이 접수됐습니다. 관리자 승인 대기 중입니다.'+(numbers.length?' 인보이스 번호: '+numbers.join(', '):'');
+}
 root.ChangeRequests={createClient,message};
 })(typeof globalThis!=='undefined'?globalThis:window);
