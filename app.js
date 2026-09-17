@@ -35,6 +35,8 @@ const SURL = "https://qqmhxnwmasamkqsbnrvw.supabase.co";
 const SKEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxbWh4bndtYXNhbWtxc2JucnZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNzEyMTgsImV4cCI6MjA5Njc0NzIxOH0.Un7Q3tOIIjalgaSFOyrgjMa-MuZ6GXhtt6DsVnE3Vy8";
 const sb = supabase.createClient(SURL, SKEY);
 const changeRequests=ChangeRequests.createClient({sb});
+globalThis.contractRegister=globalThis.Contracts?.mount({document,sb,client:changeRequests,getCustomers:()=>_customers,getDocuments:()=>_docs,
+  openDocument:doc=>{const path=docStoragePath(doc);if(path)openStoredFile('documents',path);else toast('첨부된 원본 파일이 없습니다. 서류 관리에서 확인해 주세요.');},onMessage:message=>toast(message)});
 globalThis.invoiceAmounts=InvoiceAmounts.mount({document,client:changeRequests,auth:sb.auth,onMessage:message=>toast(message)});
 async function queueChanges(operations,options={}){
   try{const result=await changeRequests.submit(await operations,options);if(result)toast(ChangeRequests.message(result));return result;}
@@ -195,6 +197,7 @@ function closeSidebar(){
   document.getElementById('sidebar-overlay').classList.remove('open');
 }
 function go(page){
+  if(page!=='contracts')globalThis.contractRegister?.hide();
   globalThis.invoiceSheetStatus?.show(page);
   if(page==='inventory'){
     globalThis.inventoryHistory?.hide();
@@ -205,10 +208,13 @@ function go(page){
   }
   document.querySelectorAll('.ni').forEach(el=>el.classList.remove('active'));
   const n=document.getElementById('nav-'+page);if(n)n.classList.add('active');
-  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',inventory:'실시간 재고',tax:'세금계산서',customers:'거래처 마스터',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
+  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',inventory:'실시간 재고',tax:'세금계산서',customers:'거래처 마스터',contracts:'계약서',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
   document.getElementById('page-title').textContent=titles[page]||page;
-  ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,customers:renderCustomers,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
+  ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,customers:renderCustomers,contracts:renderContracts,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
+let _contractCustomer='';
+function renderContracts(){globalThis.contractRegister?.show(_contractCustomer);_contractCustomer='';}
+function openCustomerContracts(id){_contractCustomer=id;cm('m-cust');go('contracts');}
 
 
 
@@ -2872,7 +2878,7 @@ function filterCust(){
       +'<td style="font-size:11px">'+fmt(rev)+'</td>'
       +'<td style="font-size:10px;color:var(--text3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(c.addr||'')+'">'+(c.addr?'<span title="'+c.addr+'">📍</span>':'-')+'</td>'
       +'<td><span class="badge '+sBadge+'">'+cst+'</span></td>'
-      +'<td><span class="alink" onclick="editCust(\''+c.id+'\')">수정</span></td></tr>';
+      +'<td><span class="alink" onclick="editCust(\''+c.id+'\')">수정</span> · <span class="alink" onclick="openCustomerContracts(\''+c.id+'\')">계약서</span></td></tr>';
   }).join('');
 }
 function exportCust(){
