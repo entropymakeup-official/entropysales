@@ -100,3 +100,47 @@ test('return review requires evidence and keeps negotiation preference separate'
  const html=C.renderList({rows:[{...base(),id:customer}],customers:[],today:'2026-09-17'});
  for(const text of ['교환 · 반품','하자 책임','원인 불명 처리','협상 희망 조건','기존 계약의 합의 내용과 별도'])assert.ok(html.includes(text),text);
 });
+
+test('renewal readiness derives targets from contract dates and never invents progress dates',()=>{
+ const row={...base(),id:'renewal-one',manager:'Grace',currency:'USD',payment_method:'T/T',document_id:customer,auto_renewal:'있음',renewal_terms:'종료 전 서면 협의',special_terms:'[갱신 협상안]\n표준 계약기간 1년으로 전환'};
+ for(const topic of ['kol_support','vmd_support','logistics','certification','document_handover','sns_handover','returns','defect_liability','unclear_cause']){
+  row[topic+'_status']='미기재';row[topic+'_terms']='원문 검토 결과 조항 없음';
+ }
+ const html=C.renderList({rows:[row],customers:[{id:customer,name:'거래처 A'}],today:'2026-09-17'});
+ assert.match(html,/갱신 준비 현황/);
+ assert.match(html,/빠르면 2026-10-01 소급/);
+ assert.match(html,/2026-10-31<small>논의 목표일/);
+ assert.match(html,/확정 목표일<\/dt><dd>2026-12-01/);
+ assert.match(html,/회신일<\/dt><dd><span class="contract-missing">입력 필요<\/span>/);
+ assert.match(html,/표준 계약기간 1년으로 전환/);
+ assert.doesNotMatch(html,/2026-09-24|2026-09-25|2026-09-28|2026-09-30/);
+});
+
+test('renewal readiness counts missing areas, supports priority sorting and status filtering',()=>{
+ const complete={...base(),id:'ready',name:'가 계약',manager:'담당자',currency:'USD',payment_method:'T/T',document_id:customer,auto_renewal:'있음',renewal_terms:'서면 협의'};
+ for(const topic of ['kol_support','vmd_support','logistics','certification','document_handover','sns_handover','returns','defect_liability','unclear_cause']){
+  complete[topic+'_status']='미기재';complete[topic+'_terms']='원문 검토 결과 조항 없음';
+ }
+ const incomplete={...complete,id:'urgent',name:'나 계약',end_date:null,payment_type:'미확정',currency:'',foc_status:'미확정',document_id:null};
+ const priority=C.renderList({rows:[complete,incomplete],customers:[{id:customer,name:'거래처 A'}],today:'2026-09-17',filter:{renewalSort:'priority'}});
+ assert.ok(priority.indexOf('data-renewal-row="urgent"')<priority.indexOf('data-renewal-row="ready"'));
+ assert.match(priority,/우선 확인<\/span><strong>1건/);
+ assert.match(priority,/협의 준비 완료<\/span><strong>1건/);
+ assert.match(priority,/확인 필요 4/);
+ const filtered=C.renderList({rows:[complete,incomplete],customers:[{id:customer,name:'거래처 A'}],today:'2026-09-17',filter:{renewalState:'ready'}});
+ assert.match(filtered,/data-renewal-row="ready"/);
+ assert.doesNotMatch(filtered,/data-renewal-row="urgent"/);
+ assert.match(filtered,/표준 협상안<\/strong> · 계약기간 1년 · 종료 2개월 전 논의 · 30일 전 서면 확정/);
+ assert.match(filtered,/협상 메모<\/h4><p><span class="contract-missing">입력 필요<\/span>/);
+});
+
+test('shared contract filters also scope renewal readiness rows and metrics',()=>{
+ const other='20000000-0000-0000-0000-000000000002';
+ const rows=[{...base(),id:'one',customer_id:customer,name:'A 계약'},{...base(),id:'two',customer_id:other,name:'B 계약'}];
+ const html=C.renderList({rows,customers:[{id:customer,name:'A사'},{id:other,name:'B사'}],today:'2026-09-17',filter:{customer}});
+ const readiness=html.slice(0,html.indexOf('<div class="contract-metrics"'));
+ assert.match(readiness,/data-renewal-row="one"/);
+ assert.doesNotMatch(readiness,/data-renewal-row="two"/);
+ assert.match(readiness,/대상 계약<\/span><strong>1건/);
+ assert.match(readiness,/대상 거래처<\/span><strong>1곳/);
+});
