@@ -48,14 +48,17 @@ function renderDetails(row,rows,documents,today){
  const sourceLinks=[...new Set((row.special_terms||'').match(/https:\/\/(?:drive\.google\.com|docs\.google\.com)\/[^\s<>"']+/g)||[])];
  const docButtons=[['document_id','계약서 서명본 열기'],['amendment_document_id','부속합의서 열기']].filter(([key])=>documents.some(d=>d.id===row[key])).map(([key,label])=>`<button class="btn btn-sm" data-contract-document="${esc(row[key])}">${label}</button>`).join('');
  const sections=groups.map(([title,list])=>{
-  const entries=list.filter(([key])=>!['customer_id','name','document_id','amendment_document_id'].includes(key)).map(([key,label])=>{
+  const entries=list.filter(([key])=>!['customer_id','name'].includes(key)).map(([key,label,type])=>{
    let value=key==='status'?effectiveStatus(row,today):row[key];if(key==='previous_contract_id'&&value)value=rows.find(r=>r.id===value)?.name||'이전 계약 확인 필요';
-   if(value===null||value===undefined||value==='')return '';
-   return `<div><dt>${esc(label)}</dt><dd>${esc(value)}${['deposit_pct','balance_pct'].includes(key)?'%':''}</dd></div>`;
+   if(type==='document'&&value)value=documents.find(d=>d.id===value)?.name||'연결된 서류 확인 필요';
+   const blank=value===null||value===undefined||String(value).trim()==='';
+   const notApplicable=(row.foc_status==='없음'&&['foc_terms','foc_products','foc_limit'].includes(key))||(row.auto_renewal==='없음'&&['notice_date','renewal_terms'].includes(key))||(row.exclusive==='없음'&&key==='exclusivity_terms');
+   const display=blank?(notApplicable?'<span class="contract-not-applicable">해당 없음</span>':'<span class="contract-missing">입력 필요</span>'):esc(value)+(['deposit_pct','balance_pct'].includes(key)?'%':'')+(value==='미확정'?' <span class="contract-missing">확인 필요</span>':'');
+   return `<div><dt>${esc(label)}</dt><dd>${display}</dd></div>`;
   }).filter(Boolean).join('');
   return entries?`<section class="contract-detail-section"><h4>${esc(title)}</h4><dl>${entries}</dl></section>`:'';
  }).join('');
- return `<div class="contract-detail-body"><div class="contract-detail-actions"><span>계약 원문과 확인 사항</span><div>${docButtons}${sourceLinks.map((url,i)=>`<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Drive 자료 ${i+1} ↗</a>`).join('')}<button class="btn btn-primary btn-sm" data-contract-edit="${esc(row.id)}">계약 수정</button></div></div><div class="contract-detail-grid">${sections}</div></div>`;
+ return `<div class="contract-detail-body"><div class="contract-detail-actions"><span>계약 원문과 확인 사항</span><div>${docButtons}${sourceLinks.map((url,i)=>`<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Drive 자료 ${i+1} ↗</a>`).join('')}<button class="btn btn-primary btn-sm" data-contract-edit="${esc(row.id)}">계약 수정</button></div></div><p class="contracts-help">입력 필요: 등록된 값이 없습니다. 원문을 확인한 뒤 계약 수정에서 보완하세요. 원문에 없으면 추정하지 말고 미기재 여부를 확인하세요. 이전 계약·부속합의서는 해당하는 경우에 연결합니다. 서명본 연결 여부는 위 Drive 자료와 별도입니다.</p><div class="contract-detail-grid">${sections}</div></div>`;
 }
 function renderList({rows=[],customers=[],documents=[],today,filter={},expanded={}}){
  const names=new Map(customers.map(c=>[c.id,c.name]));
