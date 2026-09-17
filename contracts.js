@@ -44,11 +44,26 @@ function alerts(row,today){
  return result;
 }
 function paymentSummary(row){if(row.payment_type==='분할')return `선금 ${row.deposit_pct??'?'}% (${row.deposit_due||'기한 미정'}) / 잔금 ${row.balance_pct??'?'}% (${row.balance_due||'기한 미정'})`;return [row.payment_type||'미확정',row.payment_type==='전액 선입금'?row.deposit_due:row.balance_due,row.payment_terms].filter(Boolean).join(' · ');}
-function renderList({rows=[],customers=[],today,filter={}}){
+function renderDetails(row,rows,documents,today){
+ const sourceLinks=[...new Set((row.special_terms||'').match(/https:\/\/(?:drive\.google\.com|docs\.google\.com)\/[^\s<>"']+/g)||[])];
+ const docButtons=[['document_id','계약서 서명본 열기'],['amendment_document_id','부속합의서 열기']].filter(([key])=>documents.some(d=>d.id===row[key])).map(([key,label])=>`<button class="btn btn-sm" data-contract-document="${esc(row[key])}">${label}</button>`).join('');
+ const sections=groups.map(([title,list])=>{
+  const entries=list.filter(([key])=>!['customer_id','name','document_id','amendment_document_id'].includes(key)).map(([key,label])=>{
+   let value=key==='status'?effectiveStatus(row,today):row[key];if(key==='previous_contract_id'&&value)value=rows.find(r=>r.id===value)?.name||'이전 계약 확인 필요';
+   if(value===null||value===undefined||value==='')return '';
+   return `<div><dt>${esc(label)}</dt><dd>${esc(value)}${['deposit_pct','balance_pct'].includes(key)?'%':''}</dd></div>`;
+  }).filter(Boolean).join('');
+  return entries?`<section class="contract-detail-section"><h4>${esc(title)}</h4><dl>${entries}</dl></section>`:'';
+ }).join('');
+ return `<div class="contract-detail-body"><div class="contract-detail-actions"><span>계약 원문과 확인 사항</span><div>${docButtons}${sourceLinks.map((url,i)=>`<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Drive 자료 ${i+1} ↗</a>`).join('')}<button class="btn btn-primary btn-sm" data-contract-edit="${esc(row.id)}">계약 수정</button></div></div><div class="contract-detail-grid">${sections}</div></div>`;
+}
+function renderList({rows=[],customers=[],documents=[],today,filter={},expanded={}}){
  const names=new Map(customers.map(c=>[c.id,c.name]));
  const visible=rows.filter(r=>(!filter.customer||r.customer_id===filter.customer)&&(!filter.status||effectiveStatus(r,today)===filter.status)&&(!filter.q||[r.name,names.get(r.customer_id),r.manager].join(' ').toLowerCase().includes(filter.q.toLowerCase()))&&(!filter.urgent||alerts(r,today).length));
  const count=rows.filter(r=>alerts(r,today).length).length;
- return `<p class="contracts-help">확정 계약 ${rows.length}건 · 기한 확인 ${count}건 · 현재 표시 ${visible.length}건<br>등록·수정은 관리자 승인 후 반영됩니다. 자동갱신 계약도 기간을 확인해 갱신본을 등록하세요.</p><div class="card"><div class="tw contracts-table" tabindex="0" aria-label="계약서 목록"><table><thead><tr><th>거래처 / 계약명</th><th>계약기간 / 통보기한</th><th>수금조건</th><th>독점 / FOC</th><th>상태</th><th>작업</th></tr></thead><tbody>${visible.map(r=>`<tr><td><strong>${esc(names.get(r.customer_id)||'거래처 확인 필요')}</strong><br>${esc(r.name)}<br><small>${esc(r.contract_type||'')} · ${esc(r.manager||'담당자 미지정')}</small></td><td>${esc(r.start_date||'미정')} ~ ${esc(r.end_date||'미정')}<br><small>통보: ${esc(r.notice_date||'미정')}</small><div>${alerts(r,today).map(a=>`<span class="badge ${a.days<=30?'bg-red':'bg-amber'}">${esc(a.label)}</span>`).join(' ')}</div></td><td class="contracts-payment">${esc(paymentSummary(r))}<br><small>${esc(r.currency||'')} ${esc(r.payment_method||'')}</small></td><td>독점 ${esc(r.exclusive||'미확정')}<br>FOC ${esc(r.foc_status||'미확정')}${r.foc_status==='있음'?'<br><small>'+esc(r.foc_terms)+'</small>':''}</td><td><span class="badge ${effectiveStatus(r,today)==='유효'?'bg-green':'bg-gray'}">${esc(effectiveStatus(r,today))}</span></td><td><button class="btn btn-sm" data-contract-edit="${esc(r.id)}">상세 / 수정</button></td></tr>`).join('')||'<tr><td colspan="6" class="contracts-empty">등록된 계약이 없거나 검색 결과가 없습니다.</td></tr>'}</tbody></table></div></div>`;
+ const byCustomer=new Map();for(const r of visible){if(!byCustomer.has(r.customer_id))byCustomer.set(r.customer_id,[]);byCustomer.get(r.customer_id).push(r);}
+ const metrics=[['등록 계약',rows.length+'건'],['등록 거래처',new Set(rows.map(r=>r.customer_id)).size+'곳'],['유효 상태',rows.filter(r=>effectiveStatus(r,today)==='유효').length+'건'],['기한 확인 필요',count+'건']];
+ return `<div class="contract-metrics" aria-label="전체 계약 현황">${metrics.map(([label,value])=>`<div><span>${label}</span><strong>${value}</strong></div>`).join('')}</div><div class="contract-list-caption"><p>현재 표시 ${visible.length}건 · ${byCustomer.size}개 거래처</p><span>계약명을 클릭하면 상세 내용을 볼 수 있습니다</span></div><div class="contract-customer-list">${[...byCustomer].sort(([a],[b])=>(names.get(a)||'').localeCompare(names.get(b)||'','ko')).map(([id,list])=>`<section class="contract-customer-group"><header><h3>${esc(names.get(id)||'거래처 확인 필요')}</h3><span>${list.length}건</span></header>${list.map(r=>`<details class="contract-row" data-contract-row="${esc(r.id)}"${expanded[r.id]?' open':''}><summary><span class="contract-arrow" aria-hidden="true">›</span><span class="contract-summary-name"><strong>${esc(r.name)}</strong><small>${esc(r.contract_type||'')} · ${esc(r.manager||'담당자 미지정')}${r.territory?' · '+esc(r.territory):''}</small></span><span class="contract-summary-status"><span class="badge ${effectiveStatus(r,today)==='유효'?'bg-green':'bg-gray'}">${esc(effectiveStatus(r,today)||'미확정')}</span>${alerts(r,today).map(a=>`<span class="badge bg-amber">${esc(a.label)}</span>`).join('')}</span><span class="contract-summary-terms"><span>${esc(r.start_date||'시작일 미확정')} ~ ${esc(r.end_date||'종료일 미확정')}</span><small>${esc(r.payment_type||'수금 미확정')}${r.currency?' · '+esc(r.currency):''} · FOC ${esc(r.foc_status||'미확정')}</small></span></summary>${renderDetails(r,rows,documents,today)}</details>`).join('')}</section>`).join('')||'<div class="contracts-empty">등록된 계약이 없거나 검색 결과가 없습니다.</div>'}</div><p class="contracts-help">등록·수정은 관리자 승인 후 반영됩니다. 초안·서명대기·확인 필요 사항은 각 계약에 표시됩니다.</p>`;
 }
 function createController({read,submit,onChange=()=>{}}){
  const state={rows:[],loading:false,saving:false,error:'',message:''};let generation=0,epoch=0;
@@ -58,12 +73,12 @@ function createController({read,submit,onChange=()=>{}}){
  return {state,load,save,reset};
 }
 function mount({document,sb,client,getCustomers,getDocuments,openDocument,onMessage=()=>{},today=()=>new Date(Date.now()+9*3600000).toISOString().slice(0,10)}){
- let active=false,filter={},dialog=null,editing=null,actor=null;
+ let active=false,filter={},expanded=Object.create(null),dialog=null,editing=null,actor=null;
  const controller=createController({read:async()=>{let rows=[];for(let from=0;;from+=1000){const{data,error}=await sb.from('contracts').select('*').order('created_at',{ascending:false}).order('id').range(from,from+999);if(error)throw error;rows.push(...data);if(data.length<1000)return rows;}},submit:op=>client.submit([op]),onChange:paint});
  function paint(){
   if(!active)return;
   const host=document.getElementById('contracts-results');
-  if(host)host.innerHTML=controller.state.loading?'<p role="status">계약서를 불러오는 중입니다…</p>':renderList({rows:controller.state.rows,customers:getCustomers(),today:today(),filter});
+  if(host)host.innerHTML=controller.state.loading?'<p role="status">계약서를 불러오는 중입니다…</p>':renderList({rows:controller.state.rows,customers:getCustomers(),documents:getDocuments(),today:today(),filter,expanded});
   const error=document.getElementById('contracts-error');if(error)error.textContent=controller.state.error;
   if(dialog){dialog.querySelector('[data-form-error]').textContent=controller.state.error;dialog.querySelector('[type="submit"]').disabled=controller.state.saving;dialog.querySelector('[data-close]').disabled=controller.state.saving;}
  }
@@ -75,7 +90,9 @@ function mount({document,sb,client,getCustomers,getDocuments,openDocument,onMess
   document.getElementById('contracts-refresh').onclick=()=>controller.load();
   const update=()=>{filter={q:document.getElementById('contracts-q').value,customer:document.getElementById('contracts-customer').value,status:document.getElementById('contracts-status').value,urgent:document.getElementById('contracts-urgent').checked};paint();};
   document.getElementById('contracts-q').oninput=update;for(const key of ['customer','status','urgent'])document.getElementById('contracts-'+key).onchange=update;
-  document.getElementById('contracts-results').onclick=e=>{const button=e.target.closest('[data-contract-edit]');if(button)open(button.dataset.contractEdit);};
+  const results=document.getElementById('contracts-results');
+  results.addEventListener('toggle',e=>{if(e.target.matches('[data-contract-row]')&&results.contains(e.target))expanded[e.target.dataset.contractRow]=e.target.open;},true);
+  results.onclick=e=>{const button=e.target.closest('[data-contract-edit]');if(button)open(button.dataset.contractEdit);const docButton=e.target.closest('[data-contract-document]');if(docButton){const doc=getDocuments().find(d=>d.id===docButton.dataset.contractDocument);if(doc)openDocument(doc);}};
   controller.load();
  }
  function close(force=false){if(controller.state.saving&&!force)return;if(dialog){dialog.close();dialog.remove();dialog=null;}editing=null;}
@@ -113,7 +130,7 @@ function mount({document,sb,client,getCustomers,getDocuments,openDocument,onMess
   form.addEventListener('submit',async e=>{e.preventDefault();const raw=Object.fromEntries(new FormData(form));const result=await controller.save(raw,editing);if(result){onMessage(controller.state.message);close();}});
   controller.state.error='';document.body.appendChild(dialog);dialog.showModal();form.elements.namedItem('name').focus();
  }
- sb.auth?.onAuthStateChange?.((_event,session)=>{const next=session?.user?.id||null;if(next!==actor){actor=next;close(true);controller.reset();}});
+ sb.auth?.onAuthStateChange?.((_event,session)=>{const next=session?.user?.id||null;if(next!==actor){actor=next;expanded=Object.create(null);close(true);controller.reset();}});
  return {show,hide(){active=false;close();},open,controller};
 }
 return {normalize,daysUntil,effectiveStatus,alerts,paymentSummary,renderList,createController,mount,fields,enums};
