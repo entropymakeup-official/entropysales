@@ -2,6 +2,16 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 let C;try{C=require('../contracts.js');}catch(e){if(e.code!=='MODULE_NOT_FOUND')throw e;C={};}
 const customer='10000000-0000-0000-0000-000000000001';
+test('customer header flags blanks across contracts without opening rows and excludes inapplicable fields',()=>{
+ const complete=Object.fromEntries(C.fields.map(([key])=>[key,'값']));
+ Object.assign(complete,{id:'complete',customer_id:customer,name:'완료계약',status:'초안',foc_status:'없음',foc_terms:'',foc_products:null,foc_limit:'',auto_renewal:'없음',notice_date:null,renewal_terms:'',exclusive:'없음',exclusivity_terms:''});
+ const render=rows=>C.renderList({rows,customers:[{id:customer,name:'거래처 A'}],today:'2026-09-17',filter:{q:'완료계약'}});
+ assert.doesNotMatch(render([complete]),/data-contract-customer-missing/);
+ const html=render([complete,{...complete,id:'incomplete',name:'다른 계약',currency:'  '}]);
+ assert.match(html,/<h3>거래처 A<\/h3><span class="contract-missing" data-contract-customer-missing>입력 필요<\/span>/);
+ assert.equal((html.match(/data-contract-customer-missing/g)||[]).length,1);
+ assert.doesNotMatch(html,/data-contract-row="complete" open/);
+});
 test('missing terms remain visible, unresolved terms need review and zero is preserved',()=>{
  const row={id:'missing',customer_id:customer,name:'확인 계약',manager:'  ',foc_status:'미확정',deposit_pct:0};
  const before=JSON.stringify(row);
