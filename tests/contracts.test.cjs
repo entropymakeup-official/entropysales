@@ -116,6 +116,14 @@ test('renewal readiness derives targets from contract dates and never invents pr
  assert.doesNotMatch(html,/2026-09-24|2026-09-25|2026-09-28|2026-09-30/);
 });
 
+test('renewal readiness displays negotiation notes with annotated marker headings',()=>{
+ const row={...base(),id:'annotated-note',special_terms:'확인: 2026-09-17\n\n[갱신 협상안 · 미합의 / 내부 검토용 · 2026-09-17]\n1. 표준 계약기간은 1년으로 한다.\n2. 종료 2개월 전에 논의한다.\n[갱신 협상안 끝]\n\n적용 메모: 현재 계약은 유지한다.'};
+ const html=C.renderList({rows:[row],customers:[{id:customer,name:'거래처 A'}],today:'2026-09-17'});
+ assert.match(html,/협상 메모<\/h4><p>1\. 표준 계약기간은 1년으로 한다\./);
+ assert.match(html,/2\. 종료 2개월 전에 논의한다\./);
+ assert.doesNotMatch(html,/협상 메모<\/h4><p>[^<]*적용 메모:/);
+});
+
 test('renewal readiness counts missing areas, supports priority sorting and status filtering',()=>{
  const complete={...base(),id:'ready',name:'가 계약',manager:'담당자',currency:'USD',payment_method:'T/T',document_id:customer,auto_renewal:'있음',renewal_terms:'서면 협의'};
  for(const topic of ['kol_support','vmd_support','logistics','certification','document_handover','sns_handover','returns','defect_liability','unclear_cause']){
