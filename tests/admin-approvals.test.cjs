@@ -1,6 +1,16 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const UI=require('../admin-approvals.js');
+test('request list uses collapsed named rows and retains expanded review on rerender',()=>{
+ const r={id:'contract-request',status:'pending',reason:'긴 공통 등록 사유',operations:[{table:'contracts',action:'insert',values:{name:'싱가포르 계약',customer_id:'customer-1',payment_type:'후불',balance_due:'30일',foc_status:'있음',foc_terms:'3%'}}]};
+ const state={requests:[r],isAdmin:true,customerNames:{'customer-1':'테스트 거래처'}};
+ const html=UI.render(state);
+ assert.match(html,/<details class="request" data-request="contract-request">/);
+ assert.match(html,/<summary[^>]*>[\s\S]*?테스트 거래처[\s\S]*?싱가포르 계약[\s\S]*?<\/summary>/);
+ assert.match(html,/수금조건/);assert.match(html,/30일/);assert.match(html,/FOC/);
+ assert.ok(html.indexOf('data-review="approve"')>html.indexOf('</summary>'));
+ assert.match(UI.render({...state,expanded:{'contract-request':true}}),/data-request="contract-request" open/);
+});
 const request=(extra={})=>({id:'r1',requester_id:'self',requester_email:'me@example.test',created_at:'2026-09-11T01:00:00Z',reason:'수량 정정',status:'pending',operations:[{table:'products',action:'update',key:{id:1},before:{id:1,name:'기존'},values:{name:'새 이름'}}],...extra});
 function fixture(admin=true){const calls=[];let rows=[request()];let fail=null;const rpc=async(name,args)=>{calls.push({name,args});if(fail)return {error:{message:fail}};if(name==='list_change_requests')return {data:{is_admin:admin,requests:rows}};rows=[request({status:args.p_approve?'approved':'rejected'})];return {data:{id:args.p_id,status:rows[0].status}};};return {calls,controller:UI.createController({rpc}),fail(value){fail=value;}};}
 test('loading only lists and server admin can review own request explicitly',async()=>{const f=fixture();await f.controller.load();assert.deepEqual(f.calls.map(x=>x.name),['list_change_requests']);assert.match(UI.render(f.controller.state),/data-review="approve"/);await f.controller.review('r1',true,'');assert.equal(f.calls[1].name,'review_change_request');assert.equal(f.calls[1].args.p_approve,true);assert.equal(f.controller.state.requests[0].status,'approved');});
