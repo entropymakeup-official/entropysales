@@ -79,8 +79,8 @@ function renewalReadiness(row){
  return {state,missing,discussion:shiftDate(row.end_date,{months:-2}),confirmation:shiftDate(row.end_date,{days:-30})};
 }
 function negotiationNote(row){
- const text=String(row.special_terms||''),marker='[갱신 협상안]',at=text.indexOf(marker);
- if(at>=0){const note=text.slice(at+marker.length).trim().split(/\n(?=\[[^\]]+\])/)[0].trim();if(note)return note;}
+ const text=String(row.special_terms||''),marker=/\[갱신 협상안(?:\s*·[^\]]*)?\]/.exec(text);
+ if(marker){const rest=text.slice(marker.index+marker[0].length).trim(),end=rest.search(/\n\s*\[갱신 협상안 끝\]|\n(?=\[[^\]]+\])/);const note=(end>=0?rest.slice(0,end):rest).trim();if(note)return note;}
  return '';
 }
 function renderRenewalReadiness(rows,names,filter,expanded){
