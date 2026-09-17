@@ -2,6 +2,11 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 let C;try{C=require('../contracts.js');}catch(e){if(e.code!=='MODULE_NOT_FOUND')throw e;C={};}
 const customer='10000000-0000-0000-0000-000000000001';
+test('expired effective status agrees in summary and read-only detail',()=>{
+ const html=C.renderList({rows:[{id:'old',customer_id:customer,name:'만료계약',status:'유효',end_date:'2026-09-01'}],today:'2026-09-17'});
+ assert.match(html,/<dt>계약 상태<\/dt><dd>만료<\/dd>/);
+ assert.doesNotMatch(html,/<dt>계약 상태<\/dt><dd>유효<\/dd>/);
+});
 test('contract browser groups customers, keeps drafts explicit and exposes safe source links',()=>{
  const rows=[{id:'one',customer_id:customer,name:'기존 계약',status:'만료',payment_type:'후불',balance_due:'30일',foc_status:'미확정'},{id:'two',customer_id:customer,name:'갱신 초안',status:'초안',special_terms:'원문 https://drive.google.com/file/d/example/view javascript:alert(1)'}];
  const html=C.renderList({rows,customers:[{id:customer,name:'거래처 A'}],today:'2026-09-17'});
