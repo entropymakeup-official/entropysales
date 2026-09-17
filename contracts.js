@@ -3,7 +3,7 @@
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uuid=v=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const enums={status:['초안','협의중','서명대기','유효','만료','해지'],contract_type:['공급','총판','독점','기타'],auto_renewal:['미확정','있음','없음'],exclusive:['미확정','있음','없음'],foc_status:['미확정','있음','없음'],payment_type:['미확정','전액 선입금','분할','후불','기타']};
-const clauseTopics=['kol_support','vmd_support','logistics','certification','document_handover','sns_handover'];
+const clauseTopics=['kol_support','vmd_support','logistics','certification','document_handover','sns_handover','returns','defect_liability','unclear_cause'];
 const clauseStates=['미확인','명시','일부명시','미기재','해당없음'];
 for(const topic of clauseTopics)enums[topic+'_status']=clauseStates;
 const groups=[
@@ -16,6 +16,9 @@ const groups=[
  ['물류 · 선적',[['incoterms','인도조건 / 지정 장소'],['logistics_status','물류 · 선적 조항','select'],['logistics_terms','선적조건·지정장소·운임·보험·통관 / 원문 근거','textarea']]],
  ['수출 인증',[['certification_status','수출 인증 조항','select'],['certification_terms','인증 주체·비용·명의·소유권 / 원문 근거','textarea']]],
  ['계약 종료 · 이관',[['document_handover_status','공식 서류 · 인증 이관 조항','select'],['document_handover_terms','브랜드사 이관 범위·기한·비용·누락사항 / 원문 근거','textarea'],['sns_handover_status','공식 SNS · 계정 이관 조항','select'],['sns_handover_terms','계정·관리자권한·콘텐츠·자료 이관 / 원문 근거','textarea']]],
+ ['교환 · 반품',[['returns_status','교환 · 반품 조항','select'],['returns_terms','허용·금지 사유·예외·통지기한·승인·교환/환급·비용 / 원문 근거','textarea']]],
+ ['하자 책임',[['defect_liability_status','하자 책임 조항','select'],['defect_liability_terms','제조·운송·보관 귀책·입증자료·검수·책임 범위 / 원문 근거','textarea']]],
+ ['원인 불명 처리',[['unclear_cause_status','원인 불명 처리 조항','select'],['unclear_cause_terms','접수·보존·공동검사·판정기한·임시/최종 비용·분쟁절차 / 원문 근거','textarea']]],
  ['계약서 · 특약',[['document_id','계약서 서명본','document'],['amendment_document_id','부속합의서 / 변경계약서','document'],['special_terms','반품·불량 대응 등 주요 특약','textarea']]]
 ];
 const fields=groups.flatMap(g=>g[1]);
@@ -69,7 +72,7 @@ function renderDetails(row,rows,documents,today){
   }).filter(Boolean).join('');
   return entries?`<section class="contract-detail-section"><h4>${esc(title)}</h4><dl>${entries}</dl></section>`:'';
  }).join('');
- return `<div class="contract-detail-body"><div class="contract-detail-actions"><span>계약 원문과 확인 사항</span><div>${docButtons}${sourceLinks.map((url,i)=>`<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Drive 자료 ${i+1} ↗</a>`).join('')}<button class="btn btn-primary btn-sm" data-contract-edit="${esc(row.id)}">계약 수정</button></div></div><p class="contracts-help">조항 확인: 명시는 해당 내용이 원문에 있다는 뜻이며, 일부명시는 범위 확인이 필요합니다. 미기재는 검토한 원문에서 조항을 찾지 못했다는 뜻입니다. 입력 필요: 등록된 값이 없습니다. 원문을 확인한 뒤 계약 수정에서 보완하세요. 원문에 없으면 추정하지 말고 미기재 여부를 확인하세요. 이전 계약·부속합의서는 해당하는 경우에 연결합니다. 서명본 연결 여부는 위 Drive 자료와 별도입니다.</p><div class="contract-detail-grid">${sections}</div></div>`;
+ return `<div class="contract-detail-body"><div class="contract-detail-actions"><span>계약 원문과 확인 사항</span><div>${docButtons}${sourceLinks.map((url,i)=>`<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Drive 자료 ${i+1} ↗</a>`).join('')}<button class="btn btn-primary btn-sm" data-contract-edit="${esc(row.id)}">계약 수정</button></div></div><p class="contracts-help">조항 확인: 명시는 해당 내용이 원문에 있다는 뜻이며, 일부명시는 범위 확인이 필요합니다. 미기재는 검토한 원문에서 조항을 찾지 못했다는 뜻입니다. 입력 필요: 등록된 값이 없습니다. 원문을 확인한 뒤 계약 수정에서 보완하세요. 원문에 없으면 추정하지 말고 미기재 여부를 확인하세요. 이전 계약·부속합의서는 해당하는 경우에 연결합니다. 서명본 연결 여부는 위 Drive 자료와 별도입니다.</p><p class="contracts-help"><strong>협상 희망 조건:</strong> 원칙적으로 교환·반품 불가. 기존 계약의 합의 내용과 별도이며, 현재 적용 조건은 아래 원문 검토 내용을 따릅니다. 제조하자 등 예외와 책임 범위는 별도 합의·검토가 필요합니다.</p><div class="contract-detail-grid">${sections}</div></div>`;
 }
 function renderList({rows=[],customers=[],documents=[],today,filter={},expanded={}}){
  const names=new Map(customers.map(c=>[c.id,c.name]));
