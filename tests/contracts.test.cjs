@@ -90,3 +90,13 @@ test('stale loads and logout cannot repopulate another account contract list',as
  assert.equal(typeof C.createController,'function');let resolves=[];const ctrl=C.createController({read:()=>new Promise(r=>resolves.push(r)),submit:async()=>null});
  const p=ctrl.load();ctrl.reset();resolves[0]([base()]);await p;assert.deepEqual(ctrl.state.rows,[]);
 });
+
+test('return review requires evidence and keeps negotiation preference separate',()=>{
+ for(const topic of ['returns','defect_liability','unclear_cause']){
+  assert.equal(C.normalize(base())[topic+'_status'],'미확인');
+  assert.throws(()=>C.normalize({...base(),[topic+'_status']:'명시'}));
+  assert.equal(C.normalize({...base(),[topic+'_status']:'일부명시',[topic+'_terms']:'제10조 검사 후 협의'})[topic+'_terms'],'제10조 검사 후 협의');
+ }
+ const html=C.renderList({rows:[{...base(),id:customer}],customers:[],today:'2026-09-17'});
+ for(const text of ['교환 · 반품','하자 책임','원인 불명 처리','협상 희망 조건','기존 계약의 합의 내용과 별도'])assert.ok(html.includes(text),text);
+});
