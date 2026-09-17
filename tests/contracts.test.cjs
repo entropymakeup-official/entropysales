@@ -2,6 +2,20 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 let C;try{C=require('../contracts.js');}catch(e){if(e.code!=='MODULE_NOT_FOUND')throw e;C={};}
 const customer='10000000-0000-0000-0000-000000000001';
+test('missing terms remain visible, unresolved terms need review and zero is preserved',()=>{
+ const row={id:'missing',customer_id:customer,name:'확인 계약',manager:'  ',foc_status:'미확정',deposit_pct:0};
+ const before=JSON.stringify(row);
+ const html=C.renderList({rows:[row],today:'2026-09-17'});
+ assert.match(html,/<dt>내부 담당자<\/dt><dd><span class="contract-missing">입력 필요<\/span>/);
+ assert.match(html,/<dt>FOC 유무<\/dt><dd>미확정 <span class="contract-missing">확인 필요<\/span>/);
+ assert.match(html,/<dt>선금 비율 \(%\)<\/dt><dd>0%<\/dd>/);
+ assert.match(html,/<dt>계약서 서명본<\/dt><dd><span class="contract-missing">입력 필요<\/span>/);
+ assert.equal(JSON.stringify(row),before);
+ const no=C.renderList({rows:[{...row,foc_status:'없음',auto_renewal:'없음',exclusive:'없음'}],today:'2026-09-17'});
+ assert.match(no,/<dt>대상 제품<\/dt><dd><span class="contract-not-applicable">해당 없음<\/span>/);
+ assert.match(no,/<dt>갱신 조건<\/dt><dd><span class="contract-not-applicable">해당 없음<\/span>/);
+ assert.match(no,/<dt>독점 유지 조건<\/dt><dd><span class="contract-not-applicable">해당 없음<\/span>/);
+});
 test('expired effective status agrees in summary and read-only detail',()=>{
  const html=C.renderList({rows:[{id:'old',customer_id:customer,name:'만료계약',status:'유효',end_date:'2026-09-01'}],today:'2026-09-17'});
  assert.match(html,/<dt>계약 상태<\/dt><dd>만료<\/dd>/);
