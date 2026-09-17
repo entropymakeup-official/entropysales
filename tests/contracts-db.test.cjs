@@ -14,6 +14,7 @@ test('contracts enforce approval isolation, permissions, terms, document ownersh
  grant usage on schema public,auth to authenticated,anon;`);
  for(const table of ['invoices','invoice_items','products','stocks','schedules','tax_records','app_settings','product_details','invoice_drive_documents','tax_invoice_amounts'])await db.exec(`create table ${table}(id uuid primary key default gen_random_uuid(),name text)`);
  await db.exec(fs.readFileSync(path.join(__dirname,'../sql/change-approvals.sql'),'utf8'));await db.exec(fs.readFileSync(file,'utf8'));
+ await db.exec(fs.readFileSync(path.join(__dirname,'../sql/contract-clauses.sql'),'utf8'));
  const login=async id=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role authenticated');};
  const rows=async()=> (await db.query('select * from contracts')).rows;
  const submit=async op=>(await db.query('select submit_change_request($1::jsonb,$2,$3::uuid) r',[JSON.stringify([op]),'계약 확인',crypto.randomUUID()])).rows[0].r;
@@ -24,7 +25,13 @@ test('contracts enforce approval isolation, permissions, terms, document ownersh
  await assert.rejects(()=>db.exec(`insert into contracts(customer_id,name) values('${C}','우회')`),/permission denied|APPROVAL_REQUIRED/);
  for(const patch of [{balance_pct:60},{deposit_due:''},{foc_status:'있음',foc_terms:''},{end_date:'2025-12-31'},{start_date:null},{payment_type:'후불',balance_due:''},{document_id:'22222222-2222-2222-2222-222222222222'}])await assert.rejects(()=>submit(insert(patch)));
  const request=await submit(insert({}));assert.equal(request.status,'pending');assert.equal((await rows()).length,0);
+ await db.exec('reset role');await assert.rejects(()=>db.exec(fs.readFileSync(path.join(__dirname,'../sql/contract-clauses.sql'),'utf8')),/Pending contract requests/);await db.exec('rollback');await login(U);
  await assert.rejects(()=>review(request.id),/FORBIDDEN|ADMIN/);await login(A);assert.equal((await review(request.id)).status,'approved');let row=(await rows())[0];assert.equal(row.deposit_pct,'30.00');
+ assert.equal(row.kol_support_status,'미확인');
+ for(const patch of [{kol_support_status:'있음'},{kol_support_status:'명시',kol_support_terms:''},{sns_handover_status:'일부명시',sns_handover_terms:' '},{vmd_support_terms:'x'.repeat(4001)}])await assert.rejects(()=>submit(insert(patch)));
+ const reviewed={kol_support_status:'일부명시',kol_support_terms:'제7조 사전 협의',sns_handover_status:'미기재',sns_handover_terms:'검토 원문 1~5쪽에서 계정 이관 조항 미발견'};
+ const clauseRequest=await submit({table:'contracts',action:'update',key:{id:row.id},before:row,values:reviewed});
+ assert.equal((await rows())[0].kol_support_status,'미확인');await review(clauseRequest.id);row=(await rows())[0];assert.equal(row.kol_support_terms,reviewed.kol_support_terms);assert.equal(row.sns_handover_status,'미기재');
  await login(O);await assert.rejects(rows,/UNAUTHORIZED/);await assert.rejects(()=>submit(insert({})),/UNAUTHORIZED/);await login(U);
  const update={table:'contracts',action:'update',key:{id:row.id},before:row,values:{name:'변경 계약'}};
  const pending=await submit(update);assert.equal((await rows())[0].name,'2026 공급 계약');

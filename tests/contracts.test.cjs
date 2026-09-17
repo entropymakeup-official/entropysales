@@ -2,6 +2,19 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 let C;try{C=require('../contracts.js');}catch(e){if(e.code!=='MODULE_NOT_FOUND')throw e;C={};}
 const customer='10000000-0000-0000-0000-000000000001';
+test('commercial clause review preserves evidence and distinguishes partial and missing clauses',()=>{
+ const topics=['kol_support','vmd_support','logistics','certification','document_handover','sns_handover'];
+ const raw={customer_id:customer,name:'검토 계약'};
+ for(const topic of topics){raw[topic+'_status']='일부명시';raw[topic+'_terms']='제7조: 범위 일부만 확인 <원문>';}
+ const value=C.normalize(raw);
+ for(const topic of topics){assert.equal(value[topic+'_status'],'일부명시');assert.equal(value[topic+'_terms'],raw[topic+'_terms']);}
+ assert.throws(()=>C.normalize({...raw,kol_support_status:'없음'}));
+ assert.throws(()=>C.normalize({...raw,sns_handover_status:'명시',sns_handover_terms:''}));
+ assert.equal(C.normalize({customer_id:customer,name:'기존 계약'}).kol_support_status,'미확인');
+ const html=C.renderList({rows:[{...value,id:'review'}],today:'2026-09-17'});
+ for(const title of ['마케팅 지원','물류 · 선적','수출 인증','계약 종료 · 이관'])assert.ok(html.includes(title));
+ assert.match(html,/&lt;원문&gt;/);assert.match(html,/일부명시/);
+});
 test('customer header flags blanks across contracts without opening rows and excludes inapplicable fields',()=>{
  const complete=Object.fromEntries(C.fields.map(([key])=>[key,'값']));
  Object.assign(complete,{id:'complete',customer_id:customer,name:'완료계약',status:'초안',foc_status:'없음',foc_terms:'',foc_products:null,foc_limit:'',auto_renewal:'없음',notice_date:null,renewal_terms:'',exclusive:'없음',exclusivity_terms:''});

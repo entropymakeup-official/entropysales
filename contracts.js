@@ -3,12 +3,19 @@
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uuid=v=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const enums={status:['초안','협의중','서명대기','유효','만료','해지'],contract_type:['공급','총판','독점','기타'],auto_renewal:['미확정','있음','없음'],exclusive:['미확정','있음','없음'],foc_status:['미확정','있음','없음'],payment_type:['미확정','전액 선입금','분할','후불','기타']};
+const clauseTopics=['kol_support','vmd_support','logistics','certification','document_handover','sns_handover'];
+const clauseStates=['미확인','명시','일부명시','미기재','해당없음'];
+for(const topic of clauseTopics)enums[topic+'_status']=clauseStates;
 const groups=[
  ['기본정보',[['customer_id','거래처','customer'],['name','계약명'],['contract_type','계약유형','select'],['status','계약 상태','select'],['manager','내부 담당자'],['counterparty_contact','거래처 담당자']]],
  ['계약기간 · 갱신',[['start_date','시작일','date'],['end_date','종료일','date'],['auto_renewal','자동갱신','select'],['notice_date','갱신거절 통보기한','date'],['renewal_terms','갱신 조건','textarea'],['previous_contract_id','이전 계약 (갱신·변경 이력)','previous']]],
- ['계약조건 · 판매 범위',[['territory','대상 국가'],['channels','허용 판매채널'],['exclusive','독점 여부','select'],['price_terms','공급가격 기준','textarea'],['minimum_order','최소발주금액·수량'],['incoterms','인도조건 / 지정 장소'],['annual_commitment','연간 최소구매액·달성기한','textarea'],['exclusivity_terms','독점 유지 조건','textarea']]],
+ ['계약조건 · 판매 범위',[['territory','대상 국가'],['channels','허용 판매채널'],['exclusive','독점 여부','select'],['price_terms','공급가격 기준','textarea'],['minimum_order','최소발주금액·수량'],['annual_commitment','연간 최소구매액·달성기한','textarea'],['exclusivity_terms','독점 유지 조건','textarea']]],
  ['수금조건',[['payment_type','수금 방식','select'],['currency','결제통화 (예: USD)'],['payment_method','결제수단 (예: T/T, L/C)'],['deposit_pct','선금 비율 (%)','number'],['balance_pct','잔금 비율 (%)','number'],['deposit_due','선금 지급 기준·기한'],['balance_due','잔금 / 후불 지급 기준·기한'],['bank_fee','송금수수료 부담'],['payment_terms','수금 특약','textarea']]],
  ['FOC 조건',[['foc_status','FOC 유무','select'],['foc_terms','제공 비율·수량 / 산정 기준 / 적용 시점','textarea'],['foc_products','대상 제품'],['foc_limit','제공 한도']]],
+ ['마케팅 지원',[['kol_support_status','KOL 비용지원 조항','select'],['kol_support_terms','KOL 비용 부담·한도·사전승인 / 원문 근거','textarea'],['vmd_support_status','집기 · VMD 비용지원 조항','select'],['vmd_support_terms','집기·VMD 부담·설치·소유권 / 원문 근거','textarea']]],
+ ['물류 · 선적',[['incoterms','인도조건 / 지정 장소'],['logistics_status','물류 · 선적 조항','select'],['logistics_terms','선적조건·지정장소·운임·보험·통관 / 원문 근거','textarea']]],
+ ['수출 인증',[['certification_status','수출 인증 조항','select'],['certification_terms','인증 주체·비용·명의·소유권 / 원문 근거','textarea']]],
+ ['계약 종료 · 이관',[['document_handover_status','공식 서류 · 인증 이관 조항','select'],['document_handover_terms','브랜드사 이관 범위·기한·비용·누락사항 / 원문 근거','textarea'],['sns_handover_status','공식 SNS · 계정 이관 조항','select'],['sns_handover_terms','계정·관리자권한·콘텐츠·자료 이관 / 원문 근거','textarea']]],
  ['계약서 · 특약',[['document_id','계약서 서명본','document'],['amendment_document_id','부속합의서 / 변경계약서','document'],['special_terms','반품·불량 대응 등 주요 특약','textarea']]]
 ];
 const fields=groups.flatMap(g=>g[1]);
@@ -32,6 +39,7 @@ function normalize(raw){
  if(out.payment_type==='후불'&&!out.balance_due)throw Error('후불 지급 기준·기한을 입력하세요. 예: 선적일로부터 30일 이내');
  if(out.payment_type==='전액 선입금'&&!out.deposit_due)throw Error('선입금 지급 기준·기한을 입력하세요. 예: 출고 전 전액 입금');
  if(out.foc_status==='있음'&&!out.foc_terms)throw Error('FOC 제공 비율·수량, 산정 기준과 적용 시점을 입력하세요.');
+ for(const topic of clauseTopics)if(out[topic+'_status']!=='미확인'&&!out[topic+'_terms'])throw Error('조항 확인 상태를 선택한 경우 조건·범위와 원문 근거를 함께 입력하세요.');
  return out;
 }
 function daysUntil(date,today){return validDate(date)&&validDate(today)?Math.round((Date.parse(date+'T00:00:00Z')-Date.parse(today+'T00:00:00Z'))/86400000):null;}
@@ -56,12 +64,12 @@ function renderDetails(row,rows,documents,today){
    if(type==='document'&&value)value=documents.find(d=>d.id===value)?.name||'연결된 서류 확인 필요';
    const blank=isBlank(value);
    const notApplicable=isNotApplicable(row,key);
-   const display=blank?(notApplicable?'<span class="contract-not-applicable">해당 없음</span>':'<span class="contract-missing">입력 필요</span>'):esc(value)+(['deposit_pct','balance_pct'].includes(key)?'%':'')+(value==='미확정'?' <span class="contract-missing">확인 필요</span>':'');
+   const display=blank?(notApplicable?'<span class="contract-not-applicable">해당 없음</span>':'<span class="contract-missing">입력 필요</span>'):esc(value)+(['deposit_pct','balance_pct'].includes(key)?'%':'')+(['미확정','미확인'].includes(value)?' <span class="contract-missing">확인 필요</span>':'');
    return `<div><dt>${esc(label)}</dt><dd>${display}</dd></div>`;
   }).filter(Boolean).join('');
   return entries?`<section class="contract-detail-section"><h4>${esc(title)}</h4><dl>${entries}</dl></section>`:'';
  }).join('');
- return `<div class="contract-detail-body"><div class="contract-detail-actions"><span>계약 원문과 확인 사항</span><div>${docButtons}${sourceLinks.map((url,i)=>`<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Drive 자료 ${i+1} ↗</a>`).join('')}<button class="btn btn-primary btn-sm" data-contract-edit="${esc(row.id)}">계약 수정</button></div></div><p class="contracts-help">입력 필요: 등록된 값이 없습니다. 원문을 확인한 뒤 계약 수정에서 보완하세요. 원문에 없으면 추정하지 말고 미기재 여부를 확인하세요. 이전 계약·부속합의서는 해당하는 경우에 연결합니다. 서명본 연결 여부는 위 Drive 자료와 별도입니다.</p><div class="contract-detail-grid">${sections}</div></div>`;
+ return `<div class="contract-detail-body"><div class="contract-detail-actions"><span>계약 원문과 확인 사항</span><div>${docButtons}${sourceLinks.map((url,i)=>`<a class="btn btn-sm" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Drive 자료 ${i+1} ↗</a>`).join('')}<button class="btn btn-primary btn-sm" data-contract-edit="${esc(row.id)}">계약 수정</button></div></div><p class="contracts-help">조항 확인: 명시는 해당 내용이 원문에 있다는 뜻이며, 일부명시는 범위 확인이 필요합니다. 미기재는 검토한 원문에서 조항을 찾지 못했다는 뜻입니다. 입력 필요: 등록된 값이 없습니다. 원문을 확인한 뒤 계약 수정에서 보완하세요. 원문에 없으면 추정하지 말고 미기재 여부를 확인하세요. 이전 계약·부속합의서는 해당하는 경우에 연결합니다. 서명본 연결 여부는 위 Drive 자료와 별도입니다.</p><div class="contract-detail-grid">${sections}</div></div>`;
 }
 function renderList({rows=[],customers=[],documents=[],today,filter={},expanded={}}){
  const names=new Map(customers.map(c=>[c.id,c.name]));
@@ -116,7 +124,7 @@ function mount({document,sb,client,getCustomers,getDocuments,openDocument,onMess
    else html=`<input ${attr} type="${type||'text'}"${type==='number'?' min="0" max="100" step="0.01"':type==='date'?' min="1900-01-01" max="9999-12-31"':' maxlength="4000"'}>`;
    return `<div class="fg ${type==='textarea'?'contract-full':''}"><label for="contract-${key}">${esc(label)}${['name','customer_id'].includes(key)?' *':''}</label>${html}${type==='document'?`<button type="button" class="btn btn-sm" data-open-document="${key}">선택한 서류 열기</button>`:''}</div>`;
   };
-  dialog.innerHTML=`<form><header><h2>${row?'계약서 상세 / 수정':'계약서 등록'}</h2><button class="btn" type="button" data-close>닫기</button></header><p class="contracts-help">계약 약정을 입력하세요. 실제 입금 내역은 변경하지 않습니다. 저장은 관리자 승인 요청으로 접수됩니다.</p>${groups.map(([title,list])=>`<fieldset><legend>${title}</legend><div class="contract-grid">${list.map(input).join('')}</div></fieldset>`).join('')}<p class="contracts-help">원본은 서류 관리에 등록·승인된 해당 거래처의 계약서를 선택합니다. 갱신 계약은 새로 등록하고 이전 계약을 연결하세요.</p><p class="contracts-error" role="alert" data-form-error></p><footer><button type="submit" class="btn btn-primary">변경 요청 제출</button></footer></form>`;
+  dialog.innerHTML=`<form><header><h2>${row?'계약서 상세 / 수정':'계약서 등록'}</h2><button class="btn" type="button" data-close>닫기</button></header><p class="contracts-help">계약 약정을 입력하세요. 조항 상태는 명시·일부명시·미기재·미확인으로 구분하고 조건과 원문 조항/페이지를 함께 기록하세요. 미기재를 지원 불가 또는 이관 불필요로 해석하지 마세요. 실제 입금 내역은 변경하지 않습니다. 저장은 관리자 승인 요청으로 접수됩니다.</p>${groups.map(([title,list])=>`<fieldset><legend>${title}</legend><div class="contract-grid">${list.map(input).join('')}</div></fieldset>`).join('')}<p class="contracts-help">원본은 서류 관리에 등록·승인된 해당 거래처의 계약서를 선택합니다. 갱신 계약은 새로 등록하고 이전 계약을 연결하세요.</p><p class="contracts-error" role="alert" data-form-error></p><footer><button type="submit" class="btn btn-primary">변경 요청 제출</button></footer></form>`;
   const form=dialog.querySelector('form');
   for(const [key]of fields){const el=form.elements.namedItem(key);if(!['customer_id','previous_contract_id','document_id','amendment_document_id'].includes(key))el.value=value[key]??(enums[key]?.[0]||'');}
   form.elements.namedItem('customer_id').innerHTML=option('','거래처 선택')+getCustomers().map(c=>option(c.id,c.name)).join('');
