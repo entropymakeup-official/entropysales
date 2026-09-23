@@ -926,12 +926,10 @@ function renderInvoices(){
     <thead><tr><th>인보이스 번호</th><th>거래처</th><th class="inv-hide-mobile">담당자</th><th class="inv-hide-mobile">발주일</th><th style="text-align:right">매출</th><th style="text-align:right" class="inv-hide-mobile">FOC</th><th>입금 ✎</th><th>출고 ✎</th><th class="inv-hide-mobile">Tracking No.</th><th>첨부파일</th></tr></thead>
     <tbody id="inv-tbody"></tbody>
   </table></div></div>
-  <div id="inv-pagination"></div>`;
+  <div id="inv-count" role="status" style="font-size:12px;color:var(--text3);padding:8px 0"></div>`;
   filterInv();
 }
-let _invPage=1;
-function filterInv(page){
-  if(page)_invPage=page;
+function filterInv(){
   const q=(document.getElementById('fi-q')||{value:''}).value.toLowerCase();
   const pay=(document.getElementById('fi-pay')||{value:''}).value;
   const sh=(document.getElementById('fi-sh')||{value:''}).value;
@@ -940,13 +938,11 @@ function filterInv(page){
   const qn=q.replace(/\s/g,'');
   const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||(pay==='입금완료'?v.status==='Paid':v.status!=='Paid'))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg));
   window._inv_filtered=list;
-  const PAGE=25;
-  const totalPages=Math.ceil(list.length/PAGE)||1;
-  if(_invPage>totalPages)_invPage=totalPages;
-  const paged=list.slice((_invPage-1)*PAGE,_invPage*PAGE);
-  if(!paged.length){tbody.innerHTML=`<tr><td colspan="8"><div class="est"><i class="ti ti-file-invoice"></i>인보이스 없음<br><small style="display:block;margin-top:4px">파일 업로드 또는 직접 등록으로 추가하세요</small></div></td></tr>`;
-    document.getElementById('inv-pagination').innerHTML='';return;}
-  tbody.innerHTML=paged.map(v=>{
+  const count=document.getElementById('inv-count');
+  if(count)count.textContent=`총 ${list.length}건`;
+  if(!list.length){tbody.innerHTML=`<tr><td colspan="10"><div class="est"><i class="ti ti-file-invoice"></i>인보이스 없음<br><small style="display:block;margin-top:4px">파일 업로드 또는 직접 등록으로 추가하세요</small></div></td></tr>`;
+    return;}
+  tbody.innerHTML=list.map(v=>{
     const items=getInvItems(v.id);
     const rev=itemsRev(items);
     const focAmt=(parseFloat(v.foc)||0)+itemsByType(items,'FOC');
@@ -967,28 +963,13 @@ function filterInv(page){
       <td style="text-align:center;position:relative" id="inv-file-td-${v.id}" onclick="event.stopPropagation()"></td>
     </tr>`;
   }).join('');
-  // 캐시된 건 즉시, 없는 건 현재 페이지만 비동기 로드
+  // 캐시된 건 즉시, 없는 건 전체 표시 목록을 비동기 로드
   const _toFetch=[];
-  paged.forEach(v=>{
+  list.forEach(v=>{
     if(_invFileCache[v.id]!==undefined) updateInvFileIcon(v.id);
     else _toFetch.push(v.id);
   });
   if(_toFetch.length) setTimeout(()=>loadInvFileIcons(_toFetch),0);
-  // 페이지네이션
-  const pg=document.getElementById('inv-pagination');
-  if(pg){
-    if(totalPages<=1){pg.innerHTML='';return;}
-    let btns='';
-    if(_invPage>1)btns+=`<button class="btn btn-sm" onclick="filterInv(1)">«</button><button class="btn btn-sm" onclick="filterInv(${_invPage-1})">‹</button>`;
-    const start=Math.max(1,_invPage-2);const end=Math.min(totalPages,_invPage+2);
-    for(let i=start;i<=end;i++)btns+=`<button class="btn btn-sm${i===_invPage?' btn-primary':''}" onclick="filterInv(${i})">${i}</button>`;
-    if(_invPage<totalPages)btns+=`<button class="btn btn-sm" onclick="filterInv(${_invPage+1})">›</button><button class="btn btn-sm" onclick="filterInv(${totalPages})">»</button>`;
-    pg.innerHTML=`<div style="display:flex;gap:4px;justify-content:center;align-items:center;padding:12px 0;font-size:14px">
-      <span style="font-size:11px;color:var(--text3);margin-right:8px">${list.length}건 중 ${(_invPage-1)*25+1}-${Math.min(_invPage*25,list.length)}</span>
-      ${btns}
-      <span style="font-size:11px;color:var(--text3);margin-left:8px">${totalPages}페이지</span>
-    </div>`;
-  }
 }
 
 
@@ -1001,13 +982,15 @@ async function loadInvFileIcons(invIds){
     invIds.forEach(id=>updateInvFileIcon(id));
     return;
   }
-  // 병렬로 한번에 다 가져오기
-  await Promise.all(toFetch.map(async id=>{
+  // 전체 목록에서도 첨부파일 조회는 최대 6개씩 진행
+  for(let offset=0;offset<toFetch.length;offset+=6){
+    await Promise.all(toFetch.slice(offset,offset+6).map(async id=>{
     try{
       const{data,error}=await sb.storage.from('invoice-docs').list(id+'/');
       _invFileCache[id]=(error||!data)?[]:data.filter(f=>f.name&&f.name!=='.emptyFolderPlaceholder');
     }catch(e){_invFileCache[id]=[];}
-  }));
+    }));
+  }
   invIds.forEach(id=>updateInvFileIcon(id));
 }
 
