@@ -79,6 +79,25 @@
     result.displayAdjustment=(displayCents(result.recordedRevenue)-displayCents(result.revenue)-displayCents(result.pendingRevenue))/100;
     return result;
   }
-  const api={summarize,summarizeSupply,validDate,allTimePeriod,evidence};
+  function summarizeTax(invoices,items,period,customers,records){
+    const summary=summarizeSupply(invoices,items,period,customers);
+    const groups=new Map();
+    summary.rows.forEach(row=>{
+      if(!row.lines.some(i=>i.sales_type==='Paid'))return;
+      const inv=row.invoice,month=inv.order_date.slice(0,7),key=JSON.stringify([month,inv.customer]);
+      if(!groups.has(key)){
+        const matches=customers.filter(c=>c.name===inv.customer),c=matches.length===1?matches[0]:null;
+        groups.set(key,{month,customer:inv.customer||'거래처 미입력',custId:c?.id||null,mgr:c?.mgr||inv.mgr||'-',
+          taxType:['영세','과세'].includes(c?.tax)?c.tax:'미확인',taxStatus:c?.id?(records.find(r=>r.customer_id===c.id&&r.month===month)?.status||'발행예정'):'연결 확인 필요',
+          amt:0,supplyAmt:0,pendingAmt:0,pendingCount:0,invoices:[],reasons:[]});
+      }
+      const group=groups.get(key);
+      group.amt+=row.recordedRevenue;group.supplyAmt+=row.revenue;group.pendingAmt+=row.pendingRevenue;
+      group.invoices.push(inv.no||String(inv.id));
+      if(row.tax.pending){group.pendingCount++;if(!group.reasons.includes(row.tax.reason))group.reasons.push(row.tax.reason);}
+    });
+    return {...summary,taxRows:[...groups.values()]};
+  }
+  const api={summarize,summarizeSupply,summarizeTax,validDate,allTimePeriod,evidence};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.DashboardModel=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

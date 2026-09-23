@@ -16,7 +16,7 @@ function setup(dashboardYear){
   ];
   const customers=[{id:'z',name:'Zero',mgr:'Raye',tax:'영세'},{id:'t',name:'Tax',mgr:'Grace',tax:'과세'}];
   const context={
-    _invoices:invoices,_taxRecords:[
+    _invoices:invoices,_items:items,_customers:customers,DashboardModel:require('../dashboard-model.js'),esc:s=>String(s??''),_taxRecords:[
       {customer_id:'z',month:'2025-12',status:'발행완료'},
       {customer_id:'z',month:'2026-01',status:'발행완료'}
     ],
