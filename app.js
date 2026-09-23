@@ -260,7 +260,7 @@ function renderDash(){
   </section>
   <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
     <div class="card">
-      <div class="card-hd"><h3>월별 공급가액 집계분 — ${yr}</h3><span class="alink" onclick="go('monthly')">자세히 보기</span></div>
+      <div class="card-hd"><h3>월별 공급가액 집계분 — ${yr}</h3><span class="alink" onclick="openSupplyMonthly()">연간 월별 보기</span></div>
       <div style="padding:12px 16px">
         <div style="position:relative;width:100%;height:200px"><canvas id="dash-line-chart" role="img" aria-label="월별 매출 추이"></canvas></div>
       </div>
@@ -274,7 +274,7 @@ function renderDash(){
     </div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-    <div class="card"><div class="card-hd"><h3>거래처별 공급가액 집계분</h3><span class="alink" onclick="go('monthly')">월별 보기</span></div>
+    <div class="card"><div class="card-hd"><h3>거래처별 공급가액 집계분</h3><span class="alink" onclick="openSupplyMonthly()">연간 월별 보기</span></div>
     <div style="padding:9px 13px">${custE.length?`<div class="bar-wrap">${custE.map(([k,v])=>`<div class="bar-row"><div class="bar-lbl">${esc(k)}</div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(v/maxC*100)}%;background:#1D4ED8"></div></div><div class="bar-val">${fmt(v)}</div></div>`).join('')}</div>`:'<div class="est"><i class="ti ti-chart-bar"></i>데이터 없음</div>'}</div></div>
     <div class="card"><div class="card-hd"><h3>과거 담당자별 공급가액 집계분</h3></div>
     <div style="padding:9px 13px">${mgrE.length?`<div class="bar-wrap">${mgrE.map(([k,v])=>`<div class="bar-row" style="justify-content:center"><div class="bar-lbl" style="text-align:center">${esc(k)}</div><div class="bar-bg"><div class="bar-fill" style="width:${Math.round(v/maxM*100)}%;background:#2563EB"></div></div><div class="bar-val">${fmt(v)}</div></div>`).join('')}</div>`:'<div class="est"><i class="ti ti-users"></i>데이터 없음</div>'}</div></div>
@@ -2444,16 +2444,26 @@ function exportRaw(){
 }
 
 // ─── MONTHLY ───
+function openSupplyMonthly(){
+  go('monthly');
+  document.getElementById('fm-t').value='supply';
+  buildMonthly();
+}
 function renderMonthly(){
   document.getElementById('topbar-actions').innerHTML='';
   const custs=_invoices.map(i=>i.customer).filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a.localeCompare(b,'ko'));
   document.getElementById('content').innerHTML=`
   <div class="fb">
     <select id="fm-c" onchange="buildMonthly()"><option value="">전체 거래처</option>${custs.map(c=>`<option>${c}</option>`).join('')}</select>
-    <select id="fm-y" onchange="buildMonthly()"><option value="2026">2026</option><option value="2025">2025</option></select>
-    <select id="fm-t" onchange="buildMonthly()"><option value="revenue">Revenue</option><option value="lost">Lost</option><option value="foc">FOC</option></select>
+    <select id="fm-y" onchange="buildMonthly()">${[...new Set([today().slice(0,4),..._invoices.map(i=>(i.order_date||'').slice(0,4)).filter(y=>/^\d{4}$/.test(y))])].sort().reverse().map(y=>`<option>${y}</option>`).join('')}</select>
+    <select id="fm-t" onchange="buildMonthly()"><option value="revenue">매출 등록금액</option><option value="supply">공급가액 집계분</option><option value="pending">세금 기준 확인 필요</option><option value="lost">Lost</option><option value="foc">FOC</option></select>
   </div>
   <div id="monthly-content"></div>`;
+  const period=dashboardPeriod();
+  const year=period.allTime?today().slice(0,4):period.start.slice(0,4);
+  const yearSelect=document.getElementById('fm-y');
+  if([...yearSelect.options].some(o=>o.value===year))yearSelect.value=year;
+  document.getElementById('fm-c').value=period.customer||'';
   buildMonthly();
 }
 function buildMonthly(){
@@ -2461,14 +2471,16 @@ function buildMonthly(){
   const yr=(document.getElementById('fm-y')||{value:'2026'}).value;
   const tf=(document.getElementById('fm-t')||{value:'revenue'}).value;
   const months=Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0'));
-  const invs=_invoices.filter(i=>(!cf||i.customer===cf)&&(i.order_date||'').startsWith(yr));
+  const summary=DashboardModel.summarizeSupply(_invoices,_items,{start:yr+'-01-01',end:yr+'-12-31',customer:cf},_customers);
+  const invs=summary.rows.map(r=>r.invoice);
+  const amountsById=new Map(summary.rows.map(r=>[r.invoice.id,r]));
   const custList=cf?[cf]:[...new Set(invs.map(i=>i.customer))];
-  const typeMap={revenue:inv=>itemsRev(getInvItems(inv.id)),lost:inv=>itemsByType(getInvItems(inv.id),'Lost'),foc:inv=>itemsByType(getInvItems(inv.id),'FOC')+itemsByType(getInvItems(inv.id),'GWP')+itemsByType(getInvItems(inv.id),'Sample')+(parseFloat(inv.foc)||0)};
+  const typeMap={revenue:inv=>amountsById.get(inv.id).recordedRevenue,supply:inv=>amountsById.get(inv.id).revenue,pending:inv=>amountsById.get(inv.id).pendingRevenue,lost:inv=>amountsById.get(inv.id).lost,foc:inv=>amountsById.get(inv.id).foc};
   const getAmt=typeMap[tf]||typeMap.revenue;
   const data={};
   const recorded=new Set(),recordedMonths=new Set(),recordKey=(customer,month)=>JSON.stringify([customer,month]);
   custList.forEach(c=>{data[c]={};months.forEach(m=>{data[c][m]=0;});});
-  invs.forEach(inv=>{const m=(inv.order_date||'').slice(5,7);if(!m||!data[inv.customer])return;data[inv.customer][m]=(data[inv.customer][m]||0)+getAmt(inv);if(tf==='revenue'&&getInvItems(inv.id).some(i=>i.sales_type==='Paid')){recorded.add(recordKey(inv.customer,m));recordedMonths.add(m);}});
+  invs.forEach(inv=>{const m=(inv.order_date||'').slice(5,7);if(!m||!data[inv.customer])return;data[inv.customer][m]=(data[inv.customer][m]||0)+getAmt(inv);if(['revenue','supply','pending'].includes(tf)&&getInvItems(inv.id).some(i=>i.sales_type==='Paid')){recorded.add(recordKey(inv.customer,m));recordedMonths.add(m);}});
   const totals={};months.forEach(m=>{totals[m]=custList.reduce((a,c)=>a+(data[c]?.[m]||0),0);});
   const maxM=Math.max(...Object.values(totals),1);
   const colors={revenue:'#AFA9EC',lost:'#F09595',sample:'#85B7EB',foc:'#EF9F27'};
@@ -2480,6 +2492,8 @@ function buildMonthly(){
   const totalAll=Object.values(totals).reduce((a,v)=>a+v,0);
 
   document.getElementById('monthly-content').innerHTML=`
+  <p class="dash-basis">${yr}년 · 발주일 기준 · 취소 제외 ${summary.cancelledCount}건 · 등록금액 ${fmt(summary.recordedRevenue)} = 공급가액 집계분 ${fmt(summary.revenue)} + 확인 필요 ${fmt(summary.pendingRevenue)}${summary.displayAdjustment?' + 표시 반올림 차이 '+fmt(summary.displayAdjustment):''}. 공급가액 집계분은 증빙 검토 완료 금액이 아닙니다.</p>
+  ${summary.missingDates?`<p class="dash-tax-warning">발주일 누락·형식 오류 ${summary.missingDates}건은 기간 집계에서 제외됩니다.</p>`:''}
   <div class="month-grid">${months.map(m=>`<div class="mcard"><div class="ml">${yr}.${m}</div><div class="mv">${fmt(totals[m])}</div><div style="height:4px;background:var(--bg2);border-radius:20px;overflow:hidden;margin-top:3px"><div style="width:${Math.round(totals[m]/maxM*100)}%;height:100%;background:${col};border-radius:20px"></div></div></div>`).join('')}</div>
   <div class="card" style="margin-bottom:0">
     <div class="card-hd"><h3>분기별 현황 (Q1~Q4) — ${yr}</h3></div>
@@ -2489,7 +2503,7 @@ function buildMonthly(){
       </div>
     </div>
   </div>
-  <div class="card"><div class="card-hd"><h3>${{revenue:'Revenue',lost:'Lost',sample:'Sample',foc:'FOC'}[tf]} — 거래처별 월별 (${yr})</h3></div>
+  <div class="card"><div class="card-hd"><h3>${{revenue:'매출 등록금액',supply:'공급가액 집계분',pending:'세금 기준 확인 필요',lost:'Lost',foc:'FOC'}[tf]} — 거래처별 월별 (${yr})</h3></div>
   <div class="tw"><table><thead><tr><th>거래처</th>${months.map(m=>`<th style="text-align:right">${m}월</th>`).join('')}<th style="text-align:right">합계</th><th style="text-align:right">비중</th></tr></thead><tbody>
   ${(()=>{
     // 월별 최고/최저 계산
@@ -2682,141 +2696,82 @@ function renderStockTable(){
 // ─── TAX ───
 function renderTax(){
   document.getElementById('topbar-actions').innerHTML='<button class="btn btn-green" onclick="exportTax()"><i class="ti ti-file-spreadsheet"></i> Excel 다운로드</button>';
-
-  // 월별 × 업체별 집계
-  const monthMap={}; // {YYYY-MM: {customer: {amt, taxType, mgr, custId, taxStatus, invoices[]}}}
-  _invoices.forEach(inv=>{
-    const c=custByName(inv.customer);if(!c)return;
-    const m=(inv.order_date||'').slice(0,7);if(!m)return;
-    const rev=itemsRev(getInvItems(inv.id));if(!rev)return;
-    if(!monthMap[m])monthMap[m]={};
-    if(!monthMap[m][inv.customer])monthMap[m][inv.customer]={
-      customer:inv.customer,custId:c.id,mgr:c.mgr,
-      taxType:c.tax||'영세',country:c.country,
-      amt:0,invoices:[],
-      taxStatus:(_taxRecords.find(r=>r.customer_id===c.id&&r.month===m)||{}).status||'발행예정'
-    };
-    monthMap[m][inv.customer].amt+=rev;
-    monthMap[m][inv.customer].invoices.push(inv.no);
-  });
-
-  const months=Object.keys(monthMap).sort();
+  const summary=DashboardModel.summarizeTax(_invoices,_items,DashboardModel.allTimePeriod(_invoices,today()),_customers,_taxRecords);
+  window._taxSummary=summary;
+  const months=[...new Set(summary.taxRows.map(r=>r.month))].sort();
   const years=[...new Set(months.map(m=>m.slice(0,4)))].sort().reverse();
-  const dashPeriod=typeof dashboardPeriod==='function'?dashboardPeriod():null;
-  const dashYear=dashPeriod&&!dashPeriod.allTime&&dashPeriod.start.slice(0,4)===dashPeriod.end.slice(0,4)?dashPeriod.start.slice(0,4):'';
-  const defaultYear=years.includes(dashYear)?dashYear:(years.includes(today().slice(0,4))?today().slice(0,4):years[0]||'');
-
+  const period=typeof dashboardPeriod==='function'?dashboardPeriod():null;
+  const year=period&&!period.allTime&&period.start.slice(0,4)===period.end.slice(0,4)?period.start.slice(0,4):today().slice(0,4);
   document.getElementById('content').innerHTML=`
   <div id="tax-kpis" class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:12px"></div>
-  <p style="color:var(--text2);font-size:12px">직접입금은 세금계산서 미처리 정산 방식입니다. 실제 입금 여부는 주문의 입금 상태와 증빙에서 확인하세요.</p>
+  <p class="dash-basis">발주일 기준 주문 집계 · 취소 주문 제외. 실제 발행 세금계산서 원장 합계가 아닙니다. 등록금액은 세금 기준 확인 필요 금액을 포함합니다. 부가세 포함·별도가 확인되지 않은 주문에 세액을 임의로 더하지 않습니다.</p>
+  <p class="dash-basis">공급가액 집계분은 대시보드와 동일한 분류 기준이며 증빙 검토 완료 금액이 아닙니다. 직접입금은 세금계산서 미처리 정산 방식이며 입금 완료를 뜻하지 않습니다.</p>
+  ${summary.missingDates?`<p class="dash-tax-warning">발주일 누락·형식 오류 ${summary.missingDates}건은 기간 집계에서 제외됩니다.</p>`:''}
   <div class="fb">
     <select id="ft-y" onchange="document.getElementById('ft-m').value='';filterTax()"><option value="">전체 연도</option>${years.map(y=>`<option>${y}</option>`).join('')}</select>
     <select id="ft-m" onchange="selectTaxMonth(this.value)"><option value="">전체 월</option>${months.map(m=>`<option>${m}</option>`).join('')}</select>
-    <select id="ft-st" onchange="filterTax()"><option value="">상태 전체</option>${TAX_ST.map(s=>`<option>${s}</option>`).join('')}</select>
-    <select id="ft-tax" onchange="filterTax()"><option value="">과세구분 전체</option><option>과세</option><option>영세</option></select>
-  </div>
-  <div id="tax-content"></div>`;
-
-  window._taxMonthMap=monthMap;
-  window._taxMonths=months;
-  const yearFilter=document.getElementById('ft-y');if(yearFilter)yearFilter.value=defaultYear;
+    <select id="ft-st" onchange="filterTax()"><option value="">상태 전체</option>${[...TAX_ST,'연결 확인 필요'].map(s=>`<option>${s}</option>`).join('')}</select>
+    <select id="ft-tax" onchange="filterTax()"><option value="">과세구분 전체</option><option>과세</option><option>영세</option><option>미확인</option></select>
+  </div><div id="tax-reconciliation" class="dash-basis"></div><div id="tax-content"></div>`;
+  document.getElementById('ft-y').value=years.includes(year)?year:(years[0]||'');
   filterTax();
 }
-
 function selectTaxMonth(month){
-  const monthFilter=document.getElementById('ft-m');if(monthFilter)monthFilter.value=month;
-  const yearFilter=document.getElementById('ft-y');if(yearFilter&&month)yearFilter.value=month.slice(0,4);
+  document.getElementById('ft-m').value=month;
+  if(month)document.getElementById('ft-y').value=month.slice(0,4);
   filterTax();
 }
-
+function taxVisibleRows(){
+  const value=id=>document.getElementById(id)?.value||'';
+  const year=value('ft-y'),month=value('ft-m'),status=value('ft-st'),tax=value('ft-tax');
+  return (window._taxSummary?.taxRows||[]).filter(r=>(!year||r.month.slice(0,4)===year)&&(!month||r.month===month)&&(!status||r.taxStatus===status)&&(!tax||r.taxType===tax));
+}
 function taxRowHtml(r,m){
-  const vat=r.taxType==='과세'?Math.round(r.amt*0.1):0;
-  const taxBadge=r.taxType==='과세'?'<span class="badge bg-amber">과세</span>':'<span class="badge bg-teal">영세율</span>';
-  const invStr=r.invoices.slice(0,3).join(', ')+(r.invoices.length>3?' +'+( r.invoices.length-3)+'건':'');
-  const stOpts=TAX_ST.map(s=>'<option '+(r.taxStatus===s?'selected':'')+'>'+s+'</option>').join('');
-  const stCls='ss s'+(r.taxStatus||'').replace(/\s/g,'');
-  return '<tr>'
-    +'<td><strong style="font-weight:600">'+r.customer+'</strong></td>'
-    +'<td><span class="badge bg-gray">'+r.mgr+'</span></td>'
-    +'<td>'+taxBadge+'</td>'
-    +'<td style="text-align:right">'+fmt(r.amt)+'</td>'
-    +'<td style="text-align:right">'+(vat?fmt(vat):'-')+'</td>'
-    +'<td style="text-align:right;font-weight:600">'+fmt(r.amt+vat)+'</td>'
-    +'<td style="font-size:10px;color:var(--text3)">'+invStr+'</td>'
-    +'<td style="white-space:nowrap;width:100px"><select class="'+stCls+'" onchange="updTaxSt2(\''+r.custId+'\',\''+r.customer+'\',\''+m+'\',this.value,this)">'+stOpts+'</select></td>'
-    +'</tr>';
+  const opts=TAX_ST.map(s=>`<option ${r.taxStatus===s?'selected':''}>${esc(s)}</option>`).join('');
+  const status=r.custId
+    ?`<select class="ss" data-customer-id="${esc(r.custId)}" data-customer="${esc(r.customer)}" data-month="${m}" onchange="updTaxSt2(this.dataset.customerId,this.dataset.customer,this.dataset.month,this.value,this)">${opts}</select>`
+    :'<span class="badge bg-amber">연결 확인 필요</span>';
+  return `<tr><td><strong>${esc(r.customer)}</strong></td><td>${esc(r.mgr)}</td><td>${esc(r.taxType)}</td>
+  <td style="text-align:right">${fmt(r.amt)}</td><td style="text-align:right">${fmt(r.supplyAmt)}</td><td style="text-align:right">${fmt(r.pendingAmt)}</td>
+  <td style="font-size:11px">${r.reasons.length?r.reasons.map(esc).join('<br>'):'영세 기본값 적용'}</td>
+  <td style="font-size:11px">${r.invoices.map(esc).join(', ')}</td><td>${status}</td></tr>`;
 }
-
 function filterTax(){
-  const fy=(document.getElementById('ft-y')||{value:''}).value;
-  const fm=(document.getElementById('ft-m')||{value:''}).value;
-  const fst=(document.getElementById('ft-st')||{value:''}).value;
-  const ftax=(document.getElementById('ft-tax')||{value:''}).value;
-  const el=document.getElementById('tax-content');if(!el)return;
-  const monthMap=window._taxMonthMap||{};
-  // 최신 월이 위로
-  const months=[...(window._taxMonths||[])].reverse().filter(m=>(!fy||m.slice(0,4)===fy)&&(!fm||m===fm));
-
-  let html='';
-  const visibleRows=[];
-  months.forEach(function(m){
-    const rows=Object.values(monthMap[m]||{}).filter(function(r){
-      return(!fst||r.taxStatus===fst)&&(!ftax||r.taxType===ftax);
-    });
-    if(!rows.length)return;
-    rows.forEach(function(r){visibleRows.push(r);});
-    const monthTotal=rows.reduce(function(a,r){return a+r.amt;},0);
-    const monthVat=rows.filter(function(r){return r.taxType==='과세';}).reduce(function(a,r){return a+Math.round(r.amt*0.1);},0);
-    const vatStr=monthVat?'&nbsp;<span style="color:var(--text2);font-weight:400;font-size:10px">+VAT '+fmt(monthVat)+'</span>':'';
-    let rowsHtml='';
-    rows.forEach(function(r){rowsHtml+=taxRowHtml(r,m);});
-    html+='<div class="card" style="margin-bottom:10px">'
-      +'<div class="card-hd">'
-      +'<h3>'+m+' <span style="font-size:10px;color:var(--text2);font-weight:400">'+rows.length+'개 업체</span></h3>'
-      +'<span style="font-size:11px;font-weight:600;color:var(--purple-dark)">'+fmt(monthTotal)+vatStr+'</span>'
-      +'</div>'
-      +'<div class="tw"><table style="table-layout:fixed;width:100%">'
-      +'<colgroup><col style="width:140px"><col style="width:80px"><col style="width:70px"><col style="width:120px"><col style="width:110px"><col style="width:110px"><col style="width:auto"><col style="width:110px"></colgroup>'
-      +'<thead><tr><th>거래처</th><th>담당자</th><th>구분</th><th style="text-align:right">공급가액</th><th style="text-align:right">부가세</th><th style="text-align:right">합계</th><th>인보이스</th><th>상태 ✎</th></tr></thead>'
-      +'<tbody>'+rowsHtml+'</tbody>'
-      +'</table></div></div>';
-  });
-  const totalAmt=visibleRows.reduce(function(a,r){return a+r.amt;},0);
-  const pend=visibleRows.filter(function(r){return r.taxStatus==='발행예정';}).length;
-  const done=visibleRows.filter(function(r){return r.taxStatus==='발행완료';}).length;
-  const direct=visibleRows.filter(function(r){return r.taxStatus==='직접입금';}).length;
-  const kpis=document.getElementById('tax-kpis');
-  if(kpis)kpis.innerHTML='<div class="kpi"><div class="lbl">총 공급가액</div><div class="val">'+fmt(totalAmt)+'</div></div>'
-    +'<div class="kpi"><div class="lbl">발행 예정</div><div class="val" style="color:var(--amber)">'+pend+'건</div></div>'
-    +'<div class="kpi"><div class="lbl">발행 완료</div><div class="val" style="color:var(--teal)">'+done+'건</div></div>'
-    +'<div class="kpi"><div class="lbl">직접입금 · 세금계산서 미처리</div><div class="val">'+direct+'건</div></div>';
-  el.innerHTML=html||'<div class="est"><i class="ti ti-receipt-2"></i>데이터 없음</div>';
+  const rows=taxVisibleRows(),months=[...new Set(rows.map(r=>r.month))].sort().reverse();
+  const sum=key=>rows.reduce((a,r)=>a+r[key],0);
+  const count=status=>rows.filter(r=>r.taxStatus===status).length;
+  document.getElementById('tax-kpis').innerHTML=`
+    <div class="kpi"><div class="lbl">매출 등록금액</div><div class="val">${fmt(sum('amt'))}</div></div>
+    <div class="kpi"><div class="lbl">공급가액 집계분</div><div class="val">${fmt(sum('supplyAmt'))}</div></div>
+    <div class="kpi"><div class="lbl">세금 기준 확인 필요</div><div class="val">${fmt(sum('pendingAmt'))}</div></div>
+    <div class="kpi"><div class="lbl">발행 예정</div><div class="val">${count('발행예정')}건</div></div>
+    <div class="kpi"><div class="lbl">발행 완료</div><div class="val">${count('발행완료')}건</div></div>
+    <div class="kpi"><div class="lbl">직접입금 · 세금계산서 미처리</div><div class="val">${count('직접입금')}건</div></div>`;
+  const reconciliation=document.getElementById('tax-reconciliation');
+  const cents=value=>Math.round(Number(Number(value).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:2}))*100);
+  const adjustment=(cents(sum('amt'))-cents(sum('supplyAmt'))-cents(sum('pendingAmt')))/100;
+  if(reconciliation)reconciliation.textContent=`현재 필터 기준 · 등록금액 ${fmt(sum('amt'))} = 공급가액 집계분 ${fmt(sum('supplyAmt'))} + 확인 필요 ${fmt(sum('pendingAmt'))}${adjustment?' + 표시 반올림 차이 '+fmt(adjustment):''}. 거래처 미연결 ${rows.filter(r=>!r.custId).length}건도 등록금액에 포함합니다. 상태 건수는 거래처·월 단위입니다.`;
+  document.getElementById('tax-content').innerHTML=months.map(m=>{
+    const monthRows=rows.filter(r=>r.month===m);
+    return `<div class="card" style="margin-bottom:10px"><div class="card-hd"><h3>${m} · ${monthRows.length}개 업체</h3><span>등록금액 ${fmt(monthRows.reduce((a,r)=>a+r.amt,0))}</span></div>
+    <div class="tw"><table><thead><tr><th>거래처</th><th>담당자</th><th>현재 구분</th><th>등록금액</th><th>공급가액 집계분</th><th>확인 필요 금액</th><th>확인 사유</th><th>인보이스</th><th>상태</th></tr></thead><tbody>${monthRows.map(r=>taxRowHtml(r,m)).join('')}</tbody></table></div></div>`;
+  }).join('')||'<div class="est">데이터 없음</div>';
 }
-
 async function updTaxSt2(custId,name,month,val,el){
   const before=_taxRecords.find(r=>r.customer_id===custId&&r.month===month)||null;
   await requestRow('tax_records',before?'update':'insert',before?{id:before.id}:{},{customer_id:custId,month,status:val},before);
   if(el){el.value=before?.status||'발행예정';el.className='ss s'+el.value;}
 }
-
 function exportTax(){
-  const monthMap=window._taxMonthMap||{};
-  const months=window._taxMonths||[];
-  const headers=['월','거래처','담당자','구분','공급가액','부가세','합계','상태'];
-  const data=[headers];
-  months.forEach(m=>{
-    Object.values(monthMap[m]||{}).forEach(r=>{
-      const vat=r.taxType==='과세'?Math.round(r.amt*0.1):0;
-      data.push([m,r.customer,r.mgr,r.taxType==='과세'?'과세':'영세율',r.amt,vat,r.amt+vat,r.taxStatus]);
-    });
-  });
-  const ws=XLSX.utils.aoa_to_sheet(data);
-  ws['!cols']=[{wch:10},{wch:18},{wch:8},{wch:8},{wch:14},{wch:12},{wch:14},{wch:10}];
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,'세금계산서');
-  xlsxDownload(wb,`Entropy_세금계산서_${today().replace(/-/g,'')}.xlsx`);
-  toast('Excel 다운로드 완료!');
+  const rows=taxVisibleRows();
+  const data=[['발주월','거래처','담당자','현재 구분','등록금액','공급가액 집계분','확인 필요 금액','확인 사유','상태'],
+    ...rows.map(r=>[r.month,r.customer,r.mgr,r.taxType,r.amt,r.supplyAmt,r.pendingAmt,r.reasons.join(' / '),r.taxStatus])];
+  const ws=XLSX.utils.aoa_to_sheet(data),wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'주문기준_세금검토');
+  xlsxDownload(wb,`Entropy_세금검토_${today().replace(/-/g,'')}.xlsx`);
+  toast('현재 필터 기준 Excel 다운로드 완료!');
 }
+
 
 // ─── CUSTOMERS ───
 let _custSort={col:'name',dir:'asc'};
