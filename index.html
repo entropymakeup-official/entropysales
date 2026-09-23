@@ -97,17 +97,18 @@
     <div class="ni" onclick="go('raw')" id="nav-raw"><i class="ti ti-table"></i>RAW 데이터</div>
     <div class="ns">분석</div>
     <div class="ni" onclick="go('monthly')" id="nav-monthly"><i class="ti ti-chart-bar"></i>월별 현황</div>
-    <div class="ni" onclick="go('forecast')" id="nav-forecast"><i class="ti ti-trending-up"></i>재고 포캐스팅</div>
-    <div class="ni" onclick="go('inventory')" id="nav-inventory"><i class="ti ti-building-warehouse"></i>실시간 재고</div>
-    <div class="ni" onclick="go('productanalysis')" id="nav-productanalysis"><i class="ti ti-package"></i>제품별 분석</div>
+    <!-- Temporarily hidden; preserve functionality. See DEFERRED-MENUS.md. -->
+    <div class="ni" hidden style="display:none" onclick="go('forecast')" id="nav-forecast"><i class="ti ti-trending-up"></i>재고 포캐스팅</div>
+    <div class="ni" hidden style="display:none" onclick="go('inventory')" id="nav-inventory"><i class="ti ti-building-warehouse"></i>실시간 재고</div>
+    <div class="ni" hidden style="display:none" onclick="go('productanalysis')" id="nav-productanalysis"><i class="ti ti-package"></i>제품별 분석</div>
     <div class="ns">정산</div>
     <div class="ni" onclick="go('tax')" id="nav-tax"><i class="ti ti-receipt-2"></i>세금계산서</div>
     <div class="ns">거래처</div>
     <div class="ni" onclick="go('customers')" id="nav-customers"><i class="ti ti-building-store"></i>거래처 마스터</div>
     <div class="ni" onclick="go('contacts')" id="nav-contacts"><i class="ti ti-address-book"></i>거래처 연락처</div>
     <div class="ni" onclick="go('contracts')" id="nav-contracts"><i class="ti ti-file-text"></i>계약서</div>
-    <div class="ns">일정</div>
-    <div class="ni" onclick="go('calendar')" id="nav-calendar"><i class="ti ti-calendar"></i>달력</div>
+    <div class="ns" hidden style="display:none">일정</div>
+    <div class="ni" hidden style="display:none" onclick="go('calendar')" id="nav-calendar"><i class="ti ti-calendar"></i>달력</div>
     <div class="ns">서류</div>
     <a class="ni" href="admin.html"><i class="ti ti-checklist"></i>변경 요청 · 관리자 승인</a>
     <div class="ni" onclick="go('docs')" id="nav-docs"><i class="ti ti-folder"></i>서류 관리</div>
