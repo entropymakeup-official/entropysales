@@ -109,6 +109,8 @@
     <div class="ni" onclick="go('contracts')" id="nav-contracts"><i class="ti ti-file-text"></i>계약서</div>
     <div class="ns" hidden style="display:none">일정</div>
     <div class="ni" hidden style="display:none" onclick="go('calendar')" id="nav-calendar"><i class="ti ti-calendar"></i>달력</div>
+    <div class="ns">제품</div>
+    <div class="ni" onclick="go('productmaster')" id="nav-productmaster"><i class="ti ti-box"></i>제품 마스터 <span style="margin-left:auto;font-size:9px;opacity:.6">조회</span></div>
     <div class="ns">서류</div>
     <a class="ni" href="admin.html"><i class="ti ti-checklist"></i>변경 요청 · 관리자 승인</a>
     <div class="ni" onclick="go('docs')" id="nav-docs"><i class="ti ti-folder"></i>서류 관리</div>
@@ -641,6 +643,9 @@
 <link rel="stylesheet" href="contacts-import.css?v=20260917-contacts-1">
 <script src="contacts.js?v=20260917-contacts-1"></script>
 <script src="contacts-import.js?v=20260917-contacts-1"></script>
-  <script src="app.js?v=3b84deb9e6d6"></script>
+<link rel="stylesheet" href="product-master.css?v=20260929-1">
+<script src="product-master.js?v=20260929-1"></script>
+  <script src="app.js?v=33fbe3b301c1"></script>
+<script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 </body>
 </html>
