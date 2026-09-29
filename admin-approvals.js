@@ -66,10 +66,10 @@
     return `<div class="queue-toolbar"><div><strong>${state.isAdmin===true?'전체 변경 요청':'내 변경 요청'}</strong><p class="muted">현재 페이지 ${all.length}건 · 대기 ${pending}건</p></div><div class="toolbar-controls"><label>현재 페이지 상태 <select data-filter${disabled}>${Object.entries({all:'전체',...statusLabels}).map(([k,v])=>`<option value="${k}"${state.filter===k?' selected':''}>${v}</option>`).join('')}</select></label><button type="button" data-refresh${disabled}>새로고침</button></div></div>
       ${state.error?`<p class="message error" role="alert">${escape(state.error)}</p>`:''}${state.message?`<p class="message success" role="status">${escape(state.message)}</p>`:''}
       ${state.loading?'<p role="status">요청을 불러오는 중입니다…</p>':''}
-      ${!state.isAdmin?'<p class="muted">본인이 제출한 요청을 조회합니다. 승인·반려 권한은 서버에서 확인합니다.</p>':''}
+      ${!state.isAdmin?'<p class="muted">본인이 제출한 승인 대기 요청을 수정할 수 있습니다. 승인·반려 권한은 서버에서 확인합니다.</p>':''}
       <div class="requests">${rows.map(r=>{
         const id=escape(r.id),knownStatus=Object.hasOwn(statusLabels,r.status)?r.status:'unknown',info=requestTitle(r,state);
-        return `<details class="request" data-request="${id}"${state.expanded?.[r.id]?' open':''}><summary class="request-summary"><span class="request-chevron" aria-hidden="true">›</span><span class="request-label"><span class="request-kind">${escape(info.customer||info.kind)} · ${info.count}개 변경</span><span class="request-title">${escape(info.title)}</span></span><span class="badge ${knownStatus}">${escape(statusLabels[r.status]||'상태 미확인')}</span><span class="request-date">${escape(time(r.created_at))}</span></summary><div class="request-body"><p class="request-reason"><strong>변경 사유</strong> ${escape(r.reason||'사유 없음')}</p><p class="request-meta">요청자 ${escape(r.requester_email||r.requester_id)} · ${escape(time(r.created_at))}</p><p class="request-id">요청 번호 ${id}</p>${contractOverview(r.operations)}${contactsOverview(r.operations)}<details class="raw-diff"><summary>변경 전후 상세 확인</summary>${(Array.isArray(r.operations)?r.operations:[]).map(renderDiff).join('')}</details>${r.status!=='pending'?`<p class="review-result">처리자 ${escape(r.reviewer_email||'미확인')} · ${escape(time(r.reviewed_at))}<br>검토 메모: ${escape(r.review_note||'없음')}</p>`:''}${state.isAdmin===true&&r.status==='pending'?`<div class="review-controls"><label>검토 메모 <span class="muted">(반려 시 필수)</span><textarea data-note="${id}" maxlength="2000" rows="2"${disabled}>${escape(state.notes?.[r.id]||'')}</textarea></label><div class="review-buttons"><button type="button" class="reject" data-review="reject" data-id="${id}"${disabled}>반려</button><button type="button" class="approve" data-review="approve" data-id="${id}"${disabled}>승인하여 반영</button></div></div>`:''}</div></details>`;
+        return `<details class="request" data-request="${id}"${state.expanded?.[r.id]?' open':''}><summary class="request-summary"><span class="request-chevron" aria-hidden="true">›</span><span class="request-label"><span class="request-kind">${escape(info.customer||info.kind)} · ${info.count}개 변경</span><span class="request-title">${escape(info.title)}</span></span><span class="badge ${knownStatus}">${escape(statusLabels[r.status]||'상태 미확인')}</span><span class="request-date">${escape(time(r.created_at))}</span></summary><div class="request-body"><p class="request-reason"><strong>변경 사유</strong> ${escape(r.reason||'사유 없음')}</p><p class="request-meta">요청자 ${escape(r.requester_email||r.requester_id)} · ${escape(time(r.created_at))}</p><p class="request-id">요청 번호 ${id} · 버전 ${escape(r.revision||1)}${r.updated_at?' · 수정 '+escape(time(r.updated_at)):''}</p>${r.can_edit===true&&r.status==='pending'?`<button type="button" data-edit="${id}"${disabled}>내 요청 수정</button>`:''}${r.history?.length?`<details><summary>수정 이력 ${r.history.length}건</summary>${r.history.map(h=>`<section><p>이전 버전 ${escape(h.revision)} · ${escape(time(h.changed_at))} · ${escape(h.reason)}</p>${h.operations.map(renderDiff).join('')}</section>`).join('')}</details>`:''}${contractOverview(r.operations)}${contactsOverview(r.operations)}<details class="raw-diff"><summary>변경 전후 상세 확인</summary>${(Array.isArray(r.operations)?r.operations:[]).map(renderDiff).join('')}</details>${r.status!=='pending'?`<p class="review-result">처리자 ${escape(r.reviewer_email||'미확인')} · ${escape(time(r.reviewed_at))}<br>검토 메모: ${escape(r.review_note||'없음')}</p>`:''}${state.isAdmin===true&&r.status==='pending'?`<div class="review-controls"><label>검토 메모 <span class="muted">(반려 시 필수)</span><textarea data-note="${id}" maxlength="2000" rows="2"${disabled}>${escape(state.notes?.[r.id]||'')}</textarea></label><div class="review-buttons"><button type="button" class="reject" data-review="reject" data-id="${id}"${disabled}>반려</button><button type="button" class="approve" data-review="approve" data-id="${id}"${disabled}>승인하여 반영</button></div></div>`:''}</div></details>`;
       }).join('')||(!state.loading?'<div class="empty">현재 페이지에 해당 상태의 요청이 없습니다.</div>':'')}</div>
       <nav class="pagination" aria-label="요청 목록 페이지"><button type="button" data-page="prev"${disabled||(!state.offset?' disabled':'')}>이전</button><span>${Math.floor((state.offset||0)/(state.pageSize||50))+1}페이지 · 페이지당 ${state.pageSize||50}건</span><button type="button" data-page="next"${disabled||(all.length<(state.pageSize||50)?' disabled':'')}>다음</button></nav>`;
   }
@@ -88,7 +88,7 @@
       }catch(error){if(ticket===generation){state.error='목록 조회 실패: '+(error.message||String(error));state.isAdmin=false;}return false;}
       finally{if(ticket===generation){state.loading=false;notify();}}
     }
-    async function review(id,approve,note=''){
+    async function review(id,approve,note='',expectedRevision){
       state.error='';state.message='';
       if(!state.isAdmin||state.loading||state.reviewing||!state.requests.some(r=>r.id===id&&r.status==='pending')){state.error='현재 승인할 수 없습니다. 권한과 최신 요청 상태를 새로고침해 주세요.';notify();return false;}
       note=String(note).trim();
@@ -96,7 +96,7 @@
       const epoch=sessionEpoch;
       state.reviewing=true;notify();
       try{
-        const {data,error}=await rpc('review_change_request',{p_id:id,p_approve:approve===true,p_note:note});
+        const {data,error}=await rpc('review_change_request_versioned',{p_id:id,p_approve:approve===true,p_note:note,p_revision:expectedRevision??state.requests.find(r=>r.id===id)?.revision??1});
         if(epoch!==sessionEpoch)return false;
         if(error)throw error;
         if(data?.id!==id||data?.status!==(approve?'approved':'rejected'))throw new Error('처리 응답을 확인할 수 없습니다. 새로고침하여 상태를 확인해 주세요.');
@@ -134,14 +134,20 @@
       const button=event.target.closest('button');if(!button||button.disabled)return;
       if(button.hasAttribute('data-refresh'))await controller.load();
       else if(button.dataset.page)await controller.load(controller.state.offset+(button.dataset.page==='next'?1:-1)*controller.state.pageSize);
+      else if(button.dataset.edit){
+        const request=controller.state.requests.find(r=>r.id===button.dataset.edit);
+        if(!request?.can_edit||request.status!=='pending')return;
+        try{await globalThis.RequestEditor.open({document,client,request,label:field,onSaved:async()=>{await controller.load();controller.state.message='요청을 수정했습니다. 관리자 승인 대기 중입니다.';host.innerHTML=render(controller.state);}});}
+        catch(error){controller.state.error='수정 화면을 열지 못했습니다. '+(error.message||String(error));host.innerHTML=render(controller.state);}
+      }
       else if(button.dataset.review){
         if(confirming)return;
         const approve=button.dataset.review==='approve',id=button.dataset.id,note=controller.state.notes[id]||'';
         if(!approve&&!note.trim()){await controller.review(id,false,note);return;}
-        const generation=sessionGeneration;confirming=true;
+        const generation=sessionGeneration,revision=controller.state.requests.find(r=>r.id===id)?.revision??1;confirming=true;
         try{
           const accepted=await confirm(approve?'변경 전후 내용과 증빙을 확인했습니까? 승인하면 확정 자료에 반영됩니다. 본인 요청도 같은 검증을 거칩니다.':'이 요청을 반려하시겠습니까?');
-          if(accepted&&generation===sessionGeneration)await controller.review(id,approve,note);
+          if(accepted&&generation===sessionGeneration)await controller.review(id,approve,note,revision);
         }finally{confirming=false;}
       }
     });

@@ -17,7 +17,7 @@ test('approval waits for explicit inline confirmation; cancelling makes no mutat
 test('explicit inline approval submits once, suppressing duplicate confirmation clicks',async()=>{
  const h=setup();await new Promise(setImmediate);const pending=h.click();pending.catch(()=>{});await new Promise(setImmediate);
  assert.ok(h.dialog);await h.click();assert.equal(h.calls.length,1);h.parts['[data-confirm]'].click();await pending;
- assert.equal(h.calls.filter(x=>x.name==='review_change_request').length,1);assert.equal(h.dialog.removed,true);
+ assert.equal(h.calls.filter(x=>x.name==='review_change_request_versioned').length,1);assert.equal(h.dialog.removed,true);
 });
 test('sign-out while confirming cannot approve under a changed session',async()=>{
  const h=setup();await new Promise(setImmediate);const pending=h.click();pending.catch(()=>{});await new Promise(setImmediate);

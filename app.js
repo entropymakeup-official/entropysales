@@ -955,10 +955,10 @@ function filterInv(){
       <td style="font-size:11px">${v.order_date||'-'}</td>
       <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
       <td style="text-align:right;color:var(--red);font-size:11px">${focAmt>0?fmt(focAmt):'-'}</td>
-      <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="togglePayStatus('${v.id}')"`:''}>
+      <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="openInvoiceStatusRequest('${v.id}')"`:''}>
         ${invoicePaymentMarkup(v,rev)}
       </td>
-      <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="updShipSt('${v.id}',this.value,this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select></td>
+      <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select></td>
       <td onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
         style="border:none;background:transparent;font-size:11px;width:120px;color:var(--text);outline:none;border-bottom:1px solid var(--border);padding:2px 4px"
         onchange="updTracking('${v.id}',this.value)"/></td>
@@ -1218,7 +1218,7 @@ function viewInv(id){
   document.getElementById('view-del-btn').onclick=()=>delInv(id);
   document.getElementById('view-dl-btn').onclick=()=>{cm('m-inv-view');downloadMeongse(v);};
   document.getElementById('view-amount-btn').onclick=()=>invoiceAmounts.open(v,items);
-  document.getElementById('view-edit-btn').onclick=()=>{cm('m-inv-view');editInv(id);};
+  document.getElementById('view-edit-btn').onclick=()=>{cm('m-inv-view');editInvoiceOrRequest(id);};
   // 첨부 파일 목록 로드 (캐시 무효화 후)
   delete _invFileCache[id];
   loadInvDocs(id);
@@ -1369,7 +1369,7 @@ function filterRaw(page){
           <div style="font-size:12px;font-weight:600;color:var(--text1);margin-bottom:2px">${r.customer}</div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:6px">${r.odate||'-'}</div>
           <div style="display:flex;gap:3px;justify-content:center">
-            <button class="btn btn-sm" onclick="editRawItem('${r.invId}')" title="수정"><i class="ti ti-pencil"></i></button>
+            <button class="btn btn-sm" onclick="editInvoiceOrRequest('${r.invId}',true)" title="수정"><i class="ti ti-pencil"></i></button>
             <button class="btn btn-sm" onclick="delRawItem('${r.invId}')" style="color:var(--red);border-color:var(--red)" title="삭제"><i class="ti ti-trash"></i></button>
           </div>
         </td>`
@@ -4572,3 +4572,28 @@ async function confirmRspUpload(){
 }
 
 async function delStock(id){if(confirm('입고 예정 삭제를 요청할까요?'))await requestRow('stocks','delete',{id},null,_stocks.find(r=>r.id===id));}
+
+// Reuse the author's proposed values, preserving an existing request and item edits.
+async function openInvoiceStatusRequest(id,select){
+ const inv=_invoices.find(i=>i.id===id);if(!inv)return;
+ const selectedShip=select?.value;
+ if(select)select.value=inv.ship_status||'준비중';
+ try{
+  const {data,error}=await sb.rpc('find_my_invoice_requests',{p_invoice_id:id});if(error)throw error;
+  const request=RequestEditor.prepareInvoice(inv,data||[]);
+  if(['준비중','출고완료'].includes(selectedShip)){
+   const op=request.operations.find(op=>(op.action==='invoice'&&op.id===id)||(op.table==='invoices'&&op.key?.id===id));
+   (op.action==='invoice'?op.invoice:op.values).ship_status=selectedShip;
+  }
+  await RequestEditor.open({document,client:sb,request,submit:(ops,options)=>changeRequests.submit(ops,options),onSaved:()=>toast('요청을 저장했습니다. 관리자 승인 대기 중입니다.')});
+ }catch(error){toast('요청을 열지 못했습니다: '+error.message);}
+}
+async function editInvoiceOrRequest(id,useRaw=false){
+ try{
+  const {data,error}=await sb.rpc('find_my_invoice_requests',{p_invoice_id:id});if(error)throw error;
+  if(!data?.length){if(useRaw)editRawItem(id);else editInv(id);return;}
+  const inv=_invoices.find(i=>i.id===id);if(!inv)return;
+  const request=RequestEditor.prepareInvoice(inv,data,getInvItems(id));
+  await RequestEditor.open({document,client:sb,request,onSaved:()=>toast('대기 요청을 수정했습니다. 관리자 승인 대기 중입니다.')});
+ }catch(error){toast('요청을 열지 못했습니다: '+error.message);}
+}
