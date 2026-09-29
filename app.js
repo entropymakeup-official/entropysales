@@ -200,6 +200,7 @@ function closeSidebar(){
   document.getElementById('sidebar-overlay').classList.remove('open');
 }
 function go(page){
+  if(page!=='productmaster')globalThis.productMaster?.hide();
   if(page!=='contacts'){globalThis.contactImporter?.close();globalThis.contactRegister?.hide();}
   if(page!=='contracts')globalThis.contractRegister?.hide();
   globalThis.invoiceSheetStatus?.show(page);
@@ -213,7 +214,8 @@ function go(page){
   document.querySelectorAll('.ni').forEach(el=>el.classList.remove('active'));
   const n=document.getElementById('nav-'+page);if(n)n.classList.add('active');
   const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',inventory:'실시간 재고',tax:'세금계산서',customers:'거래처 마스터',contacts:'거래처 연락처',contracts:'계약서',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
-  document.getElementById('page-title').textContent=titles[page]||page;
+  document.getElementById('page-title').textContent=page==='productmaster'?'제품 마스터':titles[page]||page;
+  if(page==='productmaster'){globalThis.productMaster?.show();return;}
   ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,customers:renderCustomers,contacts:()=>globalThis.contactRegister?.show(),contracts:renderContracts,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
 let _contractCustomer='';
