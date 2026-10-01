@@ -98,7 +98,7 @@ globalThis.liveInventory = globalThis.LiveInventory?.mount({
 const MGRS = ['liah','Grace','Raye','Chloe','Ethan'];
 const SALES_TYPES = ['Paid','FOC','GWP','Sample','Replacement','Lost'];
 const INV_ST = ['Ordered','Paid','Closed','Cancelled'];
-const TAX_ST = ['발행예정','발행완료','직접입금','취소'];
+const TAX_ST = ['발행예정','발행완료','직접입금','직수출','취소'];
 let _taxRecords=[]; // {customer_id, month, status}
 const DOC_TYPES = ['사업자등록증','통장사본','LOA','인증서','제품 서류','계약서','기타'];
 const SUPPLIER = {name:'㈜브랜드지놈',addr:'서울특별시 용산구 독서당로 94, 4층',ceo:'박소희',contact:'박주현',phone:'010-3170-3423',bizType:'도매 및 소매업'};
@@ -2690,7 +2690,7 @@ function renderTax(){
   document.getElementById('content').innerHTML=`
   <div id="tax-kpis" class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:12px"></div>
   <p class="dash-basis">발주일 기준 주문 집계 · 취소 주문 제외. 실제 발행 세금계산서 원장 합계가 아닙니다. 등록금액은 세금 기준 확인 필요 금액을 포함합니다. 부가세 포함·별도가 확인되지 않은 주문에 세액을 임의로 더하지 않습니다.</p>
-  <p class="dash-basis">공급가액 집계분은 대시보드와 동일한 분류 기준이며 증빙 검토 완료 금액이 아닙니다. 직접입금은 세금계산서 미처리 정산 방식이며 입금 완료를 뜻하지 않습니다.</p>
+  <p class="dash-basis">공급가액 집계분은 대시보드와 동일한 분류 기준이며 증빙 검토 완료 금액이 아닙니다. 직접입금은 세금계산서 미처리 정산 방식이며 입금 완료를 뜻하지 않습니다. 직수출은 해외 법인 직접 수출로 세금계산서 발급 대상이 아니며 상업송장·수출신고필증으로 증빙합니다.</p>
   ${summary.missingDates?`<p class="dash-tax-warning">발주일 누락·형식 오류 ${summary.missingDates}건은 기간 집계에서 제외됩니다.</p>`:''}
   <div class="fb">
     <select id="ft-y" onchange="document.getElementById('ft-m').value='';filterTax()"><option value="">전체 연도</option>${years.map(y=>`<option>${y}</option>`).join('')}</select>
@@ -2731,7 +2731,8 @@ function filterTax(){
     <div class="kpi"><div class="lbl">세금 기준 확인 필요</div><div class="val">${fmt(sum('pendingAmt'))}</div></div>
     <div class="kpi"><div class="lbl">발행 예정</div><div class="val">${count('발행예정')}건</div></div>
     <div class="kpi"><div class="lbl">발행 완료</div><div class="val">${count('발행완료')}건</div></div>
-    <div class="kpi"><div class="lbl">직접입금 · 세금계산서 미처리</div><div class="val">${count('직접입금')}건</div></div>`;
+    <div class="kpi"><div class="lbl">직접입금 · 세금계산서 미처리</div><div class="val">${count('직접입금')}건</div></div>
+    <div class="kpi"><div class="lbl">직수출 · 세금계산서 발급 제외</div><div class="val">${count('직수출')}건</div></div>`;
   const reconciliation=document.getElementById('tax-reconciliation');
   const cents=value=>Math.round(Number(Number(value).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:2}))*100);
   const adjustment=(cents(sum('amt'))-cents(sum('supplyAmt'))-cents(sum('pendingAmt')))/100;
