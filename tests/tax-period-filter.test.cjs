@@ -92,3 +92,22 @@ test('direct deposits stay in revenue but are separate from issued and pending c
   assert.match(nodes['tax-content'].innerHTML,/2026-01/);
   assert.doesNotMatch(nodes['tax-content'].innerHTML,/2026-09/);
 });
+
+test('direct exports are a separate tax status excluded from issued and pending counts',()=>{
+  const {context,nodes}=setup();
+  context.TAX_ST.push('직수출');
+  context._taxRecords[1].status='직수출';
+  context.renderTax();
+  assert.match(nodes['tax-kpis'].innerHTML,/₩400/);
+  assert.match(nodes['tax-kpis'].innerHTML,/발행 완료[\s\S]*?0건/);
+  assert.match(nodes['tax-kpis'].innerHTML,/직수출[\s\S]*?1건/);
+  nodes['ft-st'].value='직수출';context.filterTax();
+  assert.match(nodes['tax-kpis'].innerHTML,/₩100/);
+  assert.match(nodes['tax-content'].innerHTML,/2026-01/);
+  assert.doesNotMatch(nodes['tax-content'].innerHTML,/2026-09/);
+});
+
+test('app tax statuses include direct export',()=>{
+  const app=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');
+  assert.match(app,/const TAX_ST = \[[^\]]*'직수출'[^\]]*\]/);
+});

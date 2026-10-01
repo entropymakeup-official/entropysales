@@ -105,6 +105,7 @@ tr:hover td{background:var(--bg3)}
 .ss.sOrdered,.ss.s준비중{background-color:#FAEEDA;color:#854F0B;border-color:#FAC775}
 .ss.sPaid,.ss.s출고완료,.ss.s발행완료{background-color:#EAF3DE;color:#3B6D11;border-color:#C0DD97}
 .ss.s발행예정{background-color:#FAEEDA;color:#854F0B;border-color:#FAC775}
+.ss.s직수출,.ss.s직접입금{background-color:#E6F1FB;color:#185FA5;border-color:#B5D4F4}
 .ss.s취소,.ss.sCancelled{background-color:#FCEBEB;color:#A32D2D;border-color:#F7C1C1}
 .ss.sClosed{background-color:#F1EFE8;color:#5F5E5A;border-color:#D3D1C7}
 .alink{color:var(--purple);cursor:pointer;font-size:11px}
