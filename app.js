@@ -140,20 +140,33 @@ function fillCustSel(id,sel=''){
 }
 
 // ─── 데이터 로드 ───
-let _loadAllPromise = null;
+let _loadAllPromise = null, _loadAllGeneration = 0;
+function resetApplicationData(){
+  // 로그아웃·계정 전환 시 이전 계정의 조회 결과와 진행 중인 로드를 무효화
+  _loadAllGeneration++;
+  _loadAllPromise=null;
+  resetDashboardTaxLedger();
+  _customers=[];_products=[];_invoices=[];_items=[];_stocks=[];_docs=[];_schedules=[];_taxRecords=[];
+  _dashSnapshot=null;_dashPeriod=null;
+  const content=document.getElementById('content');
+  if(content)content.innerHTML=loading();
+  const actions=document.getElementById('topbar-actions');
+  if(actions)actions.innerHTML='';
+}
 async function loadAll(){
   // 이미 로딩 중이면 새로 실행하지 않고 같은 결과를 기다림 (중복 호출로 인한 invoice_items 등 데이터 2배 적재 방지)
   if(_loadAllPromise) return _loadAllPromise;
-  _loadAllPromise = _loadAllInner();
+  const pending = _loadAllInner(_loadAllGeneration);
+  _loadAllPromise = pending;
   try{
-    await _loadAllPromise;
+    return await pending;
   } finally {
-    _loadAllPromise = null;
+    if(_loadAllPromise===pending)_loadAllPromise = null;
   }
 }
 
-async function _loadAllInner(){
-  // 모든 쿼리 동시에 병렬 실행
+async function _loadAllInner(generation=_loadAllGeneration){
+  // 모든 쿼리 동시에 병렬 실행 (세금계산서 확인금액 원장은 별도 상태로 읽고 주문 매출에 합산하지 않음)
   const [c,p,inv,s,d,sch,goal,tr]=await Promise.all([
     sb.from('customers').select('*').order('name'),
     sb.from('products').select('*').order('name'),
@@ -162,8 +175,21 @@ async function _loadAllInner(){
     sb.from('documents').select('*').order('created_at',{ascending:false}),
     sb.from('schedules').select('*').order('date'),
     sb.from('app_settings').select('value').eq('key','revenue_goal').maybeSingle(),
-    sb.from('tax_records').select('*')
+    sb.from('tax_records').select('*'),
+    loadDashboardTaxLedger()
   ]);
+  if(generation!==_loadAllGeneration)return false;
+  // invoice_items 전체 로드 - 1000행씩 끝까지 페이지네이션 (상한 없음). 세션이 바뀌면 이전 조회를 캐시에 반영하지 않음.
+  const loadedItems=[];
+  let _from=0;
+  while(true){
+    const{data,error}=await sb.from('invoice_items').select('*').range(_from,_from+999);
+    if(generation!==_loadAllGeneration)return false;
+    if(error||!data||data.length===0)break;
+    loadedItems.push(...data);
+    if(data.length<1000)break;
+    _from+=1000;
+  }
   _customers=c.data||[];
   _products=p.data||[];
   _invoices=inv.data||[];
@@ -175,16 +201,8 @@ async function _loadAllInner(){
     localStorage.setItem('revenue_goal',_revenueGoal);
   }
   _taxRecords=tr.data||[];
-  // invoice_items 전체 로드 - 1000행씩 끝까지 페이지네이션 (상한 없음)
-  _items=[];
-  let _from=0;
-  while(true){
-    const{data,error}=await sb.from('invoice_items').select('*').range(_from,_from+999);
-    if(error||!data||data.length===0)break;
-    _items.push(...data);
-    if(data.length<1000)break;
-    _from+=1000;
-  }
+  _items=loadedItems;
+  return true;
 }
 
 async function preloadAllInvFiles(){
@@ -246,6 +264,7 @@ function renderDash(){
     ${dashboardGoalCard()}
   </div>
   </section>
+  ${dashboardTaxLedgerPanel()}
   <section aria-label="공급가액 상세 분석">
   <h3 class="dash-section-title">공급가액 상세 분석</h3>
   <div class="kpi-grid dash-kpis">
@@ -3709,6 +3728,7 @@ function showMainApp(user){
 
 async function signOut(){
   if(!confirm('로그아웃 하시겠습니까?')) return;
+  resetApplicationData();
   await sb.auth.signOut();
   _appLoaded = false;
   showLoginScreen();
@@ -3731,11 +3751,12 @@ sb.auth.onAuthStateChange(async (event, session) => {
     if(!_appLoaded){
       _appLoaded = true;
       showMainApp(session.user);
-      await loadAll();
+      if(!await loadAll())return;
       go('dash');
       keepAlive();
     }
   } else if(event === 'SIGNED_OUT'){
+    resetApplicationData();
     _appLoaded = false;
     showLoginScreen();
   }
@@ -3767,7 +3788,7 @@ function keepAlive(){
   // 세션 있으면 바로 앱 로드 (onAuthStateChange 중복 실행 방지)
   _appLoaded = true;
   showMainApp(session.user);
-  await loadAll();
+  if(!await loadAll())return;
   go('dash');
   keepAlive();
 })();
