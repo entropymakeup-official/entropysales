@@ -122,9 +122,27 @@ function renderTaskList(tasks,members,nowMs,emptyText){
   +`</div></div><span class="tt-due">${late?'지연 · ':''}${esc(t.due_on||'기한 없음')}</span></li>`;}).join('')}</ul>`;
 }
 
+// 업무 리스트업 프롬프트: {{MY_NAME}}·{{MY_EMAIL}} 자리를 로그인한 사람으로 채운다.
+function fillRoutine(template,{name,email}){
+ return String(template||'').split('{{MY_NAME}}').join(String(name||'')).split('{{MY_EMAIL}}').join(String(email||''));
+}
+
+// 대시보드에서 확인할 수 있는 설정만 판정한다. 나머지는 각자의 Claude가 실행 첫 단계에서 점검한다.
+function listupChecks({meEmail,members}){
+ const email=String(meEmail||'').toLowerCase();
+ const me=(members||[]).find(m=>String(m.email||'').toLowerCase()===email);
+ return[
+  {label:'회사 계정 로그인',ok:email.endsWith('@entropymakeup.com'),fix:'회사 구글 계정으로 다시 로그인하세요.'},
+  {label:'업무 목록 담당자 명단 등록',ok:!!me,fix:'본부장에게 담당자 명단 등록을 요청하세요.'},
+  {label:'Claude 커넥터(슬랙·Gmail·구글 캘린더·구글 드라이브)',ok:null,fix:'claude.ai 설정 → 커넥터에서 연결합니다. 실행하면 Claude가 확인합니다.'},
+  {label:'수집 페이지 초대',ok:null,fix:'본부장에게 수집 페이지 초대를 요청하세요. 실행하면 Claude가 확인합니다.'},
+  {label:'평일 오전 9시 자동 실행',ok:null,fix:'처음 실행하면 Claude가 등록할지 물어봅니다.'},
+ ];
+}
+
 function group(title,count,body){return`<section class="tt-group"><header><h3>${esc(title)}</h3><span class="tt-count">${count}건</span></header>${body}</section>`;}
 
-function mount({document,sb,onMessage=()=>{},collectorUrl=''}){
+function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  // 탭: 'all' 전체 목록 · 'p:<메일>' 담당자별 페이지 · 'p:' 담당 미지정 · 'done' 완료
  const state={active:false,tab:'all',tasks:[],members:[],loading:false,error:'',meEmail:null,
   filter:{status:'',kind:'',query:''},doneFilter:{assignee:'*',period:'week'},dialog:null};
@@ -240,6 +258,36 @@ function mount({document,sb,onMessage=()=>{},collectorUrl=''}){
    });
  }
 
+ async function openListup(){
+  closeDialog();
+  const me=state.members.find(m=>m.email===state.meEmail);
+  const name=me?.display_name||(state.meEmail||'').split('@')[0];
+  const mark=ok=>ok===true?'✓':ok===false?'✗':'·';
+  const checks=listupChecks({meEmail:state.meEmail,members:state.members});
+  const d=document.createElement('dialog');d.className='tt-dialog';
+  d.innerHTML=`<form method="dialog"><header><h2>업무 리스트업</h2><button type="button" class="btn" data-close>닫기</button></header>`
+   +`<p class="tt-help">내 Claude가 슬랙·메일·캘린더·드라이브를 확인해 새 할 일을 이 목록에 추가하고, 내 할 일의 처리 상태를 근거와 함께 갱신합니다. 메시지를 보내지는 않습니다. 반영까지 10분 정도 걸립니다.</p>`
+   +`<h3>설정 점검</h3><ul class="tt-checks">${checks.map(c=>`<li data-ok="${c.ok}"><b>${mark(c.ok)}</b> ${esc(c.label)}${c.ok===true?'':` — <span>${esc(c.fix)}</span>`}</li>`).join('')}</ul>`
+   +`<h3>시작하는 법</h3><ol class="tt-steps"><li>아래 프롬프트를 복사합니다.</li><li>Claude 데스크톱 앱에서 새 대화에 붙여 넣고 실행합니다. 첫 실행에서 설정을 점검하고 빠진 것을 알려 줍니다.</li><li>평일 오전 9시 자동 실행을 등록할지 물으면 동의합니다. 그 뒤로는 필요할 때 예약 작업의 "지금 실행"을 누르면 됩니다.</li></ol>`
+   +`<textarea class="tt-prompt" readonly rows="10" data-prompt>프롬프트를 불러오는 중…</textarea>`
+   +`<p class="tt-error" data-form-error role="alert"></p><footer><button type="button" class="btn btn-primary" data-copy disabled>프롬프트 복사</button></footer></form>`;
+  document.body.append(d);state.dialog=d;
+  d.querySelector('[data-close]').onclick=()=>closeDialog();
+  d.addEventListener('cancel',e=>{e.preventDefault();closeDialog();});
+  for(const type of ['keydown','paste'])d.addEventListener(type,e=>e.stopPropagation());
+  d.showModal();
+  const area=d.querySelector('[data-prompt]'),copy=d.querySelector('[data-copy]'),err=d.querySelector('[data-form-error]');
+  try{
+   const res=await fetch(routineUrl,{cache:'no-cache'});
+   if(!res.ok)throw new Error('HTTP '+res.status);
+   area.value=fillRoutine(await res.text(),{name,email:state.meEmail});copy.disabled=false;
+  }catch(x){area.value='';err.textContent='프롬프트를 불러오지 못했습니다: '+(x.message||x);return;}
+  copy.onclick=async()=>{
+   try{await navigator.clipboard.writeText(area.value);onMessage('프롬프트를 복사했습니다.');}
+   catch{area.focus();area.select();err.textContent='자동 복사가 막혀 있습니다. 선택된 글을 Ctrl+C로 복사하세요.';}
+  };
+ }
+
  async function openTask(id){
   const t=state.tasks.find(x=>x.id===id);if(!t)return;
   const d=openDialog(`<form><header><h2>할 일 상세</h2><button type="button" class="btn" data-close>닫기</button></header>${formFields(t)}`
@@ -270,11 +318,13 @@ function mount({document,sb,onMessage=()=>{},collectorUrl=''}){
  function show(){
   state.active=true;
   $('topbar-actions').innerHTML=(collectorUrl?`<a class="btn" href="${esc(collectorUrl)}" target="_blank" rel="noopener">할 일 수집하기</a>`:'')
+   +(routineUrl?'<button class="btn" id="tt-listup">업무 리스트업</button>':'')
    +'<button class="btn" id="tt-refresh">새로고침</button><button class="btn btn-primary" id="tt-new">직접 추가</button>';
   $('content').innerHTML='<section class="tt"><p class="tt-help">슬랙·메일·드라이브에서 모은 할 일과 직접 추가한 할 일입니다. 담당자를 정하면 그 사람의 탭에 모이고, 끝낸 일은 완료 탭에서 봅니다. 승인 없이 바로 저장되고, 바꾼 내용은 이력으로 남습니다.</p>'
    +'<nav class="tt-tabs" role="tablist" id="tt-tabs"></nav><div id="tt-view"></div></section>';
   $('tt-refresh').onclick=()=>load();
   $('tt-new').onclick=()=>openNew();
+  if($('tt-listup'))$('tt-listup').onclick=()=>openListup();
   const root=$('content');
   root.onclick=e=>{
    const tab=e.target.closest('[data-tt-tab]');if(tab){state.tab=tab.dataset.ttTab;paint();return;}
@@ -297,5 +347,5 @@ function mount({document,sb,onMessage=()=>{},collectorUrl=''}){
  return{show,hide(){state.active=false;closeDialog();const c=$('content');if(c){c.onclick=null;c.onchange=null;}},reload:load,state};
 }
 
-return{STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,isOpen,isOverdue,kstToday,filterTasks,filterDone,openCounts,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
+return{STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,fillRoutine,listupChecks,isOpen,isOverdue,kstToday,filterTasks,filterDone,openCounts,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
 });
