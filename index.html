@@ -105,6 +105,8 @@
     <div class="ni" hidden style="display:none" onclick="go('productanalysis')" id="nav-productanalysis"><i class="ti ti-package"></i>제품별 분석</div>
     <div class="ns">정산</div>
     <div class="ni" onclick="go('tax')" id="nav-tax"><i class="ti ti-receipt-2"></i>세금계산서</div>
+    <div class="ns">업무</div>
+    <div class="ni" onclick="go('tasks')" id="nav-tasks"><i class="ti ti-list-check"></i>업무 목록</div>
     <div class="ns">거래처</div>
     <div class="ni" onclick="go('customers')" id="nav-customers"><i class="ti ti-building-store"></i>거래처 마스터</div>
     <div class="ni" onclick="go('contacts')" id="nav-contacts"><i class="ti ti-address-book"></i>거래처 연락처</div>
@@ -646,9 +648,12 @@
 <link rel="stylesheet" href="contacts-import.css?v=20260917-contacts-1">
 <script src="contacts.js?v=20260917-contacts-1"></script>
 <script src="contacts-import.js?v=20260917-contacts-1"></script>
+<link rel="stylesheet" href="team-tasks.css?v=20261015-team-tasks-1">
+<script src="team-tasks.js?v=20261015-team-tasks-1"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=2eda04f98a09"></script>
+  <script src="app.js?v=2aa4dd49762e"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
+<script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message)});</script>
 </body>
 </html>
