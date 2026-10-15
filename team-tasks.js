@@ -114,7 +114,7 @@ function renderTaskList(tasks,members,nowMs,emptyText){
  return`<ul class="tt-list">${tasks.map(t=>{const late=isOverdue(t,nowMs);return`<li class="tt-item${late?' tt-late':''}">`
   +`<span class="badge tt-status tt-${esc(t.status_code)}">${esc(STATUS_LABELS[t.status_code]||t.status_code)}</span>`
   +`<div class="tt-body"><button type="button" class="tt-title" data-task-open="${esc(t.id)}">${esc(t.title_text)}</button>`
-  +`<div class="tt-sub"><span>${esc(memberName(members,t.assignee_email))}</span>`
+  +`<div class="tt-sub"><select class="tt-assign" data-assign="${esc(t.id)}" aria-label="담당자 바꾸기"><option value="">담당 미지정</option>${members.map(m=>`<option value="${esc(m.email)}"${m.email===t.assignee_email?' selected':''}>${esc(m.display_name)}</option>`).join('')}${t.assignee_email&&!members.some(m=>m.email===t.assignee_email)?`<option value="${esc(t.assignee_email)}" selected>${esc(memberName(members,t.assignee_email))}</option>`:''}</select>`
   +(!t.assignee_email&&t.suggested_assignee_text?`<span>제안: ${esc(t.suggested_assignee_text)}</span>`:'')
   +`<span class="tt-chip">${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</span>`
   +(t.requester_text?`<span>${esc(t.requester_text)}</span>`:'')
@@ -315,6 +315,16 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   host.innerHTML=error?`<li>이력을 불러오지 못했습니다: ${esc(error.message)}</li>`:(data||[]).map(h=>`<li>${esc(historyText(h,state.members))}</li>`).join('')||'<li>아직 바뀐 내용이 없습니다.</li>';
  }
 
+ // 목록에서 바로 담당자를 바꾼다. 이력은 DB 트리거가 남긴다.
+ async function reassign(select){
+  const id=select.dataset.assign,t=state.tasks.find(x=>x.id===id);if(!t)return;
+  const to=select.value||null;select.disabled=true;
+  const {error}=await sb.from('team_tasks').update({assignee_email:to}).eq('id',id).select('id').single();
+  if(error){select.disabled=false;select.value=t.assignee_email||'';onMessage('담당자를 바꾸지 못했습니다: '+error.message);return;}
+  onMessage(`담당자를 ${to?memberName(state.members,to):'담당 미지정'}(으)로 바꿨습니다.`);
+  await load();
+ }
+
  function show(){
   state.active=true;
   $('topbar-actions').innerHTML=(collectorUrl?`<a class="btn" href="${esc(collectorUrl)}" target="_blank" rel="noopener" title="웹에서 빠르게 모으는 보조 수집">수집 페이지</a>`:'')
@@ -331,6 +341,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
    const open=e.target.closest('[data-task-open]');if(open){openTask(open.dataset.taskOpen);}
   };
   root.onchange=e=>{
+   if(e.target.dataset.assign){reassign(e.target);return;}
    const id=e.target.id,f=state.filter;
    if(id==='tt-f-status')f.status=e.target.value;
    else if(id==='tt-f-kind')f.kind=e.target.value;

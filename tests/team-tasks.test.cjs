@@ -91,3 +91,10 @@ test('업무 리스트업: 프롬프트를 로그인한 사람으로 채우고 �
  assert.equal(missing[1].ok,false);
  assert.equal(T.listupChecks({meEmail:'',members})[0].ok,false);
 });
+
+test('목록 행에서 담당자를 바로 고를 수 있다',()=>{
+ const html=T.renderTaskList([task({id:'r1',assignee_email:'u1@entropymakeup.com'})],[{email:'u1@entropymakeup.com',display_name:'하나'},{email:'u2@entropymakeup.com',display_name:'둘'}],NOW,'없음');
+ assert.match(html,/<select class="tt-assign" data-assign="r1"/);
+ assert.match(html,/<option value="u1@entropymakeup.com" selected>하나<\/option>/);
+ assert.match(html,/<option value="u2@entropymakeup.com">둘<\/option>/);
+});
