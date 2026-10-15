@@ -266,9 +266,9 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   const checks=listupChecks({meEmail:state.meEmail,members:state.members});
   const d=document.createElement('dialog');d.className='tt-dialog';
   d.innerHTML=`<form method="dialog"><header><h2>업무 리스트업</h2><button type="button" class="btn" data-close>닫기</button></header>`
-   +`<p class="tt-help">내 Claude가 슬랙·메일·캘린더·드라이브를 확인해 새 할 일을 이 목록에 추가하고, 내 할 일의 처리 상태를 근거와 함께 갱신합니다. 메시지를 보내지는 않습니다. 반영까지 10분 정도 걸립니다.</p>`
+   +`<p class="tt-help">내 Claude가 지난 목록을 이어받아 슬랙(스레드 답글 포함)·받은/보낸 메일·캘린더·드라이브·이 PC의 다른 Claude 대화와 메모리를 확인합니다. 내 할 일마다 해결됨·진행 중·근거 없음을 판정해 상태를 갱신하고, 새로 생긴 할 일을 이 목록에 추가한 뒤 아침 브리핑을 씁니다. 메시지를 보내지는 않습니다. 반영까지 10분 정도 걸립니다.</p>`
    +`<h3>설정 점검</h3><ul class="tt-checks">${checks.map(c=>`<li data-ok="${c.ok}"><b>${mark(c.ok)}</b> ${esc(c.label)}${c.ok===true?'':` — <span>${esc(c.fix)}</span>`}</li>`).join('')}</ul>`
-   +`<h3>시작하는 법</h3><ol class="tt-steps"><li>아래 프롬프트를 복사합니다.</li><li>Claude 데스크톱 앱에서 새 대화에 붙여 넣고 실행합니다. 첫 실행에서 설정을 점검하고 빠진 것을 알려 줍니다.</li><li>평일 오전 9시 자동 실행을 등록할지 물으면 동의합니다. 그 뒤로는 필요할 때 예약 작업의 "지금 실행"을 누르면 됩니다.</li></ol>`
+   +`<h3>시작하는 법</h3><ol class="tt-steps"><li>아래 프롬프트를 복사합니다.</li><li>Claude 데스크톱 앱의 Code 탭에서 새 대화에 붙여 넣고 실행합니다(대화 기록을 함께 보려면 Code 탭이어야 합니다). 첫 실행에서 설정을 점검하고 빠진 것을 알려 줍니다.</li><li>평일 오전 9시 자동 실행을 등록할지 물으면 동의합니다. 그 뒤로는 필요할 때 예약 작업의 "지금 실행"을 누르면 됩니다.</li></ol>`
    +`<textarea class="tt-prompt" readonly rows="10" data-prompt>프롬프트를 불러오는 중…</textarea>`
    +`<p class="tt-error" data-form-error role="alert"></p><footer><button type="button" class="btn btn-primary" data-copy disabled>프롬프트 복사</button></footer></form>`;
   document.body.append(d);state.dialog=d;
@@ -317,10 +317,10 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
 
  function show(){
   state.active=true;
-  $('topbar-actions').innerHTML=(collectorUrl?`<a class="btn" href="${esc(collectorUrl)}" target="_blank" rel="noopener">할 일 수집하기</a>`:'')
-   +(routineUrl?'<button class="btn" id="tt-listup">업무 리스트업</button>':'')
-   +'<button class="btn" id="tt-refresh">새로고침</button><button class="btn btn-primary" id="tt-new">직접 추가</button>';
-  $('content').innerHTML='<section class="tt"><p class="tt-help">슬랙·메일·드라이브에서 모은 할 일과 직접 추가한 할 일입니다. 담당자를 정하면 그 사람의 탭에 모이고, 끝낸 일은 완료 탭에서 봅니다. 승인 없이 바로 저장되고, 바꾼 내용은 이력으로 남습니다.</p>'
+  $('topbar-actions').innerHTML=(collectorUrl?`<a class="btn" href="${esc(collectorUrl)}" target="_blank" rel="noopener" title="웹에서 빠르게 모으는 보조 수집">수집 페이지</a>`:'')
+   +(routineUrl?'<button class="btn btn-primary" id="tt-listup">업무 리스트업</button>':'')
+   +'<button class="btn" id="tt-refresh">새로고침</button><button class="btn" id="tt-new">직접 추가</button>';
+  $('content').innerHTML='<section class="tt"><p class="tt-help">각자의 Claude가 "업무 리스트업"으로 슬랙·메일·캘린더·드라이브와 대화 기록을 확인해 올린 할 일과 직접 추가한 할 일입니다. 담당자를 정하면 그 사람의 탭에 모이고, 끝낸 일은 완료 탭에서 봅니다. 승인 없이 바로 저장되고, 바꾼 내용은 이력으로 남습니다.</p>'
    +'<nav class="tt-tabs" role="tablist" id="tt-tabs"></nav><div id="tt-view"></div></section>';
   $('tt-refresh').onclick=()=>load();
   $('tt-new').onclick=()=>openNew();
