@@ -18,14 +18,27 @@ const isOpen=t=>OPEN.includes(t?.status_code);
 const isOverdue=(t,nowMs)=>isOpen(t)&&Boolean(t.due_on)&&kstEndOf(t.due_on)<nowMs;
 const byDue=(a,b)=>String(a.due_on||'9999').localeCompare(String(b.due_on||'9999'));
 
-function buildTodayView(tasks,nowMs,{meEmail=null,onlyMine=false}={}){
- const today=kstToday(nowMs),recentFrom=nowMs-3*DAY;
- const visible=tasks.filter(t=>!t.is_archived&&(!onlyMine||t.assignee_email===meEmail));
- return{
-  due:visible.filter(t=>isOpen(t)&&t.due_on&&t.due_on<=today).sort(byDue),
-  unassigned:visible.filter(t=>isOpen(t)&&!t.assignee_email),
-  recent:visible.filter(t=>Date.parse(t.created_at)>=recentFrom).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))),
- };
+function weekStartMs(nowMs){
+ const today=kstToday(nowMs),dow=new Date(today+'T00:00:00Z').getUTCDay();
+ const [y,m,d]=addDays(today,dow===0?-6:1-dow).split('-').map(Number);
+ return Date.UTC(y,m-1,d)-KST;
+}
+function monthStartMs(nowMs){
+ const [y,m]=kstToday(nowMs).split('-').map(Number);
+ return Date.UTC(y,m-1,1)-KST;
+}
+
+// 완료 탭: 끝난 할 일만, 최근 완료 순. period: 'week' | 'month' | 'all'
+function filterDone(tasks,{assignee='*',period='week'}={},nowMs){
+ const from=period==='week'?weekStartMs(nowMs):period==='month'?monthStartMs(nowMs):-Infinity;
+ return tasks.filter(t=>!t.is_archived&&t.status_code==='done'&&(assignee==='*'||(t.assignee_email||'')===assignee)&&Date.parse(t.done_at)>=from)
+  .sort((a,b)=>String(b.done_at).localeCompare(String(a.done_at)));
+}
+
+// 탭 이름에 붙일 열린 할 일·지연 건수
+function openCounts(tasks,assignee,nowMs){
+ const mine=tasks.filter(t=>!t.is_archived&&isOpen(t)&&(t.assignee_email||'')===assignee);
+ return{open:mine.length,overdue:mine.filter(t=>isOverdue(t,nowMs)).length};
 }
 
 function filterTasks(tasks,{assignee='*',status='',kind='',query='',includeClosed=false}={}){
@@ -42,9 +55,7 @@ function filterTasks(tasks,{assignee='*',status='',kind='',query='',includeClose
 }
 
 function summarizeByAssignee(tasks,nowMs){
- const today=kstToday(nowMs),dow=new Date(today+'T00:00:00Z').getUTCDay();
- const [y,m,d]=addDays(today,dow===0?-6:1-dow).split('-').map(Number);
- const from=Date.UTC(y,m-1,d)-KST;
+ const from=weekStartMs(nowMs);
  const out=new Map();
  for(const t of tasks){
   if(t.is_archived)continue;
@@ -113,9 +124,10 @@ function renderTaskList(tasks,members,nowMs,emptyText){
 
 function group(title,count,body){return`<section class="tt-group"><header><h3>${esc(title)}</h3><span class="tt-count">${count}건</span></header>${body}</section>`;}
 
-function mount({document,sb,onMessage=()=>{}}){
- const state={active:false,tab:'today',tasks:[],members:[],loading:false,error:'',meEmail:null,onlyMine:false,
-  filter:{assignee:'*',status:'',kind:'',query:'',includeClosed:false},dialog:null};
+function mount({document,sb,onMessage=()=>{},collectorUrl=''}){
+ // 탭: 'all' 전체 목록 · 'p:<메일>' 담당자별 페이지 · 'p:' 담당 미지정 · 'done' 완료
+ const state={active:false,tab:'all',tasks:[],members:[],loading:false,error:'',meEmail:null,
+  filter:{status:'',kind:'',query:''},doneFilter:{assignee:'*',period:'week'},dialog:null};
  const $=id=>document.getElementById(id);
 
  async function load(){
@@ -138,41 +150,52 @@ function mount({document,sb,onMessage=()=>{}}){
   return`<option value="">담당 미지정</option>`+state.members.map(m=>`<option value="${esc(m.email)}"${m.email===selected?' selected':''}>${esc(m.display_name)}</option>`).join('');
  }
 
- function viewToday(nowMs){
-  const v=buildTodayView(state.tasks,nowMs,{meEmail:state.meEmail,onlyMine:state.onlyMine});
-  return`<div class="tt-toolbar"><label><input type="checkbox" id="tt-only-mine"${state.onlyMine?' checked':''}> 내 담당만 보기</label></div>`
-   +group('오늘까지 · 지연',v.due.length,renderTaskList(v.due,state.members,nowMs,'오늘까지 처리할 할 일이 없습니다.'))
-   +(state.onlyMine?'':group('담당 미지정',v.unassigned.length,renderTaskList(v.unassigned,state.members,nowMs,'담당자가 없는 할 일이 없습니다.')))
-   +group('최근 3일 등록',v.recent.length,renderTaskList(v.recent,state.members,nowMs,'최근 등록된 할 일이 없습니다. 수집 페이지에서 보내거나 직접 추가하세요.'));
+ function tabs(nowMs){
+  const tab=(key,label,extra='')=>`<button type="button" role="tab" data-tt-tab="${esc(key)}" aria-selected="${state.tab===key}">${esc(label)}${extra}</button>`;
+  const badge=assignee=>{const c=openCounts(state.tasks,assignee,nowMs);return` <span class="tt-count">${c.open}</span>`+(c.overdue?` <span class="tt-count tt-late-num">지연 ${c.overdue}</span>`:'');};
+  return tab('all','전체 목록')
+   +state.members.map(m=>tab('p:'+m.email,m.display_name,badge(m.email))).join('')
+   +tab('p:','담당 미지정',badge(''))
+   +tab('done','완료');
  }
 
- function viewAll(nowMs){
-  const f=state.filter,list=filterTasks(state.tasks,f);
+ function filterBar(){
+  const f=state.filter;
   return`<div class="tt-toolbar">`
-   +`<select id="tt-f-assignee" aria-label="담당자"><option value="*"${f.assignee==='*'?' selected':''}>모든 담당자</option><option value=""${f.assignee===''?' selected':''}>담당 미지정</option>${state.members.map(m=>`<option value="${esc(m.email)}"${f.assignee===m.email?' selected':''}>${esc(m.display_name)}</option>`).join('')}</select>`
-   +`<select id="tt-f-status" aria-label="상태"><option value="">열린 상태 전체</option>${STATUS_CODES.map(s=>`<option value="${s}"${f.status===s?' selected':''}>${STATUS_LABELS[s]}</option>`).join('')}</select>`
+   +`<select id="tt-f-status" aria-label="상태"><option value="">열린 상태 전체</option>${STATUS_CODES.filter(s=>s!=='done').map(s=>`<option value="${s}"${f.status===s?' selected':''}>${STATUS_LABELS[s]}</option>`).join('')}</select>`
    +`<select id="tt-f-kind" aria-label="출처"><option value="">모든 출처</option>${Object.entries(SOURCE_LABELS).map(([k,l])=>`<option value="${k}"${f.kind===k?' selected':''}>${l}</option>`).join('')}</select>`
    +`<input id="tt-f-query" type="search" placeholder="제목·요약 검색" value="${esc(f.query)}">`
-   +`<label><input type="checkbox" id="tt-f-closed"${f.includeClosed?' checked':''}> 완료·취소 포함</label></div>`
-   +group('할 일',list.length,renderTaskList(list,state.members,nowMs,'조건에 맞는 할 일이 없습니다.'));
+   +`</div>`;
  }
 
- function viewPeople(nowMs){
-  const rows=[...summarizeByAssignee(state.tasks,nowMs).entries()].sort((a,b)=>b[1].overdue-a[1].overdue||(b[1].todo+b[1].inProgress)-(a[1].todo+a[1].inProgress));
-  if(!rows.length)return'<p class="tt-empty">아직 등록된 할 일이 없습니다.</p>';
-  return`<div class="tw"><table class="tt-table"><thead><tr><th>담당자</th><th class="tt-num">할 일</th><th class="tt-num">진행 중</th><th class="tt-num">보류</th><th class="tt-num">지연</th><th class="tt-num">이번 주 완료</th></tr></thead><tbody>`
-   +rows.map(([email,s])=>`<tr><td><button type="button" class="alink tt-person" data-person="${esc(email)}">${esc(memberName(state.members,email||null))}</button></td><td class="tt-num">${s.todo}</td><td class="tt-num">${s.inProgress}</td><td class="tt-num">${s.onHold}</td><td class="tt-num${s.overdue?' tt-late-num':''}">${s.overdue}</td><td class="tt-num">${s.doneThisWeek}</td></tr>`).join('')
-   +'</tbody></table></div>';
+ function viewList(assignee,nowMs){
+  const list=filterTasks(state.tasks,{...state.filter,assignee});
+  const title=assignee==='*'?'열린 할 일':assignee===''?'담당 미지정':memberName(state.members,assignee)+'님의 할 일';
+  return filterBar()+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 수집 페이지에서 할 일을 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.'));
+ }
+
+ function viewDone(nowMs){
+  const f=state.doneFilter,list=filterDone(state.tasks,f,nowMs);
+  const doneBy=t=>{const by=String(t.done_by_text||'');return by.includes('@')?memberName(state.members,by):(by||'알 수 없음');};
+  const rows=list.map(t=>`<tr><td><button type="button" class="tt-title" data-task-open="${esc(t.id)}">${esc(t.title_text)}</button></td>`
+   +`<td>${esc(memberName(state.members,t.assignee_email))}</td><td>${esc(doneBy(t))}</td>`
+   +`<td class="tt-num">${esc(new Date(Date.parse(t.done_at)+KST).toISOString().slice(0,16).replace('T',' '))}</td>`
+   +`<td>${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</td></tr>`).join('');
+  return`<div class="tt-toolbar">`
+   +`<select id="tt-d-assignee" aria-label="담당자"><option value="*"${f.assignee==='*'?' selected':''}>모든 담당자</option><option value=""${f.assignee===''?' selected':''}>담당 미지정</option>${state.members.map(m=>`<option value="${esc(m.email)}"${f.assignee===m.email?' selected':''}>${esc(m.display_name)}</option>`).join('')}</select>`
+   +`<select id="tt-d-period" aria-label="완료 기간"><option value="week"${f.period==='week'?' selected':''}>이번 주</option><option value="month"${f.period==='month'?' selected':''}>이번 달</option><option value="all"${f.period==='all'?' selected':''}>전체</option></select></div>`
+   +group('완료한 할 일',list.length,list.length?`<div class="tw"><table class="tt-table"><thead><tr><th>할 일</th><th>담당자</th><th>완료한 사람</th><th class="tt-num">완료 시각</th><th>출처</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p class="tt-empty">이 기간에 완료한 할 일이 없습니다.</p>');
  }
 
  function paint(){
   if(!state.active)return;
-  const host=$('tt-view');if(!host)return;
-  document.querySelectorAll('[data-tt-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.ttTab===state.tab)));
+  const host=$('tt-view'),bar=$('tt-tabs');if(!host||!bar)return;
+  const nowMs=Date.now();
+  if(state.tab.startsWith('p:')&&state.tab!=='p:'&&state.members.length&&!state.members.some(m=>'p:'+m.email===state.tab))state.tab='all';
+  bar.innerHTML=tabs(nowMs);
   if(state.loading){host.innerHTML='<p role="status" class="tt-empty">업무 목록을 불러오는 중입니다…</p>';return;}
   if(state.error){host.innerHTML=`<p class="tt-error" role="alert">${esc(state.error)}</p>`;return;}
-  const nowMs=Date.now();
-  host.innerHTML=state.tab==='all'?viewAll(nowMs):state.tab==='people'?viewPeople(nowMs):viewToday(nowMs);
+  host.innerHTML=state.tab==='done'?viewDone(nowMs):state.tab==='all'?viewList('*',nowMs):viewList(state.tab.slice(2),nowMs);
  }
 
  function closeDialog(){if(state.dialog){state.dialog.close();state.dialog.remove();state.dialog=null;}}
@@ -246,26 +269,24 @@ function mount({document,sb,onMessage=()=>{}}){
 
  function show(){
   state.active=true;
-  $('topbar-actions').innerHTML='<button class="btn" id="tt-refresh">새로고침</button><button class="btn btn-primary" id="tt-new">직접 추가</button>';
-  $('content').innerHTML='<section class="tt"><p class="tt-help">슬랙·메일·드라이브에서 모은 할 일과 직접 추가한 할 일입니다. 승인 없이 바로 저장되고, 바꾼 내용은 이력으로 남습니다.</p>'
-   +'<nav class="tt-tabs" role="tablist"><button type="button" role="tab" data-tt-tab="today">오늘</button><button type="button" role="tab" data-tt-tab="all">전체 목록</button><button type="button" role="tab" data-tt-tab="people">담당자별</button></nav>'
-   +'<div id="tt-view"></div></section>';
+  $('topbar-actions').innerHTML=(collectorUrl?`<a class="btn" href="${esc(collectorUrl)}" target="_blank" rel="noopener">할 일 수집하기</a>`:'')
+   +'<button class="btn" id="tt-refresh">새로고침</button><button class="btn btn-primary" id="tt-new">직접 추가</button>';
+  $('content').innerHTML='<section class="tt"><p class="tt-help">슬랙·메일·드라이브에서 모은 할 일과 직접 추가한 할 일입니다. 담당자를 정하면 그 사람의 탭에 모이고, 끝낸 일은 완료 탭에서 봅니다. 승인 없이 바로 저장되고, 바꾼 내용은 이력으로 남습니다.</p>'
+   +'<nav class="tt-tabs" role="tablist" id="tt-tabs"></nav><div id="tt-view"></div></section>';
   $('tt-refresh').onclick=()=>load();
   $('tt-new').onclick=()=>openNew();
   const root=$('content');
   root.onclick=e=>{
    const tab=e.target.closest('[data-tt-tab]');if(tab){state.tab=tab.dataset.ttTab;paint();return;}
-   const open=e.target.closest('[data-task-open]');if(open){openTask(open.dataset.taskOpen);return;}
-   const person=e.target.closest('[data-person]');if(person){state.filter={...state.filter,assignee:person.dataset.person,status:'',includeClosed:false};state.tab='all';paint();}
+   const open=e.target.closest('[data-task-open]');if(open){openTask(open.dataset.taskOpen);}
   };
   root.onchange=e=>{
    const id=e.target.id,f=state.filter;
-   if(id==='tt-only-mine')state.onlyMine=e.target.checked;
-   else if(id==='tt-f-assignee')f.assignee=e.target.value;
-   else if(id==='tt-f-status')f.status=e.target.value;
+   if(id==='tt-f-status')f.status=e.target.value;
    else if(id==='tt-f-kind')f.kind=e.target.value;
    else if(id==='tt-f-query')f.query=e.target.value;
-   else if(id==='tt-f-closed')f.includeClosed=e.target.checked;
+   else if(id==='tt-d-assignee')state.doneFilter.assignee=e.target.value;
+   else if(id==='tt-d-period')state.doneFilter.period=e.target.value;
    else return;
    paint();
   };
@@ -276,5 +297,5 @@ function mount({document,sb,onMessage=()=>{}}){
  return{show,hide(){state.active=false;closeDialog();const c=$('content');if(c){c.onclick=null;c.onchange=null;}},reload:load,state};
 }
 
-return{STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,isOpen,isOverdue,kstToday,buildTodayView,filterTasks,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
+return{STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,isOpen,isOverdue,kstToday,filterTasks,filterDone,openCounts,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
 });

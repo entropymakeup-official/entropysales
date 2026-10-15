@@ -23,14 +23,19 @@ test('지연은 기한 날짜가 한국 시간으로 지난 열린 할 일',()=>
  assert.equal(T.kstToday(Date.UTC(2026,9,13,15,0)),'2026-10-14');
 });
 
-test('오늘 보기: 오늘까지 기한·담당 미지정·최근 3일, 숨김 제외',()=>{
- const v=T.buildTodayView(TASKS,NOW);
- assert.deepEqual(v.due.map(t=>t.id),['a','b']);
- assert.deepEqual(v.unassigned.map(t=>t.id),['c']);
- assert.deepEqual(v.recent.map(t=>t.id),['d']);
- const mine=T.buildTodayView(TASKS,NOW,{meEmail:'u2@entropymakeup.com',onlyMine:true});
- assert.deepEqual(mine.due,[]);
- assert.deepEqual(mine.recent.map(t=>t.id),['d']);
+test('완료 탭: 끝난 할 일만 최근 완료 순, 기간·담당자 거르기',()=>{
+ const tasks=[...TASKS,task({id:'h',assignee_email:'u1@entropymakeup.com',status_code:'done',done_at:'2026-09-20T00:00:00Z'}),task({id:'i',status_code:'done',done_at:'2026-10-02T00:00:00Z'})];
+ assert.deepEqual(T.filterDone(tasks,{},NOW).map(t=>t.id),['e']);
+ assert.deepEqual(T.filterDone(tasks,{period:'month'},NOW).map(t=>t.id),['e','g','i']);
+ assert.deepEqual(T.filterDone(tasks,{period:'all'},NOW).map(t=>t.id),['e','g','i','h']);
+ assert.deepEqual(T.filterDone(tasks,{period:'all',assignee:'u1@entropymakeup.com'},NOW).map(t=>t.id),['h']);
+ assert.deepEqual(T.filterDone(tasks,{period:'all',assignee:''},NOW).map(t=>t.id),['i']);
+});
+
+test('담당자 탭 건수: 열린 할 일과 지연, 숨김 제외',()=>{
+ assert.deepEqual(T.openCounts(TASKS,'u1@entropymakeup.com',NOW),{open:2,overdue:1});
+ assert.deepEqual(T.openCounts(TASKS,'u2@entropymakeup.com',NOW),{open:1,overdue:0});
+ assert.deepEqual(T.openCounts(TASKS,'',NOW),{open:1,overdue:0});
 });
 
 test('전체 목록 거르기',()=>{
