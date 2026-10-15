@@ -75,3 +75,19 @@ test('이력 문장과 목록 HTML은 이름을 보여 주고 이스케이프한
  assert.ok(html.includes('슬랙'));
  assert.equal(T.renderTaskList([],MEMBERS,NOW,'없음'),'<p class="tt-empty">없음</p>');
 });
+
+test('업무 리스트업: 프롬프트를 로그인한 사람으로 채우고 설정을 점검한다',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const template=fs.readFileSync(path.join(__dirname,'..','team-tasks-routine.txt'),'utf8');
+ const filled=T.fillRoutine(template,{name:'레이',email:'raye@entropymakeup.com'});
+ assert.ok(!filled.includes('{{'));
+ assert.ok(filled.includes('나(레이, raye@entropymakeup.com)'));
+ assert.ok(filled.includes('0. 설정 점검'));
+ const members=[{email:'raye@entropymakeup.com',display_name:'레이'}];
+ const ok=T.listupChecks({meEmail:'raye@entropymakeup.com',members});
+ assert.deepEqual(ok.slice(0,2).map(c=>c.ok),[true,true]);
+ assert.ok(ok.slice(2).every(c=>c.ok===null&&c.fix));
+ const missing=T.listupChecks({meEmail:'new@entropymakeup.com',members});
+ assert.equal(missing[1].ok,false);
+ assert.equal(T.listupChecks({meEmail:'',members})[0].ok,false);
+});
