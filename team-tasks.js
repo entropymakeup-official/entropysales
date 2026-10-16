@@ -120,7 +120,9 @@ function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected
   +`<span class="tt-chip">${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</span>`
   +(t.requester_text?`<span>${esc(t.requester_text)}</span>`:'')
   +(t.source_url?`<a href="${esc(t.source_url)}" target="_blank" rel="noopener">원문</a>`:'')
-  +`</div></div><span class="tt-due">${late?'지연 · ':''}${esc(t.due_on||'기한 없음')}</span></li>`;}).join('')}</ul>`;
+  +`</div></div><div class="tt-side"><span class="tt-due">${late?'지연 · ':''}${esc(t.due_on||'기한 없음')}</span>`
+  +(isOpen(t)?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">완료</button>`:'')
+  +`</div></li>`;}).join('')}</ul>`;
 }
 
 // 업무 리스트업 프롬프트: {{MY_NAME}}·{{MY_EMAIL}} 자리를 로그인한 사람으로 채운다.
@@ -219,11 +221,12 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   const rows=list.map(t=>`<tr><td><button type="button" class="tt-title" data-task-open="${esc(t.id)}">${esc(t.title_text)}</button></td>`
    +`<td>${esc(memberName(state.members,t.assignee_email))}</td><td>${esc(doneBy(t))}</td>`
    +`<td class="tt-num">${esc(new Date(Date.parse(t.done_at)+KST).toISOString().slice(0,16).replace('T',' '))}</td>`
-   +`<td>${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</td></tr>`).join('');
+   +`<td>${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</td>`
+   +`<td><button type="button" class="btn" data-set-status="todo" data-task="${esc(t.id)}">되돌리기</button></td></tr>`).join('');
   return`<div class="tt-toolbar">`
    +`<select id="tt-d-assignee" aria-label="담당자"><option value="*"${f.assignee==='*'?' selected':''}>모든 담당자</option><option value=""${f.assignee===''?' selected':''}>담당 미지정</option>${state.members.map(m=>`<option value="${esc(m.email)}"${f.assignee===m.email?' selected':''}>${esc(m.display_name)}</option>`).join('')}</select>`
    +`<select id="tt-d-period" aria-label="완료 기간"><option value="week"${f.period==='week'?' selected':''}>이번 주</option><option value="month"${f.period==='month'?' selected':''}>이번 달</option><option value="all"${f.period==='all'?' selected':''}>전체</option></select></div>`
-   +group('완료한 할 일',list.length,list.length?`<div class="tw"><table class="tt-table"><thead><tr><th>할 일</th><th>담당자</th><th>완료한 사람</th><th class="tt-num">완료 시각</th><th>출처</th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p class="tt-empty">이 기간에 완료한 할 일이 없습니다.</p>');
+   +group('완료한 할 일',list.length,list.length?`<div class="tw"><table class="tt-table"><thead><tr><th>할 일</th><th>담당자</th><th>완료한 사람</th><th class="tt-num">완료 시각</th><th>출처</th><th><span class="sr-only">처리</span></th></tr></thead><tbody>${rows}</tbody></table></div>`:'<p class="tt-empty">이 기간에 완료한 할 일이 없습니다.</p>');
  }
 
  function paint(){
@@ -341,6 +344,16 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   host.innerHTML=error?`<li>이력을 불러오지 못했습니다: ${esc(error.message)}</li>`:(data||[]).map(h=>`<li>${esc(historyText(h,state.members))}</li>`).join('')||'<li>아직 바뀐 내용이 없습니다.</li>';
  }
 
+ // 목록에서 바로 완료 처리하거나 완료를 되돌린다. 완료자·시각과 이력은 DB 트리거가 남긴다.
+ async function setStatus(button){
+  const id=button.dataset.task,to=button.dataset.setStatus;
+  button.disabled=true;
+  const {error}=await sb.from('team_tasks').update({status_code:to}).eq('id',id).select('id').single();
+  if(error){button.disabled=false;onMessage('상태를 바꾸지 못했습니다: '+error.message);return;}
+  onMessage(to==='done'?'완료로 바꿨습니다. 완료 탭에서 볼 수 있습니다.':'열린 할 일로 되돌렸습니다.');
+  await load();
+ }
+
  // 목록에서 바로 담당자를 바꾼다. 이력은 DB 트리거가 남긴다.
  async function reassign(select){
   const id=select.dataset.assign,t=state.tasks.find(x=>x.id===id);if(!t)return;
@@ -364,6 +377,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   const root=$('content');
   root.onclick=e=>{
    const tab=e.target.closest('[data-tt-tab]');if(tab){state.tab=tab.dataset.ttTab;state.deleteArmed=false;paint();return;}
+   const status=e.target.closest('[data-set-status]');if(status){setStatus(status);return;}
    if(e.target.closest('[data-clear-selected]')){state.selected.clear();state.deleteArmed=false;paint();return;}
    if(e.target.closest('[data-delete-selected]')){
     if(!state.deleteArmed){state.deleteArmed=true;paint();return;}
