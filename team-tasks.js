@@ -7,6 +7,8 @@ const STATUS_LABELS={todo:'할 일',in_progress:'진행 중',done:'완료',on_ho
 const SOURCE_LABELS={slack:'슬랙',gmail:'메일',drive:'드라이브',manual:'직접 입력'};
 const FIELD_LABELS={created:'등록',title:'제목',assignee:'담당자',due:'기한',status:'상태',archived:'숨김'};
 const OPEN=['todo','in_progress','on_hold'];
+// 팀 밖 업무를 모으는 명단 항목(실제 사람 계정이 아님). DB 명단에 같은 메일로 등록한다.
+const OTHER_TEAM_EMAIL='other-team@entropymakeup.com';
 const TITLE_LIMIT=80,SUMMARY_LIMIT=300,NOTE_LIMIT=1000;
 const DAY=24*60*60*1000,KST=9*60*60*1000;
 
@@ -120,7 +122,7 @@ function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected
   +`<span class="tt-chip">${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</span>`
   +(t.requester_text?`<span>${esc(t.requester_text)}</span>`:'')
   +(t.source_url?`<a href="${esc(t.source_url)}" target="_blank" rel="noopener">원문</a>`:'')
-  +`</div></div><div class="tt-side"><span class="tt-due">${late?'지연 · ':''}${esc(t.due_on||'기한 없음')}</span>`
+  +`</div></div><div class="tt-side"><input type="date" class="tt-due-input${late?' tt-late-due':''}" data-due="${esc(t.id)}" value="${esc(t.due_on||'')}" aria-label="기한 바꾸기${late?' (기한 지남)':''}" title="${late?'기한이 지났습니다. 날짜를 바꿀 수 있습니다.':'기한 바꾸기'}">`
   +(isOpen(t)?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">완료</button>`:'')
   +`</div></li>`;}).join('')}</ul>`;
 }
@@ -193,7 +195,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
 
  function viewList(assignee,nowMs){
   const list=filterTasks(state.tasks,{...state.filter,assignee});
-  const title=assignee==='*'?'열린 할 일':assignee===''?'담당 미지정':memberName(state.members,assignee)+'님의 할 일';
+  const title=assignee==='*'?'열린 할 일':assignee===''?'담당 미지정':assignee===OTHER_TEAM_EMAIL?'타팀업무':memberName(state.members,assignee)+'님의 할 일';
   return filterBar()+deleteBar(list)+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 업무 리스트업으로 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.',{selectable:state.isAdmin,selected:state.selected}));
  }
 
@@ -354,6 +356,16 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   await load();
  }
 
+ // 목록에서 바로 기한을 바꾼다. 비우면 기한 없음. 이력은 DB 트리거가 남긴다.
+ async function changeDue(input){
+  const id=input.dataset.due,t=state.tasks.find(x=>x.id===id);if(!t)return;
+  const to=input.value||null;input.disabled=true;
+  const {error}=await sb.from('team_tasks').update({due_on:to}).eq('id',id).select('id').single();
+  if(error){input.disabled=false;input.value=t.due_on||'';onMessage('기한을 바꾸지 못했습니다: '+error.message);return;}
+  onMessage(to?`기한을 ${to}(으)로 바꿨습니다.`:'기한을 지웠습니다.');
+  await load();
+ }
+
  // 목록에서 바로 담당자를 바꾼다. 이력은 DB 트리거가 남긴다.
  async function reassign(select){
   const id=select.dataset.assign,t=state.tasks.find(x=>x.id===id);if(!t)return;
@@ -387,6 +399,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   };
   root.onchange=e=>{
    if(e.target.dataset.assign){reassign(e.target);return;}
+   if(e.target.dataset.due){changeDue(e.target);return;}
    if(e.target.dataset.pick){e.target.checked?state.selected.add(e.target.dataset.pick):state.selected.delete(e.target.dataset.pick);state.deleteArmed=false;paint();return;}
    if(e.target.dataset.pickAll!==undefined){const ids=e.target.dataset.pickAll.split(',').filter(Boolean);ids.forEach(id=>e.target.checked?state.selected.add(id):state.selected.delete(id));state.deleteArmed=false;paint();return;}
    const id=e.target.id,f=state.filter;
@@ -405,5 +418,5 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  return{show,hide(){state.active=false;closeDialog();const c=$('content');if(c){c.onclick=null;c.onchange=null;}},reload:load,state};
 }
 
-return{STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,fillRoutine,listupChecks,isOpen,isOverdue,kstToday,filterTasks,filterDone,openCounts,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
+return{OTHER_TEAM_EMAIL,STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,fillRoutine,listupChecks,isOpen,isOverdue,kstToday,filterTasks,filterDone,openCounts,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
 });

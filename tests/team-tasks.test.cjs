@@ -111,3 +111,10 @@ test('열린 할 일에만 완료 버튼을 보여 준다',()=>{
  assert.match(html,/data-set-status="done" data-task="o1"/);
  assert.doesNotMatch(html,/data-task="d1"/);
 });
+
+test('목록 행에서 기한을 바로 바꿀 수 있고 지난 기한은 표시한다',()=>{
+ const html=T.renderTaskList([task({id:'a1',due_on:'2026-10-14'}),task({id:'a2'})],[],NOW,'없음');
+ assert.match(html,/class="tt-due-input tt-late-due" data-due="a1" value="2026-10-14"/);
+ assert.match(html,/class="tt-due-input" data-due="a2" value=""/);
+ assert.equal(T.OTHER_TEAM_EMAIL,'other-team@entropymakeup.com');
+});
