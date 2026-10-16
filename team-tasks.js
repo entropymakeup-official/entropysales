@@ -109,9 +109,10 @@ function historyText(h,members){
  return`${when} · ${who} · ${label}: ${show(h.from_text)} → ${show(h.to_text)}`;
 }
 
-function renderTaskList(tasks,members,nowMs,emptyText){
+function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected=new Set()}={}){
  if(!tasks.length)return`<p class="tt-empty">${esc(emptyText)}</p>`;
- return`<ul class="tt-list">${tasks.map(t=>{const late=isOverdue(t,nowMs);return`<li class="tt-item${late?' tt-late':''}">`
+ return`<ul class="tt-list${selectable?' tt-selectable':''}">${tasks.map(t=>{const late=isOverdue(t,nowMs);return`<li class="tt-item${late?' tt-late':''}">`
+  +(selectable?`<input type="checkbox" class="tt-pick" data-pick="${esc(t.id)}" aria-label="삭제할 할 일로 선택"${selected.has(t.id)?' checked':''}>`:'')
   +`<span class="badge tt-status tt-${esc(t.status_code)}">${esc(STATUS_LABELS[t.status_code]||t.status_code)}</span>`
   +`<div class="tt-body"><button type="button" class="tt-title" data-task-open="${esc(t.id)}">${esc(t.title_text)}</button>`
   +`<div class="tt-sub"><select class="tt-assign" data-assign="${esc(t.id)}" aria-label="담당자 바꾸기"><option value="">담당 미지정</option>${members.map(m=>`<option value="${esc(m.email)}"${m.email===t.assignee_email?' selected':''}>${esc(m.display_name)}</option>`).join('')}${t.assignee_email&&!members.some(m=>m.email===t.assignee_email)?`<option value="${esc(t.assignee_email)}" selected>${esc(memberName(members,t.assignee_email))}</option>`:''}</select>`
@@ -145,7 +146,7 @@ function group(title,count,body){return`<section class="tt-group"><header><h3>${
 function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  // 탭: 'all' 전체 목록 · 'p:<메일>' 담당자별 페이지 · 'p:' 담당 미지정 · 'done' 완료
  const state={active:false,tab:'all',tasks:[],members:[],loading:false,error:'',meEmail:null,
-  filter:{status:'',kind:'',query:''},doneFilter:{assignee:'*',period:'week'},dialog:null};
+  filter:{status:'',kind:'',query:''},doneFilter:{assignee:'*',period:'week'},dialog:null,isAdmin:false,selected:new Set(),deleteArmed:false};
  const $=id=>document.getElementById(id);
 
  async function load(){
@@ -160,6 +161,8 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
    if(tasks.error)throw tasks.error;
    if(members.error)throw members.error;
    state.tasks=tasks.data||[];state.members=members.data||[];
+   state.isAdmin=!!state.members.find(m=>m.email===state.meEmail)?.is_admin;
+   const ids=new Set(state.tasks.map(t=>t.id));state.selected=new Set([...state.selected].filter(id=>ids.has(id)));state.deleteArmed=false;
   }catch(e){state.error='업무 목록을 불러오지 못했습니다: '+(e.message||e);}
   state.loading=false;paint();
  }
@@ -189,7 +192,25 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  function viewList(assignee,nowMs){
   const list=filterTasks(state.tasks,{...state.filter,assignee});
   const title=assignee==='*'?'열린 할 일':assignee===''?'담당 미지정':memberName(state.members,assignee)+'님의 할 일';
-  return filterBar()+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 수집 페이지에서 할 일을 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.'));
+  return filterBar()+deleteBar(list)+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 업무 리스트업으로 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.',{selectable:state.isAdmin,selected:state.selected}));
+ }
+
+ function deleteBar(list){
+  if(!state.isAdmin)return'';
+  const n=state.selected.size,allOn=list.length>0&&list.every(t=>state.selected.has(t.id));
+  return`<div class="tt-toolbar tt-delete-bar"><label class="tt-pick-all"><input type="checkbox" data-pick-all="${esc(list.map(t=>t.id).join(','))}"${allOn?' checked':''}> 이 화면 전체 선택</label>`
+   +`<button type="button" class="btn${state.deleteArmed?' tt-danger':''}" data-delete-selected${n?'':' disabled'}>${state.deleteArmed?`한 번 더 누르면 ${n}건을 완전히 삭제합니다`:`선택 삭제 (${n})`}</button>`
+   +(n?'<button type="button" class="btn" data-clear-selected>선택 해제</button>':'')
+   +'<span class="tt-meta">삭제는 되돌릴 수 없고, 누가 지웠는지는 변경 이력에 남습니다.</span></div>';
+ }
+
+ async function deleteTasks(ids){
+  if(!ids.length)return;
+  const {data,error}=await sb.from('team_tasks').delete().in('id',ids).select('id');
+  if(error){onMessage('삭제하지 못했습니다: '+error.message);return false;}
+  const n=(data||[]).length;
+  onMessage(n===ids.length?`${n}건을 삭제했습니다.`:`${ids.length}건 중 ${n}건만 삭제했습니다. 삭제 권한을 확인하세요.`);
+  state.selected.clear();state.deleteArmed=false;await load();return true;
  }
 
  function viewDone(nowMs){
@@ -296,13 +317,18 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
    +`<p class="tt-meta">${esc(SOURCE_LABELS[t.source_kind_code]||'기타')} · ${esc(t.requester_text||'요청 출처 없음')} · 등록 ${esc(String(t.created_by_text||'').includes('@')?memberName(state.members,t.created_by_text):(t.created_by_text||'알 수 없음'))}`
    +(!t.assignee_email&&t.suggested_assignee_text?` · 제안 담당: ${esc(t.suggested_assignee_text)}`:'')
    +(t.source_url?` · <a href="${esc(t.source_url)}" target="_blank" rel="noopener">원문 보기</a>`:'')+`</p>`
-   +`${confirmBlock}<footer><button type="button" class="btn" data-archive>목록에서 숨기기</button><button class="btn btn-primary" type="submit">저장</button></footer>`
+   +`${confirmBlock}<footer>${state.isAdmin?'<button type="button" class="btn" data-delete>삭제</button>':''}<button type="button" class="btn" data-archive>목록에서 숨기기</button><button class="btn btn-primary" type="submit">저장</button></footer>`
    +`<h3>변경 이력</h3><ol class="tt-history" data-history><li>불러오는 중…</li></ol></form>`,
    async input=>{
     const patch={title_text:input.title_text,summary_text:input.summary_text,note_text:input.note_text,due_on:input.due_on,status_code:input.status_code,assignee_email:input.assignee_email};
     const {error}=await sb.from('team_tasks').update(patch).eq('id',id).select('id').single();
     if(error)throw error;onMessage('저장했습니다.');
    });
+  const del=d.querySelector('[data-delete]');
+  if(del)del.onclick=async()=>{
+   if(del.dataset.armed!=='1'){del.dataset.armed='1';del.textContent='한 번 더 누르면 완전히 삭제합니다';del.classList.add('tt-danger');return;}
+   closeDialog();await deleteTasks([id]);
+  };
   const archive=d.querySelector('[data-archive]');
   archive.onclick=async()=>{
    if(archive.dataset.armed!=='1'){archive.dataset.armed='1';archive.textContent='한 번 더 누르면 숨깁니다';return;}
@@ -337,11 +363,18 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   if($('tt-listup'))$('tt-listup').onclick=()=>openListup();
   const root=$('content');
   root.onclick=e=>{
-   const tab=e.target.closest('[data-tt-tab]');if(tab){state.tab=tab.dataset.ttTab;paint();return;}
+   const tab=e.target.closest('[data-tt-tab]');if(tab){state.tab=tab.dataset.ttTab;state.deleteArmed=false;paint();return;}
+   if(e.target.closest('[data-clear-selected]')){state.selected.clear();state.deleteArmed=false;paint();return;}
+   if(e.target.closest('[data-delete-selected]')){
+    if(!state.deleteArmed){state.deleteArmed=true;paint();return;}
+    deleteTasks([...state.selected]);return;
+   }
    const open=e.target.closest('[data-task-open]');if(open){openTask(open.dataset.taskOpen);}
   };
   root.onchange=e=>{
    if(e.target.dataset.assign){reassign(e.target);return;}
+   if(e.target.dataset.pick){e.target.checked?state.selected.add(e.target.dataset.pick):state.selected.delete(e.target.dataset.pick);state.deleteArmed=false;paint();return;}
+   if(e.target.dataset.pickAll!==undefined){const ids=e.target.dataset.pickAll.split(',').filter(Boolean);ids.forEach(id=>e.target.checked?state.selected.add(id):state.selected.delete(id));state.deleteArmed=false;paint();return;}
    const id=e.target.id,f=state.filter;
    if(id==='tt-f-status')f.status=e.target.value;
    else if(id==='tt-f-kind')f.kind=e.target.value;

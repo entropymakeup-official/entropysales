@@ -98,3 +98,10 @@ test('목록 행에서 담당자를 바로 고를 수 있다',()=>{
  assert.match(html,/<option value="u1@entropymakeup.com" selected>하나<\/option>/);
  assert.match(html,/<option value="u2@entropymakeup.com">둘<\/option>/);
 });
+
+test('관리자에게만 삭제 선택 상자를 보여 준다',()=>{
+ const list=[task({id:'k1'})];
+ assert.doesNotMatch(T.renderTaskList(list,[],NOW,'없음'),/data-pick/);
+ const html=T.renderTaskList(list,[],NOW,'없음',{selectable:true,selected:new Set(['k1'])});
+ assert.match(html,/data-pick="k1"[^>]*checked/);
+});

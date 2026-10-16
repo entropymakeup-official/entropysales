@@ -8,12 +8,15 @@ async function setup(){
  create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
  create function auth.jwt() returns jsonb language sql as $$select jsonb_build_object('session_id',current_setting('request.jwt.claim.session_id',true))$$;
  grant usage on schema public,auth,approval_private to anon,authenticated;
- insert into auth.users values ('00000000-0000-0000-0000-000000000001','member@entropymakeup.com',now(),null),('00000000-0000-0000-0000-000000000002','outsider@example.com',now(),null);
+ insert into auth.users values ('00000000-0000-0000-0000-000000000001','member@entropymakeup.com',now(),null),('00000000-0000-0000-0000-000000000002','outsider@example.com',now(),null),('00000000-0000-0000-0000-000000000003','boss@entropymakeup.com',now(),null);
  insert into auth.sessions select id,id,null from auth.users;`);
  const sql=fs.readFileSync(path.join(__dirname,'../sql/team-tasks.sql'),'utf8');
  await db.exec(sql);
  await db.exec(sql); // 다시 실행해도 안전해야 한다
+ const del=fs.readFileSync(path.join(__dirname,'../sql/team-tasks-delete.sql'),'utf8');
+ await db.exec(del);await db.exec(del);
  await db.exec(`insert into team_task_members(email,display_name) values ('member@entropymakeup.com','가짜 팀원'),('other@entropymakeup.com','다른 팀원')`);
+ await db.exec(`insert into team_task_members(email,display_name,is_admin) values ('boss@entropymakeup.com','가짜 관리자',true)`);
  const login=async(n)=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.session_id',$1,false)",['00000000-0000-0000-0000-'+String(n).padStart(12,'0')]);await db.exec('set role authenticated');};
  return {db,login};
 }
@@ -29,10 +32,11 @@ test('업무 목록: 회사 계정만 읽고 쓰며 삭제와 이력 직접 쓰�
   assert.equal(t.title_text,'견적서 회신');
   assert.equal(t.created_by_text,'member@entropymakeup.com');
   assert.equal(t.status_code,'todo');
-  await assert.rejects(()=>db.query('delete from team_tasks'),/permission denied/);
+  assert.equal((await db.query('delete from team_tasks returning id')).rows.length,0); // 관리자가 아니면 지워지지 않는다
   await assert.rejects(()=>db.query(`insert into team_task_history(task_id,field_code) values ($1,'title')`,[t.id]),/permission denied/);
   await assert.rejects(()=>db.query(`update team_task_members set display_name='x'`),/permission denied/);
-  assert.equal((await db.query('select * from team_task_members')).rows.length,2);
+  assert.equal((await db.query('select * from team_task_members')).rows.length,3);
+  await assert.rejects(()=>db.query(`update team_task_members set is_admin=true`),/permission denied/);
   await login(2);
   assert.equal((await db.query('select * from team_tasks')).rows.length,0);
   await assert.rejects(()=>db.query(`insert into team_tasks(title_text) values ('외부인')`),/row-level security/);
@@ -73,5 +77,23 @@ test('업무 목록: 로그인 없는 중계 입력은 등록자 표시를 유�
   assert.equal(t.created_by_text,'이예진(수집 페이지)');
   const h=(await db.query('select changed_by_text from team_task_history where task_id=$1',[t.id])).rows;
   assert.equal(h[0].changed_by_text,'이예진(수집 페이지)');
+ }finally{await db.close();}
+});
+
+test('업무 목록: 관리자만 완전 삭제하고 삭제 기록은 남는다',async()=>{
+ const {db,login}=await setup();
+ try{
+  await login(1);
+  const {rows:[t]}=await db.query(`insert into team_tasks(title_text,source_key) values ('엉뚱한 수집','slack-C9-9.9') returning *`);
+  await login(2);
+  assert.equal((await db.query('delete from team_tasks returning id')).rows.length,0);
+  await login(3);
+  assert.equal((await db.query('delete from team_tasks where id=$1 returning id',[t.id])).rows.length,1);
+  await db.exec('reset role');
+  assert.equal((await db.query('select * from team_tasks where id=$1',[t.id])).rows.length,0);
+  const h=(await db.query('select field_code,from_text,changed_by_text from team_task_history where task_id=$1 order by id',[t.id])).rows;
+  assert.deepEqual(h.map(r=>r.field_code),['created','deleted']);
+  assert.equal(h[1].from_text,'엉뚱한 수집');
+  assert.equal(h[1].changed_by_text,'boss@entropymakeup.com');
  }finally{await db.close();}
 });

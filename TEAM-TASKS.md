@@ -11,7 +11,9 @@
 ## 동작 기준
 
 - 승인 없이 바로 저장합니다. 변경 요청·관리자 승인(APPROVALS.md) 대상이 아닙니다.
-- 회사 계정(`@entropymakeup.com`)으로 로그인한 사람만 읽고 추가·수정할 수 있습니다. 삭제 권한은 없고 "목록에서 숨기기"만 있습니다.
+- 회사 계정(`@entropymakeup.com`)으로 로그인한 사람만 읽고 추가·수정할 수 있습니다. 일반 팀원은 "목록에서 숨기기"만 할 수 있습니다.
+- 담당자 명단에서 `is_admin`인 사람(목록 관리자)은 목록에서 여러 건을 골라 완전히 삭제하거나 상세 창에서 삭제할 수 있습니다. 되돌릴 수 없고, 삭제한 사람·제목은 `team_task_history`에 `deleted`로 남습니다(이력은 할 일과 함께 지워지지 않습니다).
+- 화면에서 담당자 선택 상자로 바로 담당자를 바꿀 수 있습니다.
 - 담당자·기한·상태·제목·숨김을 바꾸면 DB 트리거가 `team_task_history`에 이력을 남깁니다. 화면은 이력을 쓰지 않습니다.
 - 완료로 바꾸면 완료자·완료 시각이 자동으로 채워지고, 다른 상태로 되돌리면 지워집니다.
 - 등록 출처(`source_key`)는 중복될 수 없어 같은 논의가 두 번 등록되지 않습니다.
@@ -24,6 +26,7 @@
 ```sql
 insert into public.team_task_members(email, display_name, sort_order) values ('name@entropymakeup.com', '이름', 10);
 update public.team_task_members set is_active = false where email = 'name@entropymakeup.com';
+update public.team_task_members set is_admin = true where email = 'name@entropymakeup.com'; -- 목록 관리자(삭제 권한)
 ```
 
 ## 수집 페이지에서 들어오는 경로
@@ -46,7 +49,7 @@ update public.team_task_members set is_active = false where email = 'name@entrop
 
 ## 운영 적용
 
-1. `sql/team-tasks.sql`을 실행합니다. 여러 번 실행해도 안전합니다.
+1. `sql/team-tasks.sql`, `sql/team-tasks-delete.sql`을 순서대로 실행합니다. 여러 번 실행해도 안전합니다.
 2. 담당자 명단을 넣습니다(위 SQL).
 3. `index.html`, `app.js`, `team-tasks.js`, `team-tasks.css`를 배포합니다.
 
