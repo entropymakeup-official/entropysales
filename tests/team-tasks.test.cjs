@@ -105,3 +105,9 @@ test('관리자에게만 삭제 선택 상자를 보여 준다',()=>{
  const html=T.renderTaskList(list,[],NOW,'없음',{selectable:true,selected:new Set(['k1'])});
  assert.match(html,/data-pick="k1"[^>]*checked/);
 });
+
+test('열린 할 일에만 완료 버튼을 보여 준다',()=>{
+ const html=T.renderTaskList([task({id:'o1'}),task({id:'d1',status_code:'done'})],[],NOW,'없음');
+ assert.match(html,/data-set-status="done" data-task="o1"/);
+ assert.doesNotMatch(html,/data-task="d1"/);
+});
