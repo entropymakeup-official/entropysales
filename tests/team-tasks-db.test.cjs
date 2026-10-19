@@ -17,6 +17,8 @@ async function setup(){
  await db.exec(del);await db.exec(del);
  const review=fs.readFileSync(path.join(__dirname,'../sql/team-tasks-review.sql'),'utf8');
  await db.exec(review);await db.exec(review);
+ const triage=fs.readFileSync(path.join(__dirname,'../sql/team-tasks-triage.sql'),'utf8');
+ await db.exec(triage);await db.exec(triage);
  await db.exec(`insert into team_task_members(email,display_name) values ('member@entropymakeup.com','가짜 팀원'),('other@entropymakeup.com','다른 팀원')`);
  await db.exec(`insert into team_task_members(email,display_name,is_admin) values ('boss@entropymakeup.com','가짜 관리자',true)`);
  const login=async(n)=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.session_id',$1,false)",['00000000-0000-0000-0000-'+String(n).padStart(12,'0')]);await db.exec('set role authenticated');};
@@ -120,5 +122,18 @@ test('업무 목록: 관리자가 아니면 완료가 완료 검토로 바뀌고
   assert.equal(s.status_code,'done'); // 로그인 없는 중계 입력은 중계 작업이 정한 상태를 따른다
   const h=(await db.query(`select from_text,to_text from team_task_history where task_id=$1 and field_code='status' order by id`,[t.id])).rows;
   assert.deepEqual(h.map(r=>r.to_text),['review','done']);
+ }finally{await db.close();}
+});
+
+test('업무 목록: 중요·완료 근거·넘긴 팀을 저장하고 길이를 제한한다',async()=>{
+ const {db,login}=await setup();
+ try{
+  await login(1);
+  const {rows:[t]}=await db.query(`insert into team_tasks(title_text) values ('회신') returning *`);
+  assert.equal(t.is_important,false);
+  await db.query(`update team_tasks set is_important=true,status_note_text='메일 회신',handoff_team_text='경영지원' where id=$1`,[t.id]);
+  const {rows:[u]}=await db.query('select is_important,status_note_text,handoff_team_text from team_tasks where id=$1',[t.id]);
+  assert.deepEqual(u,{is_important:true,status_note_text:'메일 회신',handoff_team_text:'경영지원'});
+  await assert.rejects(()=>db.query(`update team_tasks set status_note_text=repeat('가',301) where id=$1`,[t.id]),/check constraint/);
  }finally{await db.close();}
 });

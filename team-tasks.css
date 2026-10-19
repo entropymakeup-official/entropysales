@@ -74,3 +74,8 @@
 .tt-sub{overflow:hidden}
 @container (max-width:880px){.tt-item,.tt-selectable .tt-item{flex-wrap:wrap}.tt-body{flex-wrap:wrap;flex-basis:100%}.tt-title{white-space:normal;flex-basis:100%}.tt-sub{flex-wrap:wrap;overflow:visible}}
 .tt-status.tt-review{background:var(--amber-light,#fef3c7);color:var(--amber,#b45309);font-weight:600}
+.tt-star{border:0;background:none;padding:0 2px;font-size:15px;line-height:1;color:var(--text3,#9ca3af);cursor:pointer;flex:none}
+.tt-star[aria-pressed="true"]{color:var(--amber,#d97706)}
+.tt-decide{background:var(--red-light,#fee2e2);color:var(--red,#b91c1c);white-space:nowrap;flex:none}
+.tt-note{overflow:hidden;text-overflow:ellipsis;max-width:16em;color:var(--amber,#b45309)}
+.tt-note.tt-note-reject{color:var(--red,#dc2626)}

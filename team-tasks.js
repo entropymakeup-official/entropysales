@@ -10,6 +10,10 @@ const FIELD_LABELS={created:'등록',title:'제목',assignee:'담당자',due:'�
 const OPEN=['todo','in_progress','review','on_hold'];
 // 팀 밖 업무를 모으는 명단 항목(실제 사람 계정이 아님). DB 명단에 같은 메일로 등록한다.
 const OTHER_TEAM_EMAIL='other-team@entropymakeup.com';
+// 타팀업무로 넘길 때 고르는 팀. 이 기간 동안 변동이 없는 타팀업무는 기본 화면에서 숨긴다.
+const HANDOFF_TEAMS=['크리에이티브본부','상품기획','디자인','SCM·물류','경영지원','재무·회계','그로스본부','기타'];
+const OTHER_TEAM_STALE_DAYS=14;
+const STATUS_NOTE_LIMIT=300;
 const TITLE_LIMIT=80,SUMMARY_LIMIT=300,NOTE_LIMIT=1000;
 const DAY=24*60*60*1000,KST=9*60*60*1000;
 
@@ -19,7 +23,12 @@ const kstEndOf=day=>{const [y,m,d]=day.split('-').map(Number);return Date.UTC(y,
 const addDays=(day,n)=>{const [y,m,d]=day.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+n)).toISOString().slice(0,10);};
 const isOpen=t=>OPEN.includes(t?.status_code);
 const isOverdue=(t,nowMs)=>isOpen(t)&&Boolean(t.due_on)&&kstEndOf(t.due_on)<nowMs;
-const byDue=(a,b)=>String(a.due_on||'9999').localeCompare(String(b.due_on||'9999'));
+const byDue=(a,b)=>String(a.due_on||'9999').localeCompare(String(b.due_on||'9999'))
+ ||Number(Boolean(b.is_important))-Number(Boolean(a.is_important))
+ ||String(b.created_at||'').localeCompare(String(a.created_at||''));
+// 타팀업무 중 오래 변동이 없는 것(기본 화면에서 숨김)
+const isStaleOtherTeam=(t,nowMs)=>t.assignee_email===OTHER_TEAM_EMAIL&&Date.parse(t.updated_at||t.created_at||0)<nowMs-OTHER_TEAM_STALE_DAYS*DAY;
+const isDecision=t=>/^\s*\[결정\]/.test(String(t.title_text||''));
 
 function weekStartMs(nowMs){
  const today=kstToday(nowMs),dow=new Date(today+'T00:00:00Z').getUTCDay();
@@ -40,17 +49,19 @@ function filterDone(tasks,{assignee='*',period='week'}={},nowMs){
 
 // 탭 이름에 붙일 열린 할 일·지연 건수
 function openCounts(tasks,assignee,nowMs){
- const mine=tasks.filter(t=>!t.is_archived&&isOpen(t)&&(t.assignee_email||'')===assignee);
+ const mine=tasks.filter(t=>!t.is_archived&&isOpen(t)&&(t.assignee_email||'')===assignee&&!isStaleOtherTeam(t,nowMs));
  return{open:mine.length,overdue:mine.filter(t=>isOverdue(t,nowMs)).length};
 }
 
-function filterTasks(tasks,{assignee='*',status='',kind='',query='',includeClosed=false}={}){
+function filterTasks(tasks,{assignee='*',status='',kind='',query='',includeClosed=false,important=false,showStale=false,nowMs=Date.now()}={}){
  const q=String(query||'').trim().toLowerCase();
  return tasks.filter(t=>{
   if(t.is_archived)return false;
   if(!includeClosed&&!status&&!isOpen(t))return false;
   if(assignee==='*'&&t.assignee_email===OTHER_TEAM_EMAIL)return false; // 전체 목록에는 타팀업무를 빼고 타팀업무 탭에서만 본다
   if(assignee!=='*'&&(t.assignee_email||'')!==assignee)return false;
+  if(!showStale&&isStaleOtherTeam(t,nowMs))return false;
+  if(important&&!t.is_important&&!isDecision(t))return false;
   if(status&&t.status_code!==status)return false;
   if(kind&&t.source_kind_code!==kind)return false;
   if(q&&!`${t.title_text||''} ${t.summary_text||''}`.toLowerCase().includes(q))return false;
@@ -118,15 +129,19 @@ function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected
  return`<ul class="tt-list${selectable?' tt-selectable':''}">${tasks.map(t=>{const late=isOverdue(t,nowMs);return`<li class="tt-item${late?' tt-late':''}">`
   +(selectable?`<input type="checkbox" class="tt-pick" data-pick="${esc(t.id)}" aria-label="삭제할 할 일로 선택"${selected.has(t.id)?' checked':''}>`:'')
   +`<span class="badge tt-status tt-${esc(t.status_code)}">${esc(STATUS_LABELS[t.status_code]||t.status_code)}</span>`
+  +`<button type="button" class="tt-star" data-star="${esc(t.id)}" aria-pressed="${Boolean(t.is_important)}" title="${t.is_important?'중요 표시 빼기':'중요 표시'}">${t.is_important?'★':'☆'}</button>`
+  +(isDecision(t)?'<span class="badge tt-decide">결정</span>':'')
   +`<div class="tt-body"><button type="button" class="tt-title" data-task-open="${esc(t.id)}" title="${esc(t.title_text)}">${esc(t.title_text)}</button>`
   +`<div class="tt-sub"><select class="tt-assign" data-assign="${esc(t.id)}" aria-label="담당자 바꾸기"><option value="">담당 미지정</option>${members.map(m=>`<option value="${esc(m.email)}"${m.email===t.assignee_email?' selected':''}>${esc(m.display_name)}</option>`).join('')}${t.assignee_email&&!members.some(m=>m.email===t.assignee_email)?`<option value="${esc(t.assignee_email)}" selected>${esc(memberName(members,t.assignee_email))}</option>`:''}</select>`
+  +(t.assignee_email===OTHER_TEAM_EMAIL?`<select class="tt-assign" data-handoff="${esc(t.id)}" aria-label="넘긴 팀"><option value="">넘긴 팀 미정</option>${HANDOFF_TEAMS.map(n=>`<option${n===t.handoff_team_text?' selected':''}>${esc(n)}</option>`).join('')}${t.handoff_team_text&&!HANDOFF_TEAMS.includes(t.handoff_team_text)?`<option selected>${esc(t.handoff_team_text)}</option>`:''}</select>`:'')
   +(!t.assignee_email&&t.suggested_assignee_text?`<span>제안: ${esc(t.suggested_assignee_text)}</span>`:'')
+  +(t.status_note_text&&(t.status_code==='review'||t.status_code==='in_progress')?`<span class="tt-note${t.status_code==='review'?'':' tt-note-reject'}" title="${esc(t.status_note_text)}">${esc(t.status_note_text)}</span>`:'')
   +`<span class="tt-chip">${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</span>`
   +(t.requester_text?`<span class="tt-req" title="${esc(t.requester_text)}">${esc(t.requester_text)}</span>`:'')
   +(t.source_url?`<a href="${esc(t.source_url)}" target="_blank" rel="noopener">원문</a>`:'')
   +`</div></div><div class="tt-side"><input type="date" class="tt-due-input${late?' tt-late-due':''}" data-due="${esc(t.id)}" value="${esc(t.due_on||'')}" aria-label="기한 바꾸기${late?' (기한 지남)':''}" title="${late?'기한이 지났습니다. 날짜를 바꿀 수 있습니다.':'기한 바꾸기'}">`
   +(t.status_code==='review'
-   ?(isAdmin?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">승인</button><button type="button" class="btn tt-done-btn" data-set-status="in_progress" data-task="${esc(t.id)}">반려</button>`:'')
+   ?(isAdmin?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">승인</button><button type="button" class="btn tt-done-btn" data-set-status="in_progress" data-reject="1" data-task="${esc(t.id)}">반려</button>`:'')
    :isOpen(t)?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">완료</button>`:'')
   +`</div></li>`;}).join('')}</ul>`;
 }
@@ -154,7 +169,7 @@ function group(title,count,body){return`<section class="tt-group"><header><h3>${
 function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  // 탭: 'all' 전체 목록 · 'p:<메일>' 담당자별 페이지 · 'p:' 담당 미지정 · 'done' 완료
  const state={active:false,tab:'all',tasks:[],members:[],loading:false,error:'',meEmail:null,
-  filter:{status:'',kind:'',query:''},doneFilter:{assignee:'*',period:'week'},dialog:null,isAdmin:false,selected:new Set(),deleteArmed:false};
+  filter:{status:'',kind:'',query:'',important:false},showStale:false,doneFilter:{assignee:'*',period:'week'},dialog:null,isAdmin:false,selected:new Set(),deleteArmed:false};
  const $=id=>document.getElementById(id);
 
  async function load(){
@@ -195,13 +210,16 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
    +`<select id="tt-f-status" aria-label="상태"><option value="">열린 상태 전체</option>${STATUS_CODES.filter(s=>s!=='done').map(s=>`<option value="${s}"${f.status===s?' selected':''}>${STATUS_LABELS[s]}</option>`).join('')}</select>`
    +`<select id="tt-f-kind" aria-label="출처"><option value="">모든 출처</option>${Object.entries(SOURCE_LABELS).map(([k,l])=>`<option value="${k}"${f.kind===k?' selected':''}>${l}</option>`).join('')}</select>`
    +`<input id="tt-f-query" type="search" placeholder="제목·요약 검색" value="${esc(f.query)}">`
+   +`<label class="tt-pick-all"><input type="checkbox" id="tt-f-important"${f.important?' checked':''}> 중요·결정만</label>`
    +`</div>`;
  }
 
  function viewList(assignee,nowMs){
-  const list=filterTasks(state.tasks,{...state.filter,assignee});
+  const list=filterTasks(state.tasks,{...state.filter,assignee,showStale:state.showStale,nowMs});
+  const staleCount=assignee===OTHER_TEAM_EMAIL?state.tasks.filter(t=>!t.is_archived&&isOpen(t)&&isStaleOtherTeam(t,nowMs)).length:0;
+  const staleBar=assignee===OTHER_TEAM_EMAIL?`<div class="tt-toolbar"><label class="tt-pick-all"><input type="checkbox" id="tt-f-stale"${state.showStale?' checked':''}> ${OTHER_TEAM_STALE_DAYS}일 넘게 변동 없는 것도 보기 (${staleCount}건)</label><span class="tt-meta">타팀업무는 ${OTHER_TEAM_STALE_DAYS}일 동안 바뀐 것이 없으면 기본 화면에서 숨깁니다. 기록은 남아 있습니다.</span></div>`:'';
   const title=assignee==='*'?'열린 할 일':assignee===''?'담당 미지정':assignee===OTHER_TEAM_EMAIL?'타팀업무':memberName(state.members,assignee)+'님의 할 일';
-  return filterBar()+deleteBar(list)+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 업무 리스트업으로 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.',{selectable:state.isAdmin,selected:state.selected,isAdmin:state.isAdmin}));
+  return filterBar()+staleBar+deleteBar(list)+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 업무 리스트업으로 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.',{selectable:state.isAdmin,selected:state.selected,isAdmin:state.isAdmin}));
  }
 
  function deleteBar(list){
@@ -358,13 +376,61 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  }
 
  // 목록에서 바로 완료 처리하거나 완료를 되돌린다. 완료자·시각과 이력은 DB 트리거가 남긴다.
+ // 짧은 글을 받는 창. 취소하면 null.
+ function askText({title,label,placeholder='',required=true,submit='확인'}){
+  return new Promise(resolve=>{
+   closeDialog();
+   const d=document.createElement('dialog');d.className='tt-dialog';
+   d.innerHTML=`<form><header><h2>${esc(title)}</h2><button type="button" class="btn" data-close>닫기</button></header>`
+    +`<label>${esc(label)}<textarea name="text" maxlength="${STATUS_NOTE_LIMIT}" placeholder="${esc(placeholder)}"${required?' required':''}></textarea></label>`
+    +`<p class="tt-error" data-form-error role="alert"></p><footer><button class="btn btn-primary" type="submit">${esc(submit)}</button></footer></form>`;
+   document.body.append(d);state.dialog=d;
+   let done=false;const finish=v=>{if(done)return;done=true;closeDialog();resolve(v);};
+   d.querySelector('[data-close]').onclick=()=>finish(null);
+   d.addEventListener('cancel',e=>{e.preventDefault();finish(null);});
+   for(const type of ['keydown','paste'])d.addEventListener(type,e=>e.stopPropagation());
+   d.querySelector('form').onsubmit=e=>{
+    e.preventDefault();
+    const v=String(new FormData(e.target).get('text')||'').trim();
+    if(required&&!v){d.querySelector('[data-form-error]').textContent='내용을 적어 주세요.';return;}
+    finish(v);
+   };
+   d.showModal();d.querySelector('textarea').focus();
+  });
+ }
+
+ function meName(){return memberName(state.members,state.meEmail)||state.meEmail||'';}
+ function withNote(t,line){
+  const stamp=new Date(Date.now()+KST).toISOString().slice(5,10);
+  return`${String(t?.note_text||'').trim()}\n${stamp} ${meName()} ${line}`.trim().slice(-NOTE_LIMIT);
+ }
+
  async function setStatus(button){
-  const id=button.dataset.task,to=button.dataset.setStatus;
+  const id=button.dataset.task,to=button.dataset.setStatus,t=state.tasks.find(x=>x.id===id);
+  const patch={status_code:to};
+  if(to==='done'&&t?.status_code!=='review'&&!state.isAdmin){
+   const v=await askText({title:'완료 검토 요청',label:'무엇을 했는지 한 줄로 적어 주세요. 회신 메일·슬랙 링크가 있으면 붙여 주세요.',placeholder:'예: 10/19 바이어에게 견적 회신 완료 https://…',submit:'검토 요청'});
+   if(v===null)return;
+   patch.status_note_text=v;patch.note_text=withNote(t,'완료: '+v);
+  }else if(to==='done'&&t?.status_code!=='review'){
+   patch.status_note_text='';
+  }else if(button.dataset.reject){
+   const v=await askText({title:'반려',label:'반려 사유를 적어 주세요. 담당자 목록에 보입니다.',placeholder:'예: 회신 메일이 보이지 않습니다. 링크를 붙여 주세요.',submit:'반려'});
+   if(v===null)return;
+   patch.status_note_text='반려: '+v;patch.note_text=withNote(t,'반려: '+v);
+  }
   button.disabled=true;
-  const {error}=await sb.from('team_tasks').update({status_code:to}).eq('id',id).select('id').single();
+  const {error}=await sb.from('team_tasks').update(patch).eq('id',id).select('id').single();
   if(error){button.disabled=false;onMessage('상태를 바꾸지 못했습니다: '+error.message);return;}
-  const t=state.tasks.find(x=>x.id===id);
   onMessage(to==='done'?(state.isAdmin?(t?.status_code==='review'?'승인했습니다. 완료 탭에서 볼 수 있습니다.':'완료로 바꿨습니다. 완료 탭에서 볼 수 있습니다.'):'완료 검토를 요청했습니다. 관리자가 승인하면 완료됩니다.'):to==='in_progress'&&t?.status_code==='review'?'반려했습니다. 진행 중으로 돌아갔습니다.':'열린 할 일로 되돌렸습니다.');
+  await load();
+ }
+
+ async function patchTask(id,patch,okText,el){
+  if(el)el.disabled=true;
+  const {error}=await sb.from('team_tasks').update(patch).eq('id',id).select('id').single();
+  if(error){if(el)el.disabled=false;onMessage('저장하지 못했습니다: '+error.message);return;}
+  if(okText)onMessage(okText);
   await load();
  }
 
@@ -402,6 +468,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   root.onclick=e=>{
    const tab=e.target.closest('[data-tt-tab]');if(tab){state.tab=tab.dataset.ttTab;state.deleteArmed=false;paint();return;}
    const status=e.target.closest('[data-set-status]');if(status){setStatus(status);return;}
+   const star=e.target.closest('[data-star]');if(star){const t=state.tasks.find(x=>x.id===star.dataset.star);if(t)patchTask(t.id,{is_important:!t.is_important},'',star);return;}
    if(e.target.closest('[data-clear-selected]')){state.selected.clear();state.deleteArmed=false;paint();return;}
    if(e.target.closest('[data-delete-selected]')){
     if(!state.deleteArmed){state.deleteArmed=true;paint();return;}
@@ -412,6 +479,9 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   root.onchange=e=>{
    if(e.target.dataset.assign){reassign(e.target);return;}
    if(e.target.dataset.due){changeDue(e.target);return;}
+   if(e.target.dataset.handoff){patchTask(e.target.dataset.handoff,{handoff_team_text:e.target.value},e.target.value?`넘긴 팀을 ${e.target.value}(으)로 적었습니다.`:'',e.target);return;}
+   if(e.target.id==='tt-f-stale'){state.showStale=e.target.checked;paint();return;}
+   if(e.target.id==='tt-f-important'){state.filter.important=e.target.checked;paint();return;}
    if(e.target.dataset.pick){e.target.checked?state.selected.add(e.target.dataset.pick):state.selected.delete(e.target.dataset.pick);state.deleteArmed=false;paint();return;}
    if(e.target.dataset.pickAll!==undefined){const ids=e.target.dataset.pickAll.split(',').filter(Boolean);ids.forEach(id=>e.target.checked?state.selected.add(id):state.selected.delete(id));state.deleteArmed=false;paint();return;}
    const id=e.target.id,f=state.filter;
@@ -430,5 +500,5 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  return{show,hide(){state.active=false;closeDialog();const c=$('content');if(c){c.onclick=null;c.onchange=null;}},reload:load,state};
 }
 
-return{OTHER_TEAM_EMAIL,STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,fillRoutine,listupChecks,isOpen,isOverdue,kstToday,filterTasks,filterDone,openCounts,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
+return{OTHER_TEAM_EMAIL,HANDOFF_TEAMS,OTHER_TEAM_STALE_DAYS,isStaleOtherTeam,isDecision,STATUS_CODES,STATUS_LABELS,SOURCE_LABELS,fillRoutine,listupChecks,isOpen,isOverdue,kstToday,filterTasks,filterDone,openCounts,summarizeByAssignee,findSensitive,validateInput,memberName,historyText,renderTaskList,mount,esc};
 });

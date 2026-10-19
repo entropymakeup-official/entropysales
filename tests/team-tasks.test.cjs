@@ -122,7 +122,7 @@ test('목록 행에서 기한을 바로 바꿀 수 있고 지난 기한은 표�
 test('전체 목록에서는 타팀업무를 빼고 타팀업무 탭에서만 보여 준다',()=>{
  const list=[task({id:'m1',assignee_email:'u1@entropymakeup.com'}),task({id:'o1',assignee_email:T.OTHER_TEAM_EMAIL})];
  assert.deepEqual(T.filterTasks(list,{assignee:'*'}).map(t=>t.id),['m1']);
- assert.deepEqual(T.filterTasks(list,{assignee:T.OTHER_TEAM_EMAIL}).map(t=>t.id),['o1']);
+ assert.deepEqual(T.filterTasks(list,{assignee:T.OTHER_TEAM_EMAIL,showStale:true,nowMs:NOW}).map(t=>t.id),['o1']);
 });
 
 test('완료 검토: 관리자에게만 승인·반려 버튼을 보여 주고 검토 중도 열린 할 일로 센다',()=>{
@@ -133,5 +133,22 @@ test('완료 검토: 관리자에게만 승인·반려 버튼을 보여 주고 �
  assert.doesNotMatch(member,/data-set-status/);
  const admin=T.renderTaskList([r],[],NOW,'없음',{isAdmin:true});
  assert.match(admin,/data-set-status="done" data-task="r1">승인/);
- assert.match(admin,/data-set-status="in_progress" data-task="r1">반려/);
+ assert.match(admin,/data-set-status="in_progress" data-reject="1" data-task="r1">반려/);
+});
+
+test('정렬·중요·결정·타팀업무 숨김',()=>{
+ const now=Date.parse('2026-10-20T01:00:00Z');
+ const list=[task({id:'n1',created_at:'2026-10-01T00:00:00Z'}),task({id:'n2',is_important:true,created_at:'2026-09-01T00:00:00Z'}),task({id:'d1',due_on:'2026-10-25'}),task({id:'d0',due_on:'2026-10-18'}),
+  task({id:'o1',assignee_email:T.OTHER_TEAM_EMAIL,updated_at:'2026-09-30T00:00:00Z'}),task({id:'o2',assignee_email:T.OTHER_TEAM_EMAIL,updated_at:'2026-10-19T00:00:00Z'}),task({id:'k1',title_text:'[결정] 공급가'})];
+ assert.deepEqual(T.filterTasks(list,{nowMs:now}).map(t=>t.id),['d0','d1','n2','n1','k1']);
+ assert.deepEqual(T.filterTasks(list,{assignee:T.OTHER_TEAM_EMAIL,nowMs:now}).map(t=>t.id),['o2']);
+ assert.deepEqual(T.filterTasks(list,{assignee:T.OTHER_TEAM_EMAIL,showStale:true,nowMs:now}).map(t=>t.id).sort(),['o1','o2']);
+ assert.deepEqual(T.filterTasks(list,{important:true,nowMs:now}).map(t=>t.id),['n2','k1']);
+ assert.equal(T.openCounts(list,T.OTHER_TEAM_EMAIL,now).open,1);
+ const html=T.renderTaskList([task({id:'r1',status_code:'review',status_note_text:'회신 완료 <b>'}),task({id:'o9',assignee_email:T.OTHER_TEAM_EMAIL,handoff_team_text:'경영지원'})],[],now,'없음',{isAdmin:true});
+ assert.match(html,/class="tt-note" title="회신 완료 &lt;b&gt;"/);
+ assert.match(html,/data-reject="1" data-task="r1"/);
+ assert.match(html,/data-handoff="o9"/);
+ assert.match(html,/<option selected>경영지원<\/option>/);
+ assert.match(T.renderTaskList([task({id:'s1',is_important:true,title_text:'[결정] x'})],[],now,''),/aria-pressed="true"[^>]*>★<\/button><span class="badge tt-decide">결정/);
 });
