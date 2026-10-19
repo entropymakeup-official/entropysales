@@ -61,3 +61,15 @@
 .tt-done-btn{font-size:12px;padding:2px 10px}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (max-width:520px){.tt-side{flex-direction:row;align-items:center;justify-content:space-between}}
+/* 한 줄 보기: 상태 · 제목 · 담당·출처·요청처·원문 · 기한·완료를 한 줄에 둔다. 좁은 화면에서만 줄바꿈한다. */
+.tt-list{gap:4px}
+.tt-item,.tt-selectable .tt-item{display:flex;align-items:center;gap:10px;padding:5px 10px}
+.tt-body{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0}
+.tt-title{flex:1 1 auto;min-width:6em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.tt-sub{flex:0 1 auto;flex-wrap:nowrap;align-items:center;min-width:0;white-space:nowrap}
+.tt-req{overflow:hidden;text-overflow:ellipsis;max-width:11em}
+.tt-side{flex:none;flex-direction:row;align-items:center;gap:6px}
+.tt-pick{margin:0}
+.tt{container-type:inline-size}
+.tt-sub{overflow:hidden}
+@container (max-width:880px){.tt-item,.tt-selectable .tt-item{flex-wrap:wrap}.tt-body{flex-wrap:wrap;flex-basis:100%}.tt-title{white-space:normal;flex-basis:100%}.tt-sub{flex-wrap:wrap;overflow:visible}}

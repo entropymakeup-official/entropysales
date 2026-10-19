@@ -117,11 +117,11 @@ function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected
  return`<ul class="tt-list${selectable?' tt-selectable':''}">${tasks.map(t=>{const late=isOverdue(t,nowMs);return`<li class="tt-item${late?' tt-late':''}">`
   +(selectable?`<input type="checkbox" class="tt-pick" data-pick="${esc(t.id)}" aria-label="삭제할 할 일로 선택"${selected.has(t.id)?' checked':''}>`:'')
   +`<span class="badge tt-status tt-${esc(t.status_code)}">${esc(STATUS_LABELS[t.status_code]||t.status_code)}</span>`
-  +`<div class="tt-body"><button type="button" class="tt-title" data-task-open="${esc(t.id)}">${esc(t.title_text)}</button>`
+  +`<div class="tt-body"><button type="button" class="tt-title" data-task-open="${esc(t.id)}" title="${esc(t.title_text)}">${esc(t.title_text)}</button>`
   +`<div class="tt-sub"><select class="tt-assign" data-assign="${esc(t.id)}" aria-label="담당자 바꾸기"><option value="">담당 미지정</option>${members.map(m=>`<option value="${esc(m.email)}"${m.email===t.assignee_email?' selected':''}>${esc(m.display_name)}</option>`).join('')}${t.assignee_email&&!members.some(m=>m.email===t.assignee_email)?`<option value="${esc(t.assignee_email)}" selected>${esc(memberName(members,t.assignee_email))}</option>`:''}</select>`
   +(!t.assignee_email&&t.suggested_assignee_text?`<span>제안: ${esc(t.suggested_assignee_text)}</span>`:'')
   +`<span class="tt-chip">${esc(SOURCE_LABELS[t.source_kind_code]||'기타')}</span>`
-  +(t.requester_text?`<span>${esc(t.requester_text)}</span>`:'')
+  +(t.requester_text?`<span class="tt-req" title="${esc(t.requester_text)}">${esc(t.requester_text)}</span>`:'')
   +(t.source_url?`<a href="${esc(t.source_url)}" target="_blank" rel="noopener">원문</a>`:'')
   +`</div></div><div class="tt-side"><input type="date" class="tt-due-input${late?' tt-late-due':''}" data-due="${esc(t.id)}" value="${esc(t.due_on||'')}" aria-label="기한 바꾸기${late?' (기한 지남)':''}" title="${late?'기한이 지났습니다. 날짜를 바꿀 수 있습니다.':'기한 바꾸기'}">`
   +(isOpen(t)?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">완료</button>`:'')
