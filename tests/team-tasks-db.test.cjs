@@ -15,6 +15,8 @@ async function setup(){
  await db.exec(sql); // 다시 실행해도 안전해야 한다
  const del=fs.readFileSync(path.join(__dirname,'../sql/team-tasks-delete.sql'),'utf8');
  await db.exec(del);await db.exec(del);
+ const review=fs.readFileSync(path.join(__dirname,'../sql/team-tasks-review.sql'),'utf8');
+ await db.exec(review);await db.exec(review);
  await db.exec(`insert into team_task_members(email,display_name) values ('member@entropymakeup.com','가짜 팀원'),('other@entropymakeup.com','다른 팀원')`);
  await db.exec(`insert into team_task_members(email,display_name,is_admin) values ('boss@entropymakeup.com','가짜 관리자',true)`);
  const login=async(n)=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.session_id',$1,false)",['00000000-0000-0000-0000-'+String(n).padStart(12,'0')]);await db.exec('set role authenticated');};
@@ -46,6 +48,7 @@ test('업무 목록: 회사 계정만 읽고 쓰며 삭제와 이력 직접 쓰�
 test('업무 목록: 상태·담당·기한 변경은 이력을 남기고 완료 정보를 맞춘다',async()=>{
  const {db,login}=await setup();
  try{
+  await db.exec(`update team_task_members set is_admin=true where email='member@entropymakeup.com'`); // 완료를 바로 찍을 수 있는 목록 관리자로 본다
   await login(1);
   const {rows:[t]}=await db.query(`insert into team_tasks(title_text,source_key,source_kind_code) values ('서류 요청','gmail-t1','gmail') returning *`);
   await db.query(`update team_tasks set assignee_email='other@entropymakeup.com',due_on='2026-10-20',status_code='done',source_key='hacked',created_by_text='위조' where id=$1`,[t.id]);
@@ -95,5 +98,27 @@ test('업무 목록: 관리자만 완전 삭제하고 삭제 기록은 남는다
   assert.deepEqual(h.map(r=>r.field_code),['created','deleted']);
   assert.equal(h[1].from_text,'엉뚱한 수집');
   assert.equal(h[1].changed_by_text,'boss@entropymakeup.com');
+ }finally{await db.close();}
+});
+
+test('업무 목록: 관리자가 아니면 완료가 완료 검토로 바뀌고 관리자가 승인한다',async()=>{
+ const {db,login}=await setup();
+ try{
+  await login(1);
+  const {rows:[t]}=await db.query(`insert into team_tasks(title_text,assignee_email) values ('회신','member@entropymakeup.com') returning *`);
+  await db.query(`update team_tasks set status_code='done' where id=$1`,[t.id]);
+  let {rows:[u]}=await db.query('select status_code,done_at from team_tasks where id=$1',[t.id]);
+  assert.equal(u.status_code,'review');
+  assert.equal(u.done_at,null);
+  await login(3);
+  await db.query(`update team_tasks set status_code='done' where id=$1`,[t.id]);
+  ({rows:[u]}=await db.query('select status_code,done_by_text from team_tasks where id=$1',[t.id]));
+  assert.equal(u.status_code,'done');
+  assert.equal(u.done_by_text,'boss@entropymakeup.com');
+  await db.exec('reset role');
+  const {rows:[s]}=await db.query(`insert into team_tasks(title_text,status_code) values ('중계 입력','done') returning status_code`);
+  assert.equal(s.status_code,'done'); // 로그인 없는 중계 입력은 중계 작업이 정한 상태를 따른다
+  const h=(await db.query(`select from_text,to_text from team_task_history where task_id=$1 and field_code='status' order by id`,[t.id])).rows;
+  assert.deepEqual(h.map(r=>r.to_text),['review','done']);
  }finally{await db.close();}
 });
