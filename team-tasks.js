@@ -48,6 +48,7 @@ function filterTasks(tasks,{assignee='*',status='',kind='',query='',includeClose
  return tasks.filter(t=>{
   if(t.is_archived)return false;
   if(!includeClosed&&!status&&!isOpen(t))return false;
+  if(assignee==='*'&&t.assignee_email===OTHER_TEAM_EMAIL)return false; // 전체 목록에는 타팀업무를 빼고 타팀업무 탭에서만 본다
   if(assignee!=='*'&&(t.assignee_email||'')!==assignee)return false;
   if(status&&t.status_code!==status)return false;
   if(kind&&t.source_kind_code!==kind)return false;

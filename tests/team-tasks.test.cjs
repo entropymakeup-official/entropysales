@@ -118,3 +118,9 @@ test('목록 행에서 기한을 바로 바꿀 수 있고 지난 기한은 표�
  assert.match(html,/class="tt-due-input" data-due="a2" value=""/);
  assert.equal(T.OTHER_TEAM_EMAIL,'other-team@entropymakeup.com');
 });
+
+test('전체 목록에서는 타팀업무를 빼고 타팀업무 탭에서만 보여 준다',()=>{
+ const list=[task({id:'m1',assignee_email:'u1@entropymakeup.com'}),task({id:'o1',assignee_email:T.OTHER_TEAM_EMAIL})];
+ assert.deepEqual(T.filterTasks(list,{assignee:'*'}).map(t=>t.id),['m1']);
+ assert.deepEqual(T.filterTasks(list,{assignee:T.OTHER_TEAM_EMAIL}).map(t=>t.id),['o1']);
+});
