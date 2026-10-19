@@ -124,3 +124,14 @@ test('전체 목록에서는 타팀업무를 빼고 타팀업무 탭에서만 �
  assert.deepEqual(T.filterTasks(list,{assignee:'*'}).map(t=>t.id),['m1']);
  assert.deepEqual(T.filterTasks(list,{assignee:T.OTHER_TEAM_EMAIL}).map(t=>t.id),['o1']);
 });
+
+test('완료 검토: 관리자에게만 승인·반려 버튼을 보여 주고 검토 중도 열린 할 일로 센다',()=>{
+ const r=task({id:'r1',status_code:'review'});
+ assert.equal(T.isOpen(r),true);
+ assert.equal(T.STATUS_LABELS.review,'완료 검토');
+ const member=T.renderTaskList([r],[],NOW,'없음');
+ assert.doesNotMatch(member,/data-set-status/);
+ const admin=T.renderTaskList([r],[],NOW,'없음',{isAdmin:true});
+ assert.match(admin,/data-set-status="done" data-task="r1">승인/);
+ assert.match(admin,/data-set-status="in_progress" data-task="r1">반려/);
+});

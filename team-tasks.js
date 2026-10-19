@@ -2,11 +2,12 @@
 'use strict';
 // 글로벌 영업팀 업무 목록. 승인 없이 바로 수정하며, 변경 이력은 DB 트리거가 남긴다(sql/team-tasks.sql).
 
-const STATUS_CODES=['todo','in_progress','done','on_hold','canceled'];
-const STATUS_LABELS={todo:'할 일',in_progress:'진행 중',done:'완료',on_hold:'보류',canceled:'취소'};
+const STATUS_CODES=['todo','in_progress','review','done','on_hold','canceled'];
+const STATUS_LABELS={todo:'할 일',in_progress:'진행 중',review:'완료 검토',done:'완료',on_hold:'보류',canceled:'취소'};
 const SOURCE_LABELS={slack:'슬랙',gmail:'메일',drive:'드라이브',manual:'직접 입력'};
 const FIELD_LABELS={created:'등록',title:'제목',assignee:'담당자',due:'기한',status:'상태',archived:'숨김'};
-const OPEN=['todo','in_progress','on_hold'];
+// 완료 검토(review)는 담당자가 완료를 눌렀고 목록 관리자의 승인을 기다리는 상태라 열린 할 일로 센다.
+const OPEN=['todo','in_progress','review','on_hold'];
 // 팀 밖 업무를 모으는 명단 항목(실제 사람 계정이 아님). DB 명단에 같은 메일로 등록한다.
 const OTHER_TEAM_EMAIL='other-team@entropymakeup.com';
 const TITLE_LIMIT=80,SUMMARY_LIMIT=300,NOTE_LIMIT=1000;
@@ -112,7 +113,7 @@ function historyText(h,members){
  return`${when} · ${who} · ${label}: ${show(h.from_text)} → ${show(h.to_text)}`;
 }
 
-function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected=new Set()}={}){
+function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected=new Set(),isAdmin=false}={}){
  if(!tasks.length)return`<p class="tt-empty">${esc(emptyText)}</p>`;
  return`<ul class="tt-list${selectable?' tt-selectable':''}">${tasks.map(t=>{const late=isOverdue(t,nowMs);return`<li class="tt-item${late?' tt-late':''}">`
   +(selectable?`<input type="checkbox" class="tt-pick" data-pick="${esc(t.id)}" aria-label="삭제할 할 일로 선택"${selected.has(t.id)?' checked':''}>`:'')
@@ -124,7 +125,9 @@ function renderTaskList(tasks,members,nowMs,emptyText,{selectable=false,selected
   +(t.requester_text?`<span class="tt-req" title="${esc(t.requester_text)}">${esc(t.requester_text)}</span>`:'')
   +(t.source_url?`<a href="${esc(t.source_url)}" target="_blank" rel="noopener">원문</a>`:'')
   +`</div></div><div class="tt-side"><input type="date" class="tt-due-input${late?' tt-late-due':''}" data-due="${esc(t.id)}" value="${esc(t.due_on||'')}" aria-label="기한 바꾸기${late?' (기한 지남)':''}" title="${late?'기한이 지났습니다. 날짜를 바꿀 수 있습니다.':'기한 바꾸기'}">`
-  +(isOpen(t)?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">완료</button>`:'')
+  +(t.status_code==='review'
+   ?(isAdmin?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">승인</button><button type="button" class="btn tt-done-btn" data-set-status="in_progress" data-task="${esc(t.id)}">반려</button>`:'')
+   :isOpen(t)?`<button type="button" class="btn tt-done-btn" data-set-status="done" data-task="${esc(t.id)}">완료</button>`:'')
   +`</div></li>`;}).join('')}</ul>`;
 }
 
@@ -182,6 +185,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   return tab('all','전체 목록')
    +state.members.map(m=>tab('p:'+m.email,m.display_name,badge(m.email))).join('')
    +tab('p:','담당 미지정',badge(''))
+   +(state.isAdmin||state.tasks.some(t=>t.status_code==='review'&&!t.is_archived)?tab('review','검토 대기',` <span class="tt-count">${state.tasks.filter(t=>t.status_code==='review'&&!t.is_archived).length}</span>`):'')
    +tab('done','완료');
  }
 
@@ -197,7 +201,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
  function viewList(assignee,nowMs){
   const list=filterTasks(state.tasks,{...state.filter,assignee});
   const title=assignee==='*'?'열린 할 일':assignee===''?'담당 미지정':assignee===OTHER_TEAM_EMAIL?'타팀업무':memberName(state.members,assignee)+'님의 할 일';
-  return filterBar()+deleteBar(list)+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 업무 리스트업으로 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.',{selectable:state.isAdmin,selected:state.selected}));
+  return filterBar()+deleteBar(list)+group(title,list.length,renderTaskList(list,state.members,nowMs,assignee==='*'?'열린 할 일이 없습니다. 업무 리스트업으로 모으거나 직접 추가하세요.':'열린 할 일이 없습니다.',{selectable:state.isAdmin,selected:state.selected,isAdmin:state.isAdmin}));
  }
 
  function deleteBar(list){
@@ -216,6 +220,12 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   const n=(data||[]).length;
   onMessage(n===ids.length?`${n}건을 삭제했습니다.`:`${ids.length}건 중 ${n}건만 삭제했습니다. 삭제 권한을 확인하세요.`);
   state.selected.clear();state.deleteArmed=false;await load();return true;
+ }
+
+ function viewReview(nowMs){
+  const list=state.tasks.filter(t=>!t.is_archived&&t.status_code==='review');
+  const help=state.isAdmin?'담당자가 완료를 누른 할 일입니다. 확인한 뒤 승인하면 완료 탭으로, 반려하면 진행 중으로 돌아갑니다.':'목록 관리자의 확인을 기다리는 할 일입니다.';
+  return`<p class="tt-help">${esc(help)}</p>`+group('검토 대기',list.length,renderTaskList(list,state.members,nowMs,'검토를 기다리는 할 일이 없습니다.',{isAdmin:state.isAdmin}));
  }
 
  function viewDone(nowMs){
@@ -240,7 +250,7 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   bar.innerHTML=tabs(nowMs);
   if(state.loading){host.innerHTML='<p role="status" class="tt-empty">업무 목록을 불러오는 중입니다…</p>';return;}
   if(state.error){host.innerHTML=`<p class="tt-error" role="alert">${esc(state.error)}</p>`;return;}
-  host.innerHTML=state.tab==='done'?viewDone(nowMs):state.tab==='all'?viewList('*',nowMs):viewList(state.tab.slice(2),nowMs);
+  host.innerHTML=state.tab==='done'?viewDone(nowMs):state.tab==='review'?viewReview(nowMs):state.tab==='all'?viewList('*',nowMs):viewList(state.tab.slice(2),nowMs);
  }
 
  function closeDialog(){if(state.dialog){state.dialog.close();state.dialog.remove();state.dialog=null;}}
@@ -353,7 +363,8 @@ function mount({document,sb,onMessage=()=>{},collectorUrl='',routineUrl=''}){
   button.disabled=true;
   const {error}=await sb.from('team_tasks').update({status_code:to}).eq('id',id).select('id').single();
   if(error){button.disabled=false;onMessage('상태를 바꾸지 못했습니다: '+error.message);return;}
-  onMessage(to==='done'?'완료로 바꿨습니다. 완료 탭에서 볼 수 있습니다.':'열린 할 일로 되돌렸습니다.');
+  const t=state.tasks.find(x=>x.id===id);
+  onMessage(to==='done'?(state.isAdmin?(t?.status_code==='review'?'승인했습니다. 완료 탭에서 볼 수 있습니다.':'완료로 바꿨습니다. 완료 탭에서 볼 수 있습니다.'):'완료 검토를 요청했습니다. 관리자가 승인하면 완료됩니다.'):to==='in_progress'&&t?.status_code==='review'?'반려했습니다. 진행 중으로 돌아갔습니다.':'열린 할 일로 되돌렸습니다.');
   await load();
  }
 
