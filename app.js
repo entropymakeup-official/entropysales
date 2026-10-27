@@ -990,7 +990,7 @@ function filterInv(){
       <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="openInvoiceStatusRequest('${v.id}')"`:''}>
         ${invoicePaymentMarkup(v,rev)}
       </td>
-      <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select></td>
+      <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select>${v.ship_status==='출고완료'?verificationMarkup(v.ship_verified_by,v.ship_verified_at):''}</td>
       <td onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
         style="border:none;background:transparent;font-size:11px;width:120px;color:var(--text);outline:none;border-bottom:1px solid var(--border);padding:2px 4px"
         onchange="updTracking('${v.id}',this.value)"/></td>
@@ -1081,8 +1081,13 @@ function invoicePaymentMarkup(inv,rev){
   if(rev<=0)return '<span style="color:var(--text3)">-</span>';
   if(_invoiceStatusPending.has(inv.id))return '<span class="badge bg-gray">저장 중…</span>';
   return inv.status==='Paid'
-    ?`<span class="badge bg-green">입금완료</span> <span style="font-size:9px;color:var(--text3)">${esc(inv.pay_date||'')}</span>`
+    ?`<span class="badge bg-green">입금완료</span> <span style="font-size:9px;color:var(--text3)">${esc(inv.pay_date||'')}</span>${verificationMarkup(inv.pay_verified_by,inv.pay_verified_at)}`
     :'<span class="badge bg-amber">미입금</span>';
+}
+// 승인 시 서버가 기록한 검증자·검증일. 이 기능 이전에 완료된 주문은 기록이 없다.
+function verificationMarkup(by,at){
+  const text=by?`검증 ${by.split('@')[0]} · ${String(at||'').slice(0,10)}`:'검증 기록 없음';
+  return `<div class="inv-verified" style="font-size:9px;color:var(--text3)" title="${esc(by||'')}">${esc(text)}</div>`;
 }
 function refreshInvoiceStatusControls(id){
   const inv=_invoices.find(i=>i.id===id);if(!inv)return;
@@ -1278,6 +1283,10 @@ async function saveInv(){
   const payload={no,customer,mgr:c?.mgr||'',order_date:document.getElementById('inv-odate').value||null,pay_date:document.getElementById('inv-pdate').value||null,ship_date:document.getElementById('inv-sdate').value||null,status:document.getElementById('inv-status').value,ship_status:document.getElementById('inv-ship').value,foc:parseFloat(document.getElementById('inv-foc').value)||0,note:document.getElementById('inv-note').value};
   const editId=_editInv?.id??null;
   const isNew=editId===null;
+  // 입금완료·출고완료는 증빙 링크를 받는 목록의 상태 요청으로만 접수한다(서버도 증빙 없이 거절).
+  if(isNew&&(['Paid','Closed'].includes(payload.status)||payload.ship_status==='출고완료')){alert('새 주문은 미입금·준비중으로 등록한 뒤, 인보이스 목록의 입금·출고 칸에서 증빙과 함께 요청해 주세요.');return;}
+  const settle=isNew||!globalThis.RequestEditor?[]:RequestEditor.settlementNeeds({operations:[{action:'invoice',id:editId,before:{invoice:_editInv},invoice:payload}]}).filter(n=>!hasDriveEvidence(n.invoiceId,n.type));
+  if(settle.length){alert(`${settle.map(n=>n.label).join('·')}는 인보이스 목록의 입금·출고 칸에서 ${settle.map(n=>n.type).join('·')} 링크와 함께 요청해 주세요.`);return;}
   const btn=document.getElementById('inv-save-btn');
   const oldLabel=btn?.textContent;
   _savingInv=true;
@@ -2449,11 +2458,9 @@ function renderRawUploadStatus(groups=window._rawUploadData||[]){
 }
 
 // ── Paid → 인보이스 연동 ──
+// 판매유형 Paid는 실제 입금·출고 증거가 아니다. 주문별로 증빙과 함께 요청해야 한다.
 async function linkRawToInvoice(){
-  const targets=_invoices.filter(inv=>inv.status==='Ordered'&&getInvItems(inv.id).some(it=>it.sales_type==='Paid'));
-  if(!targets.length){toast('연동할 Paid 데이터가 없습니다.');return;}
-  if(!confirm(`${targets.length}건의 Paid 변경을 요청할까요?`))return;
-  try{await queueChanges(await Promise.all(targets.map(inv=>rowChange('invoices','update',{id:inv.id},{status:'Paid',ship_status:'출고완료'},inv))));}catch(e){toast(e.message);}
+  toast('일괄 입금·출고 처리는 사용할 수 없습니다. 인보이스 목록의 입금·출고 칸에서 주문별로 증빙과 함께 요청해 주세요.');
 }
 
 function exportRaw(){
@@ -4628,6 +4635,8 @@ async function confirmRspUpload(){
 
 async function delStock(id){if(confirm('입고 예정 삭제를 요청할까요?'))await requestRow('stocks','delete',{id},null,_stocks.find(r=>r.id===id));}
 
+function hasDriveEvidence(id,type){return _driveRows.some(d=>d.invoice_id===id&&d.type===type);}
+const settlementEvidence={hasExisting:hasDriveEvidence,prepare:form=>DriveDocuments.prepare(form,_invoices)};
 // Reuse the author's proposed values, preserving an existing request and item edits.
 async function openInvoiceStatusRequest(id,select){
  const inv=_invoices.find(i=>i.id===id);if(!inv)return;
@@ -4640,7 +4649,7 @@ async function openInvoiceStatusRequest(id,select){
    const op=request.operations.find(op=>(op.action==='invoice'&&op.id===id)||(op.table==='invoices'&&op.key?.id===id));
    (op.action==='invoice'?op.invoice:op.values).ship_status=selectedShip;
   }
-  await RequestEditor.open({document,client:sb,request,submit:(ops,options)=>changeRequests.submit(ops,options),onSaved:()=>toast('요청을 저장했습니다. 관리자 승인 대기 중입니다.')});
+  await RequestEditor.open({document,client:sb,request,evidence:settlementEvidence,submit:(ops,options)=>changeRequests.submit(ops,options),onSaved:()=>toast('요청을 저장했습니다. 관리자 승인 대기 중입니다.')});
  }catch(error){toast('요청을 열지 못했습니다: '+error.message);}
 }
 async function editInvoiceOrRequest(id,useRaw=false){
@@ -4649,6 +4658,6 @@ async function editInvoiceOrRequest(id,useRaw=false){
   if(!data?.length){if(useRaw)editRawItem(id);else editInv(id);return;}
   const inv=_invoices.find(i=>i.id===id);if(!inv)return;
   const request=RequestEditor.prepareInvoice(inv,data,getInvItems(id));
-  await RequestEditor.open({document,client:sb,request,onSaved:()=>toast('대기 요청을 수정했습니다. 관리자 승인 대기 중입니다.')});
+  await RequestEditor.open({document,client:sb,request,evidence:settlementEvidence,onSaved:()=>toast('대기 요청을 수정했습니다. 관리자 승인 대기 중입니다.')});
  }catch(error){toast('요청을 열지 못했습니다: '+error.message);}
 }

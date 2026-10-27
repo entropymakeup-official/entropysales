@@ -3,7 +3,7 @@
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const fileIdPattern=/^[A-Za-z0-9_-]{10,200}$/;
  const resourcePattern=/^[A-Za-z0-9_-]{1,200}$/;
- const types=['거래명세서','구매확인서','세금계산서','기타'];
+ const types=['거래명세서','구매확인서','세금계산서','입금증빙','선적서류','기타'];
  const fields='*';
  const uncertain='저장 결과를 확인하지 못했습니다. 증빙 목록을 새로 확인한 뒤 다시 시도해 주세요.';
  function canonical(fileId,key){return 'https://drive.google.com/file/d/'+fileId+'/view'+(key?'?resourcekey='+key:'');}
