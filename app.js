@@ -1349,7 +1349,7 @@ function renderRaw(){
     <select id="fr-mg" onchange="filterRaw()"><option value="">담당자 전체</option>${MGRS.map(m=>`<option>${m}</option>`).join('')}</select>
     <span style="font-size:10px;color:var(--text2)" id="raw-count">총 ${rows.length}행</span>
   </div>
-  <div class="card"><div class="tw"><table style="table-layout:fixed;width:100%">
+  <div class="card"><div class="tw"><table style="table-layout:fixed;width:100%;min-width:880px">
     <thead><tr>
       <th style="width:200px">Invoice / 거래처 / 발주일</th>
       <th style="width:130px">Barcode</th>
