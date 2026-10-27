@@ -6,7 +6,7 @@ function app(invoice={id:'inv',no:'SYNTHETIC',customer:'Demo',mgr:'M',order_date
  const h=appHarness();h.ctx._invoices=[invoice];h.ctx._items=items;h.ctx._editInv=invoice;h.ctx._editInvBefore={invoice,items};h.ctx.window._editRawInvId=invoice.id;h.ctx.window._editRawBefore={invoice,items};h.ctx.setTimeout=()=>{};
  h.load('fmt','fmtN','itemsRev','itemsByType');h.ctx.custByName=()=>({mgr:invoice.mgr});
  for(const [id,value]of Object.entries({'inv-no':invoice.no,'inv-cust-ro':invoice.customer,'inv-odate':invoice.order_date,'inv-status':'Ordered','inv-ship':'준비중','inv-note':'Header only','rm-cust':invoice.customer,'rm-date':invoice.order_date}))h.element(id).value=value;
- const rows=items.map(item=>{const inputs=[item.name,item.barcode??'',String(item.qty),String(item.price)].map(value=>({value}));const select={value:item.sales_type},amount={};return {inputs,select,amount,querySelectorAll:s=>s==='input'?inputs:[{},{},{},{},{},amount],querySelector:s=>s==='select'?select:s==='[data-col="6"]'?amount:s.includes('data-col="3"')?select:inputs[{'0':1,'1':0,'4':2,'5':3}[s.match(/data-col="(\d)"/)?.[1]]]};});
+ const rows=items.map(item=>{const inputs=[item.name,item.barcode??'',String(item.qty),String(item.price)].map(value=>({value}));const select={value:item.sales_type},mode={value:item.ship_mode??''},amount={};return {inputs,select,mode,amount,querySelectorAll:s=>s==='input'?inputs:[{},{},{},{},{},amount],querySelector:s=>s==='select'?select:s==='.inv-ship-mode'||s.includes('data-col="7"')?mode:s==='[data-col="6"]'?amount:s.includes('data-col="3"')?select:inputs[{'0':1,'1':0,'4':2,'5':3}[s.match(/data-col="(\d)"/)?.[1]]]};});
  h.ctx.document.querySelectorAll=s=>s==='#inv-items tr'||s==='#xg-body tr'?rows:[];h.element('xg-body').rows=rows;
  const printed=[];h.ctx.window.open=()=>({document:{write:s=>printed.push(s),close(){}},focus(){}});Object.assign(h.ctx,{_caSelected:invoice.customer,_caChart:null,_calYear:2026,_calMonth:0});
  return {...h,rows,printed};
@@ -67,7 +67,7 @@ test('calendar net revenue includes credits and displays credit and zero Paid da
 // Run the app's actual serialized request against the SQL agent's read-only contract.
 const {createDatabase,harness:dbHarness,ITEM}=require('./helpers/invoice-amount-db.cjs');
 describe('real frontend replacement payload with SQL proof contract',()=>{
- let db,d;before(async()=>{db=await createDatabase();d=dbHarness(db);});after(async()=>{if(db)await db.close();});
+ let db,d;before(async()=>{db=await createDatabase();await db.exec(require('node:fs').readFileSync(require('node:path').join(__dirname,'../sql/invoice-item-ship-mode.sql'),'utf8'));d=dbHarness(db);});after(async()=>{if(db)await db.close();});
  beforeEach(async()=>{await db.exec('begin');await d.login();await d.approveUpdate({amount_override:91.25,amount_reference:'Synthetic proof'},ITEM);});afterEach(async()=>{await db.exec('rollback; reset role');});
  for(const route of ['invoice','raw'])test(route+' header-only request is accepted pending and preserves null barcode/proof after approval',async()=>{
   const invoice=await d.invoice(),items=await d.items(),h=app(invoice,items);

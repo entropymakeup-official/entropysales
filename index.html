@@ -21,7 +21,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <link rel="stylesheet" href="style.css?v=20261002-tax-ledger-1"/>
 <link rel="stylesheet" href="request-editor.css?v=20260929-1">
-<script src="request-editor.js?v=20260929-1" defer></script>
+<script src="request-editor.js?v=20261027-ship-mode-1" defer></script>
 </head>
 <body>
   </div>
@@ -156,7 +156,7 @@
     </div>
     <div class="sdiv">품목</div>
     <p id="inv-proof-warning" class="invoice-proof-warning" hidden></p>
-    <table class="it"><thead><tr><th style="min-width:140px">제품명</th><th>Barcode</th><th>Sales Type</th><th>수량</th><th>단가(₩)</th><th>금액</th><th></th></tr></thead>
+    <table class="it"><thead><tr><th style="min-width:140px">제품명</th><th>Barcode</th><th>Sales Type</th><th>수량</th><th>단가(₩)</th><th>금액</th><th>운송</th><th></th></tr></thead>
     <tbody id="inv-items"></tbody></table>
     <button class="btn btn-sm" onclick="addInvItem()"><i class="ti ti-plus"></i> 품목 추가</button>
     <div class="trow">매출(Paid) 합계: <strong id="inv-total">₩0</strong></div>
@@ -539,6 +539,7 @@
           <th style="padding:5px 8px;text-align:left">바코드</th>
           <th style="padding:5px 8px;text-align:left">제품명</th>
           <th style="padding:5px 8px;text-align:center">Type</th>
+          <th style="padding:5px 8px;text-align:center">운송</th>
           <th style="padding:5px 8px;text-align:right">수량</th>
           <th style="padding:5px 8px;text-align:right">공급가</th>
           <th style="padding:5px 8px;text-align:right">금액</th>
@@ -570,7 +571,7 @@
     <div class="sdiv">품목 내역</div>
     <div class="tw">
       <table>
-        <thead><tr><th>제품명</th><th>Barcode</th><th>Sales Type</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">금액</th></tr></thead>
+        <thead><tr><th>제품명</th><th>Barcode</th><th>Sales Type</th><th>운송</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">금액</th></tr></thead>
         <tbody id="view-inv-items"></tbody>
       </table>
     </div>
@@ -634,7 +635,7 @@
 
 <script src="change-requests.js?v=20260917-invoice-number-1"></script>
 <script src="drive-documents.js?v=20260911-evidence-amount-1"></script>
-<script src="invoice-amounts.js?v=20260911-evidence-reason-1"></script>
+<script src="invoice-amounts.js?v=20261027-ship-mode-1"></script>
 <script src="dashboard-model.js?v=20260923-reconciliation-1"></script>
 <script src="tax-ledger.js?v=20261002-tax-ledger-1"></script>
 <script src="dashboard-ui.js?v=20261002-tax-ledger-1"></script>
@@ -652,7 +653,7 @@
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=2aa4dd49762e"></script>
+  <script src="app.js?v=c0831a63687d"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 </body>
