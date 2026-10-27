@@ -131,6 +131,12 @@ function genInvNo(code,date){
 function statusBadge(s){const m={Ordered:'bg-amber',Paid:'bg-green',Closed:'bg-gray',Cancelled:'bg-red'};return`<span class="badge ${m[s]||'bg-gray'}">${s||'-'}</span>`;}
 function shipBadge(s){return s==='출고완료'?`<span class="badge bg-green">출고완료</span>`:`<span class="badge bg-amber">준비중</span>`;}
 function stBadge(s){const n=(s==='GWP'||s==='Sample')?'FOC':s;const m={Paid:'bg-green',FOC:'bg-red',Replacement:'bg-amber',Lost:'bg-coral'};return '<span class="badge '+(m[n]||'bg-gray')+'">'+n+'</span>';}
+// 품목별 운송 방식 (Air/Sea/미지정). 같은 품목을 항공·해상으로 나눈 주문을 구분한다.
+function shipModeBadge(m){return m==='Air'?'<span class="badge bg-blue">항공</span>':m==='Sea'?'<span class="badge bg-teal">해상</span>':'<span style="color:var(--text3)">-</span>';}
+function shipModeOptions(selected){return `<option value=""${selected?'':' selected'}>미지정</option>`+InvoiceAmounts.SHIP_MODES.map(m=>`<option value="${m}"${selected===m?' selected':''}>${InvoiceAmounts.shipModeLabel(m)}</option>`).join('');}
+// kl: 공백·_·- 를 지운 소문자 헤더. '운송장(번호)'은 운송 방식이 아니다.
+function isShipModeHeader(kl){return kl==='운송'||['운송방식','운송수단','운송구분','운송유형','배송방식','항공/해상','shipmode','shippingmode','shippingmethod','shipvia','transportmode','air/sea'].some(h=>kl.includes(h));}
+function shipModeSummary(items){return InvoiceAmounts.SHIP_MODES.filter(m=>(items||[]).some(i=>i.ship_mode===m)).map(shipModeBadge).join('');}
 
 function fillCustSel(id,sel=''){
   const el=document.getElementById(id);if(!el)return;
@@ -396,7 +402,9 @@ function processFile(file){
       const sample=rows[0];
       Object.keys(sample).forEach(k=>{
         const kl=k.toLowerCase().replace(/[\s_\-*\n]/g,'');
-        if(kl.includes('거래처')||kl.includes('customer'))colMap.customer=k;
+        // '운송유형'·'Ship Mode'가 유형/출고일 컬럼으로 잡히지 않도록 먼저 확인
+        if(isShipModeHeader(kl))colMap.shipMode=k;
+        else if(kl.includes('거래처')||kl.includes('customer'))colMap.customer=k;
         else if(kl.includes('인보이스')||kl.includes('invoice'))colMap.invNo=k;
         else if(kl.includes('발주일')||kl.includes('order'))colMap.orderDate=k;
         else if(kl.includes('입금일')||kl.includes('pay'))colMap.payDate=k;
@@ -409,15 +417,18 @@ function processFile(file){
         else if(kl.includes('메모')||kl.includes('note')||kl.includes('비고'))colMap.note=k;
       });
       if(!colMap.product||!colMap.qty){showUploadError('제품명 또는 수량 컬럼을 찾을 수 없습니다.');return;}
-      const invMap={};
-      rows.forEach(row=>{
+      const invMap={},badModes=[];
+      rows.forEach((row,index)=>{
         const custName=String(row[colMap.customer]||'').trim();
         const prodName=String(row[colMap.product]||'').trim();
         if(!custName||!prodName)return;
+        const shipMode=colMap.shipMode?InvoiceAmounts.shipMode(row[colMap.shipMode]):null;
+        if(shipMode===undefined){badModes.push((Number.isInteger(row.__rowNum__)?row.__rowNum__+1:index+2)+'행');return;}
         const key=colMap.invNo&&row[colMap.invNo]?String(row[colMap.invNo]).trim():custName;
         if(!invMap[key])invMap[key]={customer:custName,invNo:colMap.invNo?String(row[colMap.invNo]||'').trim():'',orderDate:colMap.orderDate?String(row[colMap.orderDate]||today()):today(),payDate:colMap.payDate?String(row[colMap.payDate]||''):'',shipDate:colMap.shipDate?String(row[colMap.shipDate]||''):'',note:colMap.note?String(row[colMap.note]||''):'',items:[]};
-        invMap[key].items.push({name:prodName,barcode:colMap.barcode?String(row[colMap.barcode]||''):'',st:colMap.salesType?String(row[colMap.salesType]||'Paid'):'Paid',qty:parseFloat(row[colMap.qty])||0,price:parseFloat(row[colMap.price])||0});
+        invMap[key].items.push({name:prodName,barcode:colMap.barcode?String(row[colMap.barcode]||''):'',st:colMap.salesType?String(row[colMap.salesType]||'Paid'):'Paid',qty:parseFloat(row[colMap.qty])||0,price:parseFloat(row[colMap.price])||0,shipMode});
       });
+      if(badModes.length){showUploadError(`운송방식은 Air(항공)·Sea(해상) 또는 빈칸만 입력할 수 있습니다. 확인할 행: ${badModes.slice(0,20).join(', ')}${badModes.length>20?' 외 '+(badModes.length-20)+'건':''}`);return;}
       _uploadData=Object.values(invMap);
       showPreview(_uploadData);
     }catch(err){showUploadError('파일 오류: '+err.message);}
@@ -443,8 +454,8 @@ function showPreview(data){
         </div>
         <span style="font-size:11px;font-weight:600;color:var(--purple-dark)">${fmt(total)}</span>
       </div>
-      <table class="preview-table"><thead><tr><th>제품명</th><th>Barcode</th><th>Type</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">금액</th></tr></thead>
-      <tbody>${inv.items.map(it=>`<tr><td>${it.name}</td><td style="font-size:10px;color:var(--text3)">${it.barcode||'-'}</td><td>${stBadge(it.st||'Paid')}</td><td style="text-align:right">${fmtN(it.qty)}</td><td style="text-align:right">${fmt(it.price)}</td><td style="text-align:right;font-weight:500">${fmt(it.qty*it.price)}</td></tr>`).join('')}</tbody>
+      <table class="preview-table"><thead><tr><th>제품명</th><th>Barcode</th><th>Type</th><th>운송</th><th style="text-align:right">수량</th><th style="text-align:right">단가</th><th style="text-align:right">금액</th></tr></thead>
+      <tbody>${inv.items.map(it=>`<tr><td>${it.name}</td><td style="font-size:10px;color:var(--text3)">${it.barcode||'-'}</td><td>${stBadge(it.st||'Paid')}</td><td>${shipModeBadge(it.shipMode)}</td><td style="text-align:right">${fmtN(it.qty)}</td><td style="text-align:right">${fmt(it.price)}</td><td style="text-align:right;font-weight:500">${fmt(it.qty*it.price)}</td></tr>`).join('')}</tbody>
       </table></div>`;
   });
   document.getElementById('upload-preview').innerHTML=html;
@@ -462,7 +473,7 @@ async function confirmUpload(withDownload){
     for(const inv of _uploadData){
       const c=custByName(inv.customer),no=inv.invNo||genInvNo(c?.code||'UNK',inv.orderDate);
       if(_invoices.some(i=>i.no===no))throw Error('이미 존재하는 번호: '+no);
-      operations.push(await invoiceChange(null,{no,customer:inv.customer,mgr:c?.mgr||'',order_date:inv.orderDate||null,pay_date:inv.payDate||null,ship_date:inv.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:inv.note||''},inv.items.map(it=>({name:it.name,barcode:it.barcode||'',sales_type:it.st||'Paid',qty:it.qty,price:it.price}))));
+      operations.push(await invoiceChange(null,{no,customer:inv.customer,mgr:c?.mgr||'',order_date:inv.orderDate||null,pay_date:inv.payDate||null,ship_date:inv.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:inv.note||''},inv.items.map(it=>({name:it.name,barcode:it.barcode||'',sales_type:it.st||'Paid',qty:it.qty,price:it.price,ship_mode:it.shipMode??null}))));
     }
     if(await queueChanges(operations)){cancelUpload();go('invoices');}
   }catch(error){toast('요청 실패: '+error.message);}finally{actions.innerHTML=old;}
@@ -970,7 +981,7 @@ function filterInv(){
     const rev=itemsRev(items);
     const focAmt=(parseFloat(v.foc)||0)+itemsByType(items,'FOC');
     return`<tr>
-      <td><span class="alink" style="font-weight:600;font-size:10px" onclick="viewInv('${v.id}')">${v.no}</span></td>
+      <td><span class="alink" style="font-weight:600;font-size:10px" onclick="viewInv('${v.id}')">${v.no}</span> ${shipModeSummary(items)}</td>
       <td style="font-weight:500">${v.customer}</td>
       <td><span class="badge bg-gray">${v.mgr||'-'}</span></td>
       <td style="font-size:11px">${v.order_date||'-'}</td>
@@ -1184,12 +1195,13 @@ function addInvItem(it={}){
     <td><input type="number" value="${it.qty||''}" style="width:55px" oninput="calcInvTotal()"/></td>
     <td><input type="number" value="${it.price||''}" style="width:70px" oninput="calcInvTotal()"/></td>
     <td style="text-align:right;min-width:70px;color:var(--text2)">₩0</td>
+    <td><select class="inv-ship-mode" aria-label="운송 방식" onchange="calcInvTotal()">${shipModeOptions(it.ship_mode??it.shipMode??null)}</select></td>
     <td><button class="btn btn-sm" onclick="this.closest('tr').remove();calcInvTotal()"><i class="ti ti-trash"></i></button></td>`;
   tbody.appendChild(tr);calcInvTotal();
 }
 function calcInvTotal(){
   const rows=Array.from(document.querySelectorAll('#inv-items tr'));
-  const items=rows.map(tr=>{const inp=tr.querySelectorAll('input');return {name:inp[0]?.value||'',barcode:inp[1]?.value||'',sales_type:tr.querySelector('select')?.value||'Paid',qty:parseFloat(inp[2]?.value)||0,price:parseFloat(inp[3]?.value)||0};});
+  const items=rows.map(tr=>{const inp=tr.querySelectorAll('input');return {name:inp[0]?.value||'',barcode:inp[1]?.value||'',sales_type:tr.querySelector('select')?.value||'Paid',qty:parseFloat(inp[2]?.value)||0,price:parseFloat(inp[3]?.value)||0,ship_mode:tr.querySelector('.inv-ship-mode')?.value||null};});
   const before=_editInv?(_editInvBefore?.items||[]):[];
   const amounts=InvoiceAmounts.previewAmounts(items,before);
   const warning=document.getElementById('inv-proof-warning');
@@ -1217,7 +1229,7 @@ function viewInv(id){
     <div class="kpi"><div class="lbl">품목 수</div><div class="val" style="font-size:13px">${items.length}개</div></div>
   `;
   const tbody=document.getElementById('view-inv-items');
-  if(!items.length){tbody.innerHTML='<tr><td colspan="6"><div class="est"><i class="ti ti-box"></i>품목 없음</div></td></tr>';}
+  if(!items.length){tbody.innerHTML='<tr><td colspan="7"><div class="est"><i class="ti ti-box"></i>품목 없음</div></td></tr>';}
   else{
     tbody.innerHTML=items.map(it=>{
       const amt=InvoiceAmounts.amount(it);
@@ -1225,6 +1237,7 @@ function viewInv(id){
         <td><strong style="font-weight:500">${it.name}</strong></td>
         <td style="font-size:10px;color:var(--text3)">${it.barcode||'-'}</td>
         <td>${stBadge(it.sales_type)}</td>
+        <td>${shipModeBadge(it.ship_mode)}</td>
         <td style="text-align:right">${fmtN(it.qty)}</td>
         <td style="text-align:right">${fmt(it.price)}</td>
         <td style="text-align:right;font-weight:600">${fmt(amt)}</td>
@@ -1259,7 +1272,7 @@ async function saveInv(){
   document.querySelectorAll('#inv-items tr').forEach(tr=>{
     const inp=tr.querySelectorAll('input');const sel=tr.querySelector('select');
     if(!inp[0]?.value)return;
-    items.push({name:inp[0].value,barcode:inp[1]?.value||'',sales_type:sel?.value||'Paid',qty:parseFloat(inp[2]?.value)||0,price:parseFloat(inp[3]?.value)||0});
+    items.push({name:inp[0].value,barcode:inp[1]?.value||'',sales_type:sel?.value||'Paid',qty:parseFloat(inp[2]?.value)||0,price:parseFloat(inp[3]?.value)||0,ship_mode:tr.querySelector('.inv-ship-mode')?.value||null});
   });
   const c=custByName(customer);
   const payload={no,customer,mgr:c?.mgr||'',order_date:document.getElementById('inv-odate').value||null,pay_date:document.getElementById('inv-pdate').value||null,ship_date:document.getElementById('inv-sdate').value||null,status:document.getElementById('inv-status').value,ship_status:document.getElementById('inv-ship').value,foc:parseFloat(document.getElementById('inv-foc').value)||0,note:document.getElementById('inv-note').value};
@@ -1321,7 +1334,7 @@ function renderRaw(){
         pdate:inv.pay_date||'', sdate:inv.ship_date||'', status:inv.status||'',
         ship:inv.ship_status||'', barcode:String(it.barcode||''), product:String(it.name||''),
         st:String(it.sales_type||''), qty:parseFloat(it.qty)||0, price:parseFloat(it.price)||0,
-        amount:InvoiceAmounts.amount(it)
+        shipMode:it.ship_mode||null, amount:InvoiceAmounts.amount(it)
       });
     });
   });
@@ -1342,6 +1355,7 @@ function renderRaw(){
       <th style="width:130px">Barcode</th>
       <th style="min-width:180px">제품명</th>
       <th style="width:70px">Type</th>
+      <th style="width:56px">운송</th>
       <th style="width:60px;text-align:right">수량</th>
       <th style="width:80px;text-align:right">단가</th>
       <th style="width:90px;text-align:right">금액</th>
@@ -1370,7 +1384,7 @@ function filterRaw(page){
   const totalPages=Math.ceil(rows.length/PAGE)||1;
   if(_rawPage>totalPages)_rawPage=totalPages;
   const paged=rows.slice((_rawPage-1)*PAGE,_rawPage*PAGE);
-  if(!paged.length){tbody.innerHTML=`<tr><td colspan="7"><div class="est"><i class="ti ti-table"></i>데이터 없음</div></td></tr>`;
+  if(!paged.length){tbody.innerHTML=`<tr><td colspan="8"><div class="est"><i class="ti ti-table"></i>데이터 없음</div></td></tr>`;
     const pg=document.getElementById('raw-pagination');if(pg)pg.innerHTML='';return;}
   // 인보이스별 그룹핑
   const grouped=[];
@@ -1400,6 +1414,7 @@ function filterRaw(page){
       <td style="font-size:10px;color:var(--text3)">${r.barcode||'-'}</td>
       <td style="font-size:11px">${r.product}</td>
       <td>${stBadge(r.st)}</td>
+      <td>${shipModeBadge(r.shipMode)}</td>
       <td style="text-align:right">${fmtN(r.qty)}</td>
       <td style="text-align:right">${fmt(r.price)}</td>
       <td style="text-align:right;font-weight:600">${fmt(r.amount)}</td>
@@ -1457,6 +1472,7 @@ function editRawItem(invId){
             <th style="width:70px">수량 *</th>
             <th style="width:90px">공급가</th>
             <th style="width:80px">금액</th>
+            <th style="width:80px">운송</th>
           </tr></thead>
           <tbody id="xg-body"></tbody>
         </table>
@@ -1484,6 +1500,8 @@ function editRawItem(invId){
     const st=tr.querySelector('[data-col="3"] select');
     const qty=tr.querySelector('[data-col="4"] input');
     const price=tr.querySelector('[data-col="5"] input');
+    const mode=tr.querySelector('[data-col="7"] select');
+    if(mode)mode.value=it.ship_mode||'';
     if(bc)bc.value=it.barcode||'';
     if(nm){nm.value=it.name||'';nm.readOnly=true;nm.style.color='var(--text)';}
     if(st)st.value=it.sales_type||'Paid';
@@ -1521,6 +1539,7 @@ function openRawManual(){
             <th style="width:70px">수량 *</th>
             <th style="width:90px">공급가</th>
             <th style="width:80px">금액</th>
+            <th style="width:80px">운송</th>
           </tr></thead>
           <tbody id="xg-body"></tbody>
         </table>
@@ -1542,7 +1561,8 @@ function openRawManual(){
 }
 
 // ── 엑셀 그리드 ──
-const XG_COLS=['barcode','name','retail','salesType','qty','price','amt'];
+const XG_COLS=['barcode','name','retail','salesType','qty','price','amt','shipMode'];
+const XG_LAST_COL=XG_COLS.length-1;
 let _xgSel={r:-1,c:-1,r2:-1,c2:-1}; // 선택 범위
 
 function xgAddRows(n=1){
@@ -1560,7 +1580,8 @@ function xgAddRows(n=1){
       <td data-col="3"><select>${SALES_TYPES.map(s=>`<option>${s}</option>`).join('')}</select></td>
       <td data-col="4"><input type="number" placeholder=""/></td>
       <td data-col="5" style="white-space:nowrap"><input type="number" placeholder="" style="width:60px"/><span class="xg-rate" style="font-size:10px;color:var(--text3);margin-left:3px"></span></td>
-      <td data-col="6" style="text-align:right;font-size:11px;color:var(--text2);padding:3px 6px">-</td>`;
+      <td data-col="6" style="text-align:right;font-size:11px;color:var(--text2);padding:3px 6px">-</td>
+      <td data-col="7"><select class="xg-ship-mode" aria-label="운송 방식" onchange="xgCalcAmt(this.closest('tr'))">${shipModeOptions(null)}</select></td>`;
     tbody.appendChild(tr);
   }
   xgBindRows(tbody,start);
@@ -1639,7 +1660,7 @@ function xgHighlight(){
 function xgKeydown(e,r,c){
   const tbody=document.getElementById('xg-body');if(!tbody)return;
   const maxR=tbody.rows.length-1;
-  const maxC=6;
+  const maxC=XG_LAST_COL;
   if(e.key==='Tab'){
     e.preventDefault();
     if(c<maxC)xgFocus(r,c+1);
@@ -1666,7 +1687,7 @@ function xgReset(){
 }
 
 function xgSelectRow(ri){
-  _xgSel={r:ri,c:0,r2:ri,c2:6};
+  _xgSel={r:ri,c:0,r2:ri,c2:XG_LAST_COL};
   xgHighlight();
   const tbody=document.getElementById('xg-body');if(!tbody)return;
   tbody.querySelectorAll('.xg-num').forEach(td=>td.style.background='var(--bg3)');
@@ -1690,8 +1711,8 @@ function xgKeydownGlobal(e){
     e.preventDefault();
     const r1=Math.min(_xgSel.r,_xgSel.r2),r2=Math.max(_xgSel.r,_xgSel.r2);
     const c1=Math.min(_xgSel.c,_xgSel.c2),c2=Math.max(_xgSel.c,_xgSel.c2);
-    // 행 전체 선택(c0~c6)이면 행 삭제
-    if(c1===0&&c2===6){
+    // 행 전체 선택(첫 열~마지막 열)이면 행 삭제
+    if(c1===0&&c2===XG_LAST_COL){
       const trs=Array.from(tbody.querySelectorAll('tr[data-ri]')).filter(tr=>{
         const ri=parseInt(tr.dataset.ri);return ri>=r1&&ri<=r2;
       });
@@ -1715,6 +1736,7 @@ function xgKeydownGlobal(e){
         const inp=td.querySelector('input');
         if(inp&&!inp.readOnly)inp.value='';
         if(ci===3){const sel=td.querySelector('select');if(sel)sel.value='Paid';}
+        if(ci===7){const sel=td.querySelector('select');if(sel)sel.value='';}
       });
       xgParseBarcode(tr);xgCalcAmt(tr);
     });
@@ -1749,7 +1771,7 @@ function xgParseBarcode(tr){
 function xgCalcAmt(tr){
   if(window._editRawInvId&&window._editRawBefore){
     const rows=Array.from(document.querySelectorAll('#xg-body tr'));
-    const items=rows.map(row=>({name:row.querySelector('[data-col="1"] input')?.value||'',barcode:row.querySelector('[data-col="0"] input')?.value||'',sales_type:row.querySelector('[data-col="3"] select')?.value||'Paid',qty:parseFloat(row.querySelector('[data-col="4"] input')?.value)||0,price:parseFloat(row.querySelector('[data-col="5"] input')?.value)||0}));
+    const items=rows.map(row=>({name:row.querySelector('[data-col="1"] input')?.value||'',barcode:row.querySelector('[data-col="0"] input')?.value||'',sales_type:row.querySelector('[data-col="3"] select')?.value||'Paid',qty:parseFloat(row.querySelector('[data-col="4"] input')?.value)||0,price:parseFloat(row.querySelector('[data-col="5"] input')?.value)||0,ship_mode:row.querySelector('[data-col="7"] select')?.value||null}));
     const amounts=InvoiceAmounts.previewAmounts(items,window._editRawBefore.items||[]);
     rows.forEach((row,index)=>{const cell=row.querySelector('[data-col="6"]');if(cell)cell.textContent=fmt(amounts[index]);});
     return;
@@ -1758,6 +1780,13 @@ function xgCalcAmt(tr){
   const price=parseFloat(tr.querySelector('[data-col="5"] input')?.value)||0;
   const amtEl=tr.querySelector('[data-col="6"]');
   if(amtEl)amtEl.textContent=qty&&price?fmt(qty*price):'-';
+}
+
+// 붙여넣은 값이 선택지에 없으면 기존 선택을 유지한다.
+function xgPasteSelect(sel,val){
+  if(sel.classList.contains('xg-ship-mode')){const mode=InvoiceAmounts.shipMode(val);if(mode!==undefined)sel.value=mode||'';return;}
+  const matched=SALES_TYPES.find(s=>s.toLowerCase()===val.toLowerCase());
+  if(matched)sel.value=matched;
 }
 
 function xgHandlePaste(e){
@@ -1786,10 +1815,7 @@ function xgHandlePaste(e){
         const cleaned=val.replace(/,/g,'');
         inp.value=(inp.type==='number'&&!isNaN(parseFloat(cleaned)))?parseFloat(cleaned):val;
       }
-      if(sel){
-        const matched=SALES_TYPES.find(s=>s.toLowerCase()===val.toLowerCase());
-        if(matched)sel.value=matched;
-      }
+      if(sel)xgPasteSelect(sel,val);
       xgParseBarcode(tr);xgCalcAmt(tr);
     }
     toast(selR2>startR?`${selR2-startR+1}개 행에 채우기 완료!`:'붙여넣기 완료!');
@@ -1804,7 +1830,7 @@ function xgHandlePaste(e){
     const tr=tbody.querySelector(`tr[data-ri="${startR+ri}"]`);if(!tr)return;
     cols.forEach((val,ci)=>{
       const col=startC+ci;
-      if(col>6)return;
+      if(col>XG_LAST_COL)return;
       const td=tr.querySelector(`[data-col="${col}"]`);if(!td)return;
       const inp=td.querySelector('input');
       const sel=td.querySelector('select');
@@ -1812,10 +1838,7 @@ function xgHandlePaste(e){
         const cleaned=val.replace(/,/g,'');
         inp.value=(inp.type==='number'&&!isNaN(parseFloat(cleaned)))?parseFloat(cleaned):val;
       }
-      if(sel&&val){
-        const matched=SALES_TYPES.find(s=>s.toLowerCase()===val.toLowerCase());
-        if(matched)sel.value=matched;
-      }
+      if(sel&&val)xgPasteSelect(sel,val);
     });
     xgParseBarcode(tr);
     xgCalcAmt(tr);
@@ -1832,8 +1855,9 @@ function xgGetItems(){
     const salesType=tr.querySelector('[data-col="3"] select')?.value||'Paid';
     const qty=parseFloat(tr.querySelector('[data-col="4"] input')?.value)||0;
     const price=parseFloat(tr.querySelector('[data-col="5"] input')?.value)||0;
+    const shipMode=tr.querySelector('[data-col="7"] select')?.value||null;
     if(!barcode&&!(window._editRawInvId&&name))return null; // 기존 이름 있는 빈 바코드는 저장 시 원본과 대조
-    return{barcode,name:name||barcode,salesType,qty,price};
+    return{barcode,name:name||barcode,salesType,qty,price,shipMode};
   }).filter(Boolean);
 }
 
@@ -1932,7 +1956,7 @@ async function saveRawManual(){
   if(!cust||!odate){toast('거래처와 발주일은 필수입니다.');return;}
 
   const items=xgGetItems();
-  const replacements=InvoiceAmounts.preserveBlankBarcodes(items.map(i=>({...i,sales_type:i.salesType})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
+  const replacements=InvoiceAmounts.preserveBlankBarcodes(items.map(i=>({...i,sales_type:i.salesType,ship_mode:i.shipMode??null})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
   const invalid=items.filter((i,index)=>(!i.barcode&&replacements[index].barcode!==null)||!i.qty);
   if(invalid.length){toast('바코드와 수량은 필수값입니다.');return;}
   if(!items.length){toast('품목을 1개 이상 입력하세요.');return;}
@@ -1964,7 +1988,7 @@ async function saveRawManual(){
 
 function _showRawConfirmModal(){
   const {cust,invNo,odate,items}=window._pendingRaw;
-  const amounts=InvoiceAmounts.previewAmounts(items.map(it=>({...it,sales_type:it.salesType})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
+  const amounts=InvoiceAmounts.previewAmounts(items.map(it=>({...it,sales_type:it.salesType,ship_mode:it.shipMode??null})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
   const paidAmt=items.reduce((total,it,index)=>total+(it.salesType==='Paid'?amounts[index]:0),0);
   const focItems=items.filter(i=>i.salesType!=='Paid');
   document.getElementById('raw-confirm-no').textContent=invNo;
@@ -1978,6 +2002,7 @@ function _showRawConfirmModal(){
     <td style="padding:4px 8px;font-size:10px;color:var(--text3)">${it.barcode}</td>
     <td style="padding:4px 8px;font-size:11px">${it.name||'-'}</td>
     <td style="padding:4px 8px;text-align:center">${stBadge(it.salesType)}</td>
+    <td style="padding:4px 8px;text-align:center">${shipModeBadge(it.shipMode)}</td>
     <td style="padding:4px 8px;text-align:right">${fmtN(it.qty)}</td>
     <td style="padding:4px 8px;text-align:right">${fmt(it.price)}</td>
     <td style="padding:4px 8px;text-align:right;font-weight:600">${fmt(amounts[index])}</td>
@@ -2016,7 +2041,7 @@ async function persistRawInvoice(id,invoice,items,options={}){
   buttons.forEach(button=>{button.disabled=true;button.textContent='요청 중...';});
   try{
     const payload=Object.fromEntries(['no','customer','mgr','order_date','pay_date','ship_date','status','ship_status','foc','note'].filter(key=>Object.prototype.hasOwnProperty.call(invoice,key)).map(key=>[key,invoice[key]]));
-    const replacements=items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price}));
+    const replacements=items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price,ship_mode:it.shipMode??null}));
     const operation=await invoiceChange(id,payload,InvoiceAmounts.preserveBlankBarcodes(replacements,id===null?[]:window._editRawBefore?.items||getInvItems(id)),id===null?null:window._editRawBefore);
     if(id===null)operation.auto_number=true;
     return await changeRequests.submit([operation],options);
@@ -2089,11 +2114,12 @@ function handleRawUpload(input){
 
       const colMap={};
       const issues=[];
-      const labels={barcode:'바코드',qty:'수량',price:'단가',customer:'거래처',orderDate:'발주일',payDate:'입금일',shipDate:'출고일',product:'제품명',salesType:'유형'};
+      const labels={barcode:'바코드',qty:'수량',price:'단가',customer:'거래처',orderDate:'발주일',payDate:'입금일',shipDate:'출고일',product:'제품명',salesType:'유형',shipMode:'운송방식'};
       Object.keys(rows[0]).forEach(k=>{
         const kl=k.toLowerCase().replace(/[\s_\-*\n()]/g,'');
         let field;
-        if(kl.includes('거래처')||kl.includes('customer'))field='customer';
+        if(isShipModeHeader(kl))field='shipMode';
+        else if(kl.includes('거래처')||kl.includes('customer'))field='customer';
         else if(kl.includes('발주일')||kl.includes('orderdate'))field='orderDate';
         else if(kl.includes('barcode')||kl.includes('바코드'))field='barcode';
         else if(kl.includes('제품명')||kl.includes('product')||kl.includes('item'))field='product';
@@ -2153,6 +2179,8 @@ function handleRawUpload(input){
         if(excelPrice===null&&(!priceBlank||calcPrice===null))error('단가를 올바른 숫자로 입력해 주세요. 0원은 0을 입력해 주세요.');
         const finalPrice=calcPrice!==null?calcPrice:excelPrice;
         if(finalPrice!==null&&!Number.isFinite(finalPrice))error('계산된 공급가를 확인해 주세요.');
+        const shipMode=colMap.shipMode?InvoiceAmounts.shipMode(row[colMap.shipMode]):null;
+        if(shipMode===undefined)error('운송방식은 Air(항공)·Sea(해상) 또는 빈칸으로 입력해 주세요.');
         if(issues.length!==before)return;
 
         const key=`${fixedCust}|${odate}`;
@@ -2175,6 +2203,7 @@ function handleRawUpload(input){
           salesType:String(row[colMap.salesType]||'Paid').trim(),
           qty,
           price:finalPrice,
+          shipMode,
           _mapped:!!prod,_calcPrice:calcPrice,_excelPrice:excelPrice,_supplyRate:supplyRate
         });
       });
@@ -2290,6 +2319,7 @@ function _showRawGroupItems(gi){
         <th style="padding:5px 8px;text-align:left">제품명</th>
         <th style="padding:5px 8px;text-align:left">바코드</th>
         <th style="padding:5px 8px">Type</th>
+        <th style="padding:5px 8px">운송</th>
         <th style="padding:5px 8px;text-align:right">수량</th>
         <th style="padding:5px 8px;text-align:right">단가</th>
         <th style="padding:5px 8px;text-align:right">금액</th>
@@ -2298,6 +2328,7 @@ function _showRawGroupItems(gi){
         <td style="padding:5px 8px">${it.name||'<span style="color:var(--red)">미매핑</span>'}${it._mapped?'<i class="ti ti-check" style="color:var(--green);font-size:9px;margin-left:3px"></i>':''}</td>
         <td style="padding:5px 8px;color:var(--text3);font-size:10px">${it.barcode||'-'}</td>
         <td style="padding:5px 8px;text-align:center">${stBadge(it.salesType)}</td>
+        <td style="padding:5px 8px;text-align:center">${shipModeBadge(it.shipMode)}</td>
         <td style="padding:5px 8px;text-align:right">${fmtN(it.qty)}</td>
         <td style="padding:5px 8px;text-align:right">${fmt(it.price)}</td>
         <td style="padding:5px 8px;text-align:right;font-weight:600">${fmt(it.qty*it.price)}</td>
@@ -2390,7 +2421,7 @@ async function confirmRawUpload(){
         let no=baseNo,n=2;while(used.has(no))no=`${baseNo}_${n++}`;
         g._saveInvoice={no,customer:g.customer,mgr:c?.mgr||'',order_date:odate,pay_date:g.payDate||null,ship_date:g.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:''};
       }
-      operations.push({...await invoiceChange(null,g._saveInvoice,g.items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType||'Paid',qty:it.qty,price:it.price}))),auto_number:true});
+      operations.push({...await invoiceChange(null,g._saveInvoice,g.items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType||'Paid',qty:it.qty,price:it.price,ship_mode:it.shipMode??null}))),auto_number:true});
       g._saveStatus='saving';g._saveError='';
     }
     renderRawUploadStatus(groups);
@@ -2430,10 +2461,10 @@ function exportRaw(){
   if(!rows.length){toast('데이터가 없습니다.');return;}
   const safe=v=>v==null?'':String(v);
   const safeN=v=>{const n=parseFloat(v);return isNaN(n)?0:n;};
-  const headers=['Invoice No','거래처','발주일','Barcode','제품명','Sales Type','수량','단가','금액'];
+  const headers=['Invoice No','거래처','발주일','Barcode','제품명','Sales Type','운송방식','수량','단가','금액'];
   const data=[headers,...rows.map(r=>[
     safe(r.inv),safe(r.customer),safe(r.odate),
-    safe(r.barcode),safe(r.product),safe(r.st),
+    safe(r.barcode),safe(r.product),safe(r.st),safe(r.shipMode),
     safeN(r.qty),safeN(r.price),safeN(r.amount)
   ])];
   try{

@@ -12,7 +12,7 @@ function setup(rows,{customer={name:'Test'},products=[]}={}){
   FileReader:class{readAsBinaryString(){this.onload({target:{result:'fake workbook bytes'}});}},
   XLSX:{read:()=>({SheetNames:['Sheet1'],Sheets:{Sheet1:{}}}),utils:{sheet_to_json:()=>rows}}
  };
- vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function handleRawUpload(input)'),source.indexOf('function discardRawUpload')),c);
+ c.InvoiceAmounts=require('../invoice-amounts.js');vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function handleRawUpload(input)'),source.indexOf('function discardRawUpload')),c);vm.runInContext(require('./helpers/approvals.cjs').code('isShipModeHeader'),c);
  c._showRawPreviewModal=()=>{previews++;};
  return {c,nodes,messages,opened,run:()=>c.handleRawUpload({files:[{}],value:'file'}),previews:()=>previews};
 }

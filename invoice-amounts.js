@@ -7,8 +7,21 @@
     return (typeof value==='number'||typeof value==='string'&&value.trim()!=='')&&Number.isFinite(Number(value));
   }
   function amount(item){return hasOverride(item)?Number(item.amount_override):number(item?.qty)*number(item?.price);}
+  // Per-line shipping mode. Stored values are exactly 'Air'/'Sea' or NULL.
+  const SHIP_MODES=['Air','Sea'];
+  const shipModeLabels={Air:'항공',Sea:'해상'};
+  // null = blank, undefined = unrecognized text (callers must reject it).
+  function shipMode(value){
+    const text=String(value??'').trim().toLowerCase().replace(/[\s_\-.()]/g,'');
+    if(!text)return null;
+    if(['air','항공','항공운송','airfreight','aircargo','byair'].includes(text))return 'Air';
+    if(['sea','해상','해상운송','해운','선박','ocean','oceanfreight','seafreight','bysea'].includes(text))return 'Sea';
+    return undefined;
+  }
+  function shipModeLabel(value){return shipModeLabels[value]||'';}
   function correspondences(items,before,normalizeBarcode=false){
-    const key=item=>JSON.stringify([item.name??null,normalizeBarcode?item.barcode??'':item.barcode??null,item.sales_type??null,item.qty==null?null:number(item.qty),item.price==null?null:number(item.price)]);
+    // Mirrors save_invoice_atomic's proof signature, which includes ship_mode.
+    const key=item=>JSON.stringify([item.name??null,normalizeBarcode?item.barcode??'':item.barcode??null,item.sales_type??null,item.qty==null?null:number(item.qty),item.price==null?null:number(item.price),item.ship_mode??null]);
     const old=new Map(),counts=new Map();
     before.forEach(item=>{const k=key(item);if(!old.has(k))old.set(k,[]);old.get(k).push(item);});
     items.forEach(item=>{const k=key(item);counts.set(k,(counts.get(k)||0)+1);});
@@ -68,7 +81,7 @@
     }
     return {state,open,submit,reset};
   }
-  function editorWarning(items){return items.some(hasOverride)?'증빙 금액이 있는 주문입니다. 이름·바코드·유형·수량·단가가 그대로인 유일 품목은 증빙을 유지합니다. 품목 변경·삭제·중복 추가 전에는 상세의 증빙 금액에서 해제를 요청하고 승인을 받아 주세요. 아래 금액은 편집 미리보기이며 확정 자료는 승인 후 변경됩니다.':'';}
+  function editorWarning(items){return items.some(hasOverride)?'증빙 금액이 있는 주문입니다. 이름·바코드·유형·수량·단가·운송 방식이 그대로인 유일 품목은 증빙을 유지합니다. 품목 변경·삭제·중복 추가 전에는 상세의 증빙 금액에서 해제를 요청하고 승인을 받아 주세요. 아래 금액은 편집 미리보기이며 확정 자료는 승인 후 변경됩니다.':'';}
   function mount({document,client,auth,onMessage=()=>{},timeoutMs}){
     const el=id=>document.getElementById(id);
     const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -117,6 +130,6 @@
     auth?.onAuthStateChange?.((event,session)=>{const next=session?.user?.id||null;if(event==='SIGNED_OUT'||actor!==undefined&&next!==actor)close();actor=next;});
     return {open,submit,close,reset:close};
   }
-  const api={amount,hasOverride,preserveBlankBarcodes,previewAmounts,createController,editorWarning,mount};
+  const api={amount,hasOverride,SHIP_MODES,shipMode,shipModeLabel,preserveBlankBarcodes,previewAmounts,createController,editorWarning,mount};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.InvoiceAmounts=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

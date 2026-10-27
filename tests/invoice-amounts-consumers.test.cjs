@@ -20,7 +20,7 @@ test('customer analysis and product sales use proof revenue and original quantit
  const s=h.ctx.pdSales('SYNTHETIC');assert.equal(s.rev,91.25);assert.equal(s.qty,3);assert.equal(s.avg,91.25/3);
 });
 test('whole invoice editor previews unchanged proof and new entry uses qty times price',()=>{
- const h=fixture();h.load('calcInvTotal');const inputs=['Synthetic item','SYNTHETIC','3','40'].map(value=>({value})),cell={};const tr={querySelectorAll:s=>s==='input'?inputs:[{},{},{},{},{},cell],querySelector:()=>({value:'Paid'})};h.ctx.document.querySelectorAll=()=>[tr];h.ctx._editInv=h.ctx._invoices[0];h.ctx._editInvBefore={items:h.ctx._items};
+ const h=fixture();h.load('calcInvTotal');const inputs=['Synthetic item','SYNTHETIC','3','40'].map(value=>({value})),cell={};const tr={querySelectorAll:s=>s==='input'?inputs:[{},{},{},{},{},cell],querySelector:s=>s==='.inv-ship-mode'?{value:''}:{value:'Paid'}};h.ctx.document.querySelectorAll=()=>[tr];h.ctx._editInv=h.ctx._invoices[0];h.ctx._editInvBefore={items:h.ctx._items};
  h.ctx.calcInvTotal();assert.equal(h.element('inv-total').textContent,'₩91.25');inputs[2].value='4';h.ctx.calcInvTotal();assert.match(h.element('inv-proof-warning').textContent,/해제/);assert.match(h.element('inv-proof-warning').textContent,/미리보기|승인/);
  h.ctx._editInv=null;h.ctx.calcInvTotal();assert.equal(h.element('inv-total').textContent,'₩160');
 });
