@@ -132,3 +132,14 @@ test('approval diff labels ship mode and marks a changed line',()=>{
  assert.match(html,/운송 방식: —/);assert.match(html,/운송 방식: Air/);assert.match(html,/class="changed"[^>]*><th scope="row">품목/);
  assert.doesNotMatch(html,/기타 항목 \(ship_mode\)/);
 });
+
+test('RAW table keeps a minimum width covering its fixed columns so narrow screens scroll instead of collapsing the product name',()=>{
+ const h=harness();h.load('renderRaw','filterRaw','fmt','fmtN','stBadge');
+ Object.assign(h.ctx,{MGRS:[],SALES_TYPES:['Paid'],_rawPage:1});h.ctx.invoiceSheetStatus={refresh(){}};
+ h.ctx.renderRaw();
+ const html=h.element('content').innerHTML,table=html.match(/<table style="([^"]*)">\s*<thead>[\s\S]*?<\/thead>/);
+ assert.ok(table);
+ const min=Number(table[1].match(/min-width:(\d+)px/)?.[1]);
+ const fixed=[...table[0].matchAll(/<th style="(?:min-)?width:(\d+)px/g)].reduce((sum,m)=>sum+Number(m[1]),0);
+ assert.ok(min>=fixed,`min-width ${min}px < columns ${fixed}px`);
+});
