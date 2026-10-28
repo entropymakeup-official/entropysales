@@ -67,3 +67,8 @@ test('conflicting nonblank payment or shipment dates never silently use the firs
   assert.equal(r.previews,0);assert.match(r.errors,/3행/);assert.match(r.errors,new RegExp(field));assert.match(r.errors,/다릅니다/);
  }
 });
+
+test('optional 비고 column becomes one order note with duplicates removed',()=>{
+ const r=upload([row('2026-09-11',{'비고':'재출고분'}),row('2026-09-11',{'비고':' 재출고분 '}),row('2026-09-11',{'비고':'샘플 포함'}),row('2026-09-12',{'비고':''})]);
+ assert.equal(r.previews,1);assert.deepEqual(Array.from(r.groups,g=>g.notes.join(' / ')),['재출고분 / 샘플 포함','']);
+});

@@ -2,14 +2,16 @@
 'use strict';
 const clone=value=>JSON.parse(JSON.stringify(value));
 const sorted=rows=>clone(rows).sort((a,b)=>String(a.id).localeCompare(String(b.id)));
-function promptReasonForm(){
+function promptReasonForm(operations){
  return new Promise((resolve,reject)=>{
   const doc=root.document;
   if(!doc?.body){reject(Error('변경 사유 입력 화면을 열 수 없습니다.'));return;}
   const previous=doc.activeElement,dialog=doc.createElement('dialog');
   dialog.setAttribute('aria-label','변경 사유 입력');
-  dialog.style.cssText='width:min(440px,90vw);border:1px solid #ddd;border-radius:12px;padding:24px;color:#222;background:white;box-shadow:0 12px 48px #0004;';
-  dialog.innerHTML='<form><h3 style="margin-top:0">변경 사유 입력</h3><p>관리자 승인 후 확정 자료에 반영됩니다.</p><label>변경 사유<textarea required maxlength="2000" rows="4" style="display:block;width:100%;box-sizing:border-box;margin:12px 0" placeholder="변경 내용과 근거를 입력하세요"></textarea></label><div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" data-cancel>취소</button><button type="submit">변경 요청 제출</button></div></form>';
+  // ChangeSummary escapes every value; the lookup shows invoice numbers for links.
+  const summary=root.ChangeSummary?.render(operations,{invoiceNo:id=>root.changeSummaryInvoiceNo?.(id)})||'';
+  dialog.style.cssText='width:min('+(summary?'720px':'440px')+',90vw);margin:auto;border:1px solid #ddd;border-radius:12px;padding:24px;color:#222;background:white;box-shadow:0 12px 48px #0004;';
+  dialog.innerHTML='<form><h3 style="margin-top:0">변경 사유 입력</h3><p>관리자 승인 후 확정 자료에 반영됩니다.</p>'+(summary?'<style>'+root.ChangeSummary.css+'</style><details open style="margin:0 0 8px"><summary style="cursor:pointer;font-weight:600">변경 내역 확인</summary><div style="max-height:40vh;overflow:auto;margin-top:8px">'+summary+'</div></details>':'')+'<label>변경 사유<textarea required maxlength="2000" rows="4" style="display:block;width:100%;box-sizing:border-box;margin:12px 0" placeholder="변경 내용과 근거를 입력하세요"></textarea></label><div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" data-cancel>취소</button><button type="submit">변경 요청 제출</button></div></form>';
   const input=dialog.querySelector('textarea');let finished=false;
   function finish(value){if(finished)return;finished=true;dialog.close();dialog.remove();previous?.focus?.();resolve(value);}
   dialog.querySelector('form').addEventListener('submit',event=>{
@@ -53,7 +55,7 @@ function createClient({sb,promptReason=promptReasonForm,notify=()=>{}}){
   const started=epoch;
   // Register before awaiting a synchronous or asynchronous reason dialog.
   attempt.promise=Promise.resolve().then(async()=>{
-    const reason=options.reason===undefined?(attempt.reason??await promptReason()):options.reason;
+    const reason=options.reason===undefined?(attempt.reason??await promptReason(JSON.parse(serialized))):options.reason;
     if(reason===null||!String(reason).trim()){attempts.delete(serialized);return null;}
     attempt.reason=String(reason).trim();
     if(started!==epoch)throw Error('로그인 계정이 변경됐습니다. 새 계정에서 요청을 다시 확인해 주세요.');
