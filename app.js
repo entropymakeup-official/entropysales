@@ -1275,7 +1275,9 @@ async function saveInv(){
     items.push({name:inp[0].value,barcode:inp[1]?.value||'',sales_type:sel?.value||'Paid',qty:parseFloat(inp[2]?.value)||0,price:parseFloat(inp[3]?.value)||0,ship_mode:tr.querySelector('.inv-ship-mode')?.value||null});
   });
   const c=custByName(customer);
-  const payload={no,customer,mgr:c?.mgr||'',order_date:document.getElementById('inv-odate').value||null,pay_date:document.getElementById('inv-pdate').value||null,ship_date:document.getElementById('inv-sdate').value||null,status:document.getElementById('inv-status').value,ship_status:document.getElementById('inv-ship').value,foc:parseFloat(document.getElementById('inv-foc').value)||0,note:document.getElementById('inv-note').value};
+  // 수정 시에는 열어 둔 인보이스의 담당자를 유지하고, 신규 등록일 때만 거래처 마스터 담당자를 쓴다.
+  const mgr=_editInv?document.getElementById('inv-mgr').value.trim():(c?.mgr||'');
+  const payload={no,customer,mgr,order_date:document.getElementById('inv-odate').value||null,pay_date:document.getElementById('inv-pdate').value||null,ship_date:document.getElementById('inv-sdate').value||null,status:document.getElementById('inv-status').value,ship_status:document.getElementById('inv-ship').value,foc:parseFloat(document.getElementById('inv-foc').value)||0,note:document.getElementById('inv-note').value};
   const editId=_editInv?.id??null;
   const isNew=editId===null;
   const btn=document.getElementById('inv-save-btn');
@@ -1968,7 +1970,7 @@ async function saveRawManual(){
     const inv=_invoices.find(i=>i.id===editId);
     const c=custByName(cust);
     if(!inv){toast('수정할 주문을 찾을 수 없습니다. 목록을 다시 불러와 주세요.');return;}
-    const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:c?.mgr||'',order_date:odate,pay_date:pdate,ship_date:sdate},items);
+    const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:cust===inv.customer?inv.mgr:(c?.mgr||''),order_date:odate,pay_date:pdate,ship_date:sdate},items);
     if(!saved)return;
     window._editRawInvId=null;
     toast(ChangeRequests.message(saved));
