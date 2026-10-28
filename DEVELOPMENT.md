@@ -8,6 +8,12 @@
 
 품목별 운송 방식(`invoice_items.ship_mode`: 'Air'/'Sea'/NULL)은 같은 주문에서 같은 품목을 항공·해상으로 나눠 받은 경우를 구분합니다. 반드시 `sql/invoice-item-ship-mode.sql`을 먼저 설치한 뒤 정적 파일을 배포합니다. 새 화면은 모든 품목에 `ship_mode` 키를 보내므로 설치 전 DB는 `INVALID_ITEM_FIELD`로 저장을 거절합니다. 이 마이그레이션은 설치된 `apply_operations`·`check_values`·`save_invoice_atomic` 정의에서 확인한 문자열만 바꾸며, 정의가 달라졌으면 아무것도 바꾸지 않고 중단합니다. 증빙 금액 보존 기준(이름·바코드·유형·수량·단가)에 운송 방식을 더해 항공/해상 두 줄이 각자 증빙을 가질 수 있습니다. 운송 방식이 저장된 주문을 이전 화면(키 없는 요청)으로 전체 저장하면 `STALE_CLIENT`로 거절해 값이 지워지지 않게 합니다. 기존 행은 NULL(미지정)로 남고 값 입력은 담당자 확인 후 변경 요청으로 합니다. 인보이스·RAW Excel 업로드는 '운송방식'·'Ship Mode' 등의 열이 있으면 Air/Sea/항공/해상을 읽고, 다른 값은 파일 전체를 막습니다. 시트 동기화 작업 자료(`claim_invoice_sheet_jobs`)와 Apps Script는 바꾸지 않았으므로 관리 시트에는 운송 방식 열이 없습니다. 운송 방식만 바꾼 승인도 기존 트리거로 해당 주문의 재반영이 대기열에 들어가며 같은 값을 다시 씁니다.
 
+RAW 발주 입력(수기·수정)과 RAW Excel 업로드의 비고는 주문 단위 기존 `invoices.note`에 저장합니다. 인보이스 상세의 메모, 거래명세서 비고, 시트 동기화가 이미 같은 값을 쓰므로 DB 변경이 없습니다. Excel은 '비고'·'메모'·'Note'·'Remark' 열이 있으면 읽고, 같은 주문으로 묶인 행의 서로 다른 비고는 중복을 빼고 ' / '로 이어 붙입니다. 품목 단위 메모 컬럼은 만들지 않았습니다(필요해지면 `save_invoice_atomic`·`apply_operations` 품목 허용 키·이전 화면 보호를 ship_mode와 같은 방식으로 추가해야 합니다).
+
+참고 인보이스 연결(`invoices.ref_invoice_id` uuid FK, `ref_kind` 재출고/정정/상계/기타)은 `sql/invoice-reference-link.sql`을 먼저 설치한 뒤 정적 파일을 배포합니다. 연결·해제는 일반 `{table:'invoices',action:'update'}` 변경 요청이라 승인 함수(`apply_operations`·`check_values`·`revise`)는 바꾸지 않았습니다. 두 컬럼은 기본값 없는 NULL 허용이므로, 마이그레이션 전에 만든 대기 요청의 `before`도 `jsonb_populate_record` 비교에서 NULL로 읽혀 그대로 승인할 수 있습니다. 전체 주문 저장(`save_invoice_atomic`)은 고정 헤더 컬럼만 갱신하므로 연결을 보존하며, 헤더 키 제한 때문에 전체 저장으로는 연결을 바꿀 수 없습니다. 참고 대상 주문이 승인 삭제되면 FK `on delete set null`로 연결만 비워집니다. 자기 자신 연결과 목록 밖 유형은 DB 제약으로 거절합니다. 시트 작업 자료는 헤더 필드를 명시해 내보내므로 관리 시트에는 연결 열이 생기지 않습니다.
+
+변경 요청의 '변경 내역'은 `change-summary.js`가 각 작업의 `before`와 `values`/`invoice`/`items`를 비교해 만듭니다. 사유 입력 창(요청자)과 관리자 페이지의 요청 카드·'승인하여 반영' 확인 창에 표시합니다. 신규 주문은 헤더와 품목 전체, 수정은 실제로 바뀌는 칸만(숫자 문자열과 숫자는 같은 값으로 봄), 전체 주문 저장의 품목은 동일 줄을 먼저 짝짓고 같은 바코드·제품명 줄을 수정으로 보여 나머지를 추가/삭제로 표시합니다. 삭제는 대상과 함께 삭제되는 품목·Drive 연결 수를 보여 줍니다. 전체 행 비교는 기존 '변경 전후 상세 확인'에 그대로 남아 있습니다.
+
 RAW Excel 업로드는 발주일 컬럼과 값을 필수로 검사합니다. 발주일·입금일·출고일은 실제 달력 날짜를 확인해 YYYY-MM-DD로 통일합니다. Excel 숫자 날짜는 파일의 1900/1904 기준을 따르고 시간 부분만 제외하며, 1900-02-29처럼 존재하지 않는 날짜는 거절합니다. 연도부터 쓴 하이픈·슬래시·점·한국어 날짜와 YYYYMMDD는 허용하고, 월/일 순서가 모호한 표기는 거절합니다. 같은 거래처·발주일의 품목을 한 주문으로 묶으며, 입금일·출고일은 빈칸을 허용하되 서로 다른 날짜가 있으면 파일 전체 미리보기를 차단합니다. 기존 주문이나 DB 구조는 변경하지 않습니다.
 
 인보이스 목록의 입금·출고 상태는 이전 상태(입금은 입금일 포함)를 조건으로 한 UPDATE와 반환 필드 검증 후에만 화면에 적용합니다. 0행·오류·응답 유실은 새로고침 안내로 처리하고 자동 재시도하지 않습니다. 같은 주문의 상태 저장 중에는 두 상태의 중복 조작을 막고, 입금일은 실제 YYYY-MM-DD 날짜인지 검사합니다. 확정 저장 후 기존 시트 상태 조회를 갱신하며 DB 설치나 5분 동기화 변경은 필요 없습니다. 운송장 입력이 진행 중이면 상태 셀만 갱신하고 필터에 따른 행 재배치는 다음 목록 갱신으로 미룹니다. 이 충돌 방지는 해당 목록의 상태 변경에 적용되며 전체 주문 편집·일괄 상태 변경·운송장 저장의 충돌 처리는 별도 과제입니다.
@@ -20,7 +26,7 @@ RAW Excel 업로드는 발주일 컬럼과 값을 필수로 검사합니다. 발
 4. 브라우저에서 기간/거래처 필터·집계 근거 연결을 확인합니다.
 5. 검토 후 main에 통합하고 Pages 배포 성공 및 공개 파일 일치를 확인합니다.
 
-배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js, sheet-sync-status.js, live-inventory.js, inventory-history.js, inventory-monthly.js, drive-documents.js, tax-ledger.js 11개와 업무 목록의 team-tasks.js, team-tasks.css, team-tasks-routine.txt입니다. 변경한 파일의 버전 쿼리를 함께 갱신해야 합니다. 업무 목록은 sql/team-tasks.sql·sql/team-tasks-delete.sql·sql/team-tasks-review.sql·sql/team-tasks-triage.sql 설치와 담당자 명단 입력이 먼저 필요하며 TEAM-TASKS.md를 참고합니다. 시트 반영 상태 화면은 sql/invoice-sheet-status.sql의 읽기 전용 RPC 설치가 먼저 필요합니다. 운영 절차와 한계는 SHEET-SYNC-STATUS.md를 참고합니다.
+배포 파일은 index.html, app.js, style.css, dashboard-model.js, dashboard-ui.js, sheet-sync-status.js, live-inventory.js, inventory-history.js, inventory-monthly.js, drive-documents.js, tax-ledger.js 11개와 변경 내역 요약 change-summary.js(index.html·admin.html 공용), 업무 목록의 team-tasks.js, team-tasks.css, team-tasks-routine.txt입니다. 변경한 파일의 버전 쿼리를 함께 갱신해야 합니다. 업무 목록은 sql/team-tasks.sql·sql/team-tasks-delete.sql·sql/team-tasks-review.sql·sql/team-tasks-triage.sql 설치와 담당자 명단 입력이 먼저 필요하며 TEAM-TASKS.md를 참고합니다. 시트 반영 상태 화면은 sql/invoice-sheet-status.sql의 읽기 전용 RPC 설치가 먼저 필요합니다. 운영 절차와 한계는 SHEET-SYNC-STATUS.md를 참고합니다.
 
 세금계산서 확인금액은 이미 설치된 별도 tax_invoice_amounts 원장을 읽기 전용으로 조회하며 계산서 작성일 기준과 부분 자료 범위를 표시합니다. 총매출(등록금액)·공급가액 집계분·목표 달성률·월별현황·세금계산서 화면의 주문 기반 금액과 합산하지 않습니다. TAX-LEDGER.md를 참고합니다.
 

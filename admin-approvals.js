@@ -6,7 +6,13 @@
   'use strict';
   const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const labels={customers:'거래처',products:'제품',invoices:'주문',invoice_items:'주문 품목',stocks:'재고',documents:'서류',schedules:'일정',app_settings:'설정',tax_records:'세금계산서',invoice_drive_documents:'주문 연결 문서',invoice:'주문 정보',items:'품목',id:'식별번호',name:'이름',customer_id:'거래처 식별번호',product_id:'제품 식별번호',invoice_id:'주문 식별번호',invoice_no:'주문번호',qty:'수량',quantity:'수량',price:'단가',unit_price:'단가',amount:'금액',total:'합계',currency:'통화',status:'상태',order_date:'주문일',ship_date:'출고일',ship_status:'출고 상태',tracking_num:'운송장번호',sales_type:'판매 유형',sku:'제품 코드',barcode:'바코드',date:'날짜',month:'월',email:'이메일',phone:'전화번호',country:'국가',manager:'담당자',note:'메모',notes:'메모',memo:'메모',reason:'사유',title:'제목',type:'유형',url:'주소',file_name:'파일명',file_id:'파일 식별번호',value:'설정값',key:'설정 항목',created_at:'등록 시각',updated_at:'수정 시각',tax_status:'세금계산서 상태',address:'주소',brand:'브랜드',discount:'할인',shipping:'배송비',payment_date:'입금일',payment_method:'결제 방식',paid_amount:'입금액',description:'설명',contact:'연락처',contact_name:'연락 담당자'};
-  Object.assign(labels,{amount_override:'증빙 금액',amount_reference:'증빙 근거',ship_mode:'운송 방식'});
+  Object.assign(labels,{amount_override:'증빙 금액',amount_reference:'증빙 근거',ship_mode:'운송 방식',ref_invoice_id:'참고 인보이스',ref_kind:'참고 유형'});
+  const summaryApi=()=>typeof module==='object'&&module.exports?require('./change-summary.js'):globalThis.ChangeSummary;
+  // Readable before→after summary; the full row diff stays in the collapsed section.
+  function changeSummary(operations,state){
+    const api=summaryApi();if(!api)return '';
+    return api.render(operations,{invoiceNo:id=>state?.invoiceNos?.[id]});
+  }
   Object.assign(labels,{contacts:'연락처',company:'업체명',person:'담당자 이름',person_en:'영문 이름',duty:'담당 업무',department:'부서',mobile:'휴대전화',fax:'팩스',messenger:'메신저',website:'웹사이트',tags:'태그'});
   Object.assign(labels,{contracts:'계약서',contract_type:'계약유형',counterparty_contact:'거래처 담당자',start_date:'계약 시작일',end_date:'계약 종료일',notice_date:'갱신거절 통보기한',auto_renewal:'자동갱신',renewal_terms:'갱신 조건',previous_contract_id:'이전 계약',territory:'대상 국가',channels:'판매채널',exclusive:'독점 여부',price_terms:'공급가격 기준',minimum_order:'최소발주',incoterms:'인도조건',annual_commitment:'연간 구매약정',exclusivity_terms:'독점 유지 조건',payment_type:'수금 방식',deposit_pct:'선금 비율 (%)',balance_pct:'잔금 비율 (%)',deposit_due:'선금 지급 기준·기한',balance_due:'잔금·후불 지급 기준·기한',bank_fee:'송금수수료 부담',payment_terms:'수금 특약',foc_status:'FOC 유무',foc_terms:'FOC 제공 조건',foc_products:'FOC 대상 제품',foc_limit:'FOC 한도',document_id:'계약서 서명본',amendment_document_id:'부속합의서',special_terms:'주요 특약'});
   const statusLabels={pending:'승인 대기',approved:'승인 완료',rejected:'반려'};
@@ -69,12 +75,12 @@
       ${!state.isAdmin?'<p class="muted">본인이 제출한 승인 대기 요청을 수정할 수 있습니다. 승인·반려 권한은 서버에서 확인합니다.</p>':''}
       <div class="requests">${rows.map(r=>{
         const id=escape(r.id),knownStatus=Object.hasOwn(statusLabels,r.status)?r.status:'unknown',info=requestTitle(r,state);
-        return `<details class="request" data-request="${id}"${state.expanded?.[r.id]?' open':''}><summary class="request-summary"><span class="request-chevron" aria-hidden="true">›</span><span class="request-label"><span class="request-kind">${escape(info.customer||info.kind)} · ${info.count}개 변경</span><span class="request-title">${escape(info.title)}</span></span><span class="badge ${knownStatus}">${escape(statusLabels[r.status]||'상태 미확인')}</span><span class="request-date">${escape(time(r.created_at))}</span></summary><div class="request-body"><p class="request-reason"><strong>변경 사유</strong> ${escape(r.reason||'사유 없음')}</p><p class="request-meta">요청자 ${escape(r.requester_email||r.requester_id)} · ${escape(time(r.created_at))}</p><p class="request-id">요청 번호 ${id} · 버전 ${escape(r.revision||1)}${r.updated_at?' · 수정 '+escape(time(r.updated_at)):''}</p>${r.can_edit===true&&r.status==='pending'?`<button type="button" data-edit="${id}"${disabled}>내 요청 수정</button>`:''}${r.history?.length?`<details><summary>수정 이력 ${r.history.length}건</summary>${r.history.map(h=>`<section><p>이전 버전 ${escape(h.revision)} · ${escape(time(h.changed_at))} · ${escape(h.reason)}</p>${h.operations.map(renderDiff).join('')}</section>`).join('')}</details>`:''}${contractOverview(r.operations)}${contactsOverview(r.operations)}<details class="raw-diff"><summary>변경 전후 상세 확인</summary>${(Array.isArray(r.operations)?r.operations:[]).map(renderDiff).join('')}</details>${r.status!=='pending'?`<p class="review-result">처리자 ${escape(r.reviewer_email||'미확인')} · ${escape(time(r.reviewed_at))}<br>검토 메모: ${escape(r.review_note||'없음')}</p>`:''}${state.isAdmin===true&&r.status==='pending'?`<div class="review-controls"><label>검토 메모 <span class="muted">(반려 시 필수)</span><textarea data-note="${id}" maxlength="2000" rows="2"${disabled}>${escape(state.notes?.[r.id]||'')}</textarea></label><div class="review-buttons"><button type="button" class="reject" data-review="reject" data-id="${id}"${disabled}>반려</button><button type="button" class="approve" data-review="approve" data-id="${id}"${disabled}>승인하여 반영</button></div></div>`:''}</div></details>`;
+        return `<details class="request" data-request="${id}"${state.expanded?.[r.id]?' open':''}><summary class="request-summary"><span class="request-chevron" aria-hidden="true">›</span><span class="request-label"><span class="request-kind">${escape(info.customer||info.kind)} · ${info.count}개 변경</span><span class="request-title">${escape(info.title)}</span></span><span class="badge ${knownStatus}">${escape(statusLabels[r.status]||'상태 미확인')}</span><span class="request-date">${escape(time(r.created_at))}</span></summary><div class="request-body"><p class="request-reason"><strong>변경 사유</strong> ${escape(r.reason||'사유 없음')}</p><p class="request-meta">요청자 ${escape(r.requester_email||r.requester_id)} · ${escape(time(r.created_at))}</p><p class="request-id">요청 번호 ${id} · 버전 ${escape(r.revision||1)}${r.updated_at?' · 수정 '+escape(time(r.updated_at)):''}</p>${r.can_edit===true&&r.status==='pending'?`<button type="button" data-edit="${id}"${disabled}>내 요청 수정</button>`:''}${r.history?.length?`<details><summary>수정 이력 ${r.history.length}건</summary>${r.history.map(h=>`<section><p>이전 버전 ${escape(h.revision)} · ${escape(time(h.changed_at))} · ${escape(h.reason)}</p>${h.operations.map(renderDiff).join('')}</section>`).join('')}</details>`:''}${changeSummary(r.operations,state)?`<section class="request-changes"><h3>변경 내역</h3>${changeSummary(r.operations,state)}</section>`:''}${contractOverview(r.operations)}${contactsOverview(r.operations)}<details class="raw-diff"><summary>변경 전후 상세 확인</summary>${(Array.isArray(r.operations)?r.operations:[]).map(renderDiff).join('')}</details>${r.status!=='pending'?`<p class="review-result">처리자 ${escape(r.reviewer_email||'미확인')} · ${escape(time(r.reviewed_at))}<br>검토 메모: ${escape(r.review_note||'없음')}</p>`:''}${state.isAdmin===true&&r.status==='pending'?`<div class="review-controls"><label>검토 메모 <span class="muted">(반려 시 필수)</span><textarea data-note="${id}" maxlength="2000" rows="2"${disabled}>${escape(state.notes?.[r.id]||'')}</textarea></label><div class="review-buttons"><button type="button" class="reject" data-review="reject" data-id="${id}"${disabled}>반려</button><button type="button" class="approve" data-review="approve" data-id="${id}"${disabled}>승인하여 반영</button></div></div>`:''}</div></details>`;
       }).join('')||(!state.loading?'<div class="empty">현재 페이지에 해당 상태의 요청이 없습니다.</div>':'')}</div>
       <nav class="pagination" aria-label="요청 목록 페이지"><button type="button" data-page="prev"${disabled||(!state.offset?' disabled':'')}>이전</button><span>${Math.floor((state.offset||0)/(state.pageSize||50))+1}페이지 · 페이지당 ${state.pageSize||50}건</span><button type="button" data-page="next"${disabled||(all.length<(state.pageSize||50)?' disabled':'')}>다음</button></nav>`;
   }
   function createController({rpc,onChange=()=>{},pageSize=50}){
-    const state={requests:[],isAdmin:false,notes:Object.create(null),expanded:Object.create(null),customerNames:Object.create(null),filter:'all',offset:0,pageSize,loading:false,reviewing:false,error:'',message:''};
+    const state={requests:[],isAdmin:false,notes:Object.create(null),expanded:Object.create(null),customerNames:Object.create(null),invoiceNos:Object.create(null),filter:'all',offset:0,pageSize,loading:false,reviewing:false,error:'',message:''};
     let generation=0,sessionEpoch=0;
     const notify=()=>onChange(state);
     async function load(offset=state.offset){
@@ -106,15 +112,16 @@
       }catch(error){if(epoch===sessionEpoch)state.error='처리 실패: '+(error.message||String(error))+' 요청 상태를 새로고침하여 확인해 주세요.';return false;}
       finally{if(epoch===sessionEpoch){state.reviewing=false;notify();}}
     }
-    function reset(){generation++;sessionEpoch++;Object.assign(state,{requests:[],isAdmin:false,loading:false,reviewing:false,notes:Object.create(null),expanded:Object.create(null),customerNames:Object.create(null),error:'',message:''});notify();}
+    function reset(){generation++;sessionEpoch++;Object.assign(state,{requests:[],isAdmin:false,loading:false,reviewing:false,notes:Object.create(null),expanded:Object.create(null),customerNames:Object.create(null),invoiceNos:Object.create(null),error:'',message:''});notify();}
     return {state,load,review,reset};
   }
-  function confirmReview(document,message){
+  function confirmReview(document,message,detail=''){
     return new Promise(resolve=>{
       const dialog=document.createElement('dialog'),previous=document.activeElement;
       dialog.setAttribute('aria-label','변경 요청 처리 확인');
-      dialog.style.cssText='border:1px solid #d1d5db;border-radius:12px;padding:24px;max-width:480px;width:calc(100% - 48px)';
-      dialog.innerHTML='<h2>변경 요청 처리 확인</h2><p>'+escape(message)+'</p><div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" data-cancel>취소</button><button type="button" data-confirm>확인 후 처리</button></div>';
+      dialog.style.cssText='border:1px solid #d1d5db;border-radius:12px;padding:24px;max-width:'+(detail?'760px':'480px')+';width:calc(100% - 48px)';
+      // detail is HTML built by ChangeSummary.render, which escapes every value.
+      dialog.innerHTML='<h2>변경 요청 처리 확인</h2>'+(detail?'<div class="confirm-changes" style="max-height:55vh;overflow:auto;margin:12px 0;padding-right:4px">'+detail+'</div>':'')+'<p>'+escape(message)+'</p><div style="display:flex;justify-content:flex-end;gap:8px"><button type="button" data-cancel>취소</button><button type="button" data-confirm>확인 후 처리</button></div>';
       let settled=false;
       const finish=value=>{if(settled)return;settled=true;dialog.close();dialog.remove();previous?.focus?.();resolve(value);};
       dialog.querySelector('[data-cancel]').addEventListener('click',()=>finish(false));
@@ -123,7 +130,9 @@
       document.body.appendChild(dialog);dialog.showModal();dialog.querySelector('[data-cancel]').focus();
     });
   }
-  function mount({document,client,confirm=message=>confirmReview(document,message)}){
+  function mount({document,client,confirm=(message,detail)=>confirmReview(document,message,detail)}){
+    const css=summaryApi()?.css;
+    if(css&&document.head?.appendChild){const style=document.createElement('style');style.textContent=css+'.request-changes h3{font-size:15px;margin:4px 0 10px}';document.head.appendChild(style);}
     const host=document.getElementById('approval-queue'),sessionPanel=document.getElementById('approval-session');
     const controller=createController({rpc:(...args)=>client.rpc(...args),onChange:state=>{host.innerHTML=render(state);}});
     host.addEventListener('toggle',event=>{const el=event.target;if(el.matches('[data-request]')&&host.contains(el))controller.state.expanded[el.dataset.request]=el.open;},true);
@@ -146,7 +155,8 @@
         if(!approve&&!note.trim()){await controller.review(id,false,note);return;}
         const generation=sessionGeneration,revision=controller.state.requests.find(r=>r.id===id)?.revision??1;confirming=true;
         try{
-          const accepted=await confirm(approve?'변경 전후 내용과 증빙을 확인했습니까? 승인하면 확정 자료에 반영됩니다. 본인 요청도 같은 검증을 거칩니다.':'이 요청을 반려하시겠습니까?');
+          const request=controller.state.requests.find(r=>r.id===id);
+          const accepted=await confirm(approve?'위 변경 내역과 증빙을 확인했습니까? 승인하면 확정 자료에 반영됩니다. 본인 요청도 같은 검증을 거칩니다.':'이 요청을 반려하시겠습니까?',approve?changeSummary(request?.operations,controller.state):'');
           if(accepted&&generation===sessionGeneration)await controller.review(id,approve,note,revision);
         }finally{confirming=false;}
       }
@@ -159,11 +169,13 @@
         if(!data?.session){controller.reset();host.hidden=true;sessionPanel.hidden=false;return;}
         host.hidden=false;sessionPanel.hidden=true;await controller.load();
         // Resolve names only after authentication; a failed lookup must not hide requests.
-        if(client.from){try{const result=await client.from('customers').select('id,name');if(ticket===sessionGeneration&&!result.error&&Array.isArray(result.data)){controller.state.customerNames=Object.fromEntries(result.data.map(c=>[c.id,c.name]));host.innerHTML=render(controller.state);}}catch{ /* Request titles remain available without names. */ }}
+        if(client.from){try{const result=await client.from('customers').select('id,name');if(ticket===sessionGeneration&&!result.error&&Array.isArray(result.data)){controller.state.customerNames=Object.fromEntries(result.data.map(c=>[c.id,c.name]));host.innerHTML=render(controller.state);}}catch{ /* Request titles remain available without names. */ }
+          // Reference-invoice links display the invoice number instead of a raw id.
+          try{const result=await client.from('invoices').select('id,no');if(ticket===sessionGeneration&&!result.error&&Array.isArray(result.data)){controller.state.invoiceNos=Object.fromEntries(result.data.map(i=>[i.id,i.no]));host.innerHTML=render(controller.state);}}catch{ /* Links fall back to a short id. */ }}
       }catch(error){controller.reset();host.hidden=true;sessionPanel.hidden=false;document.getElementById('session-message').textContent='로그인을 확인할 수 없습니다. 대시보드에서 다시 로그인해 주세요. '+(error.message||'');}
     }
     client.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){sessionGeneration++;controller.reset();host.hidden=true;sessionPanel.hidden=false;}else if(event==='SIGNED_IN'){setTimeout(start,0);}});
     start();return controller;
   }
-  return {escape,valueText,renderDiff,render,createController,mount};
+  return {escape,valueText,renderDiff,render,changeSummary,createController,mount};
 });
