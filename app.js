@@ -132,6 +132,9 @@ function statusBadge(s){const m={Ordered:'bg-amber',Paid:'bg-green',Closed:'bg-g
 function shipBadge(s){return s==='출고완료'?`<span class="badge bg-green">출고완료</span>`:`<span class="badge bg-amber">준비중</span>`;}
 function stBadge(s){const n=(s==='GWP'||s==='Sample')?'FOC':s;const m={Paid:'bg-green',FOC:'bg-red',Replacement:'bg-amber',Lost:'bg-coral'};return '<span class="badge '+(m[n]||'bg-gray')+'">'+n+'</span>';}
 // 품목별 운송 방식 (Air/Sea/미지정). 같은 품목을 항공·해상으로 나눈 주문을 구분한다.
+// RAW 입력의 비고는 주문 단위 기존 invoices.note에 저장합니다(인보이스 상세·거래명세서 비고와 같은 값).
+function rawNoteRow(value){return `<div class="frow c1" style="margin-bottom:10px"><div class="fg"><label for="rm-note">비고 (메모)</label><input id="rm-note" maxlength="2000" value="${esc(value||'')}" placeholder="주문 단위 메모 — 인보이스 상세·거래명세서 비고에 표시됩니다" onpaste="event.stopPropagation()" onkeydown="event.stopPropagation()"/></div></div>`;}
+function rawNoteValue(){return (document.getElementById('rm-note')?.value||'').trim();}
 function shipModeBadge(m){return m==='Air'?'<span class="badge bg-blue">항공</span>':m==='Sea'?'<span class="badge bg-teal">해상</span>':'<span style="color:var(--text3)">-</span>';}
 function shipModeOptions(selected){return `<option value=""${selected?'':' selected'}>미지정</option>`+InvoiceAmounts.SHIP_MODES.map(m=>`<option value="${m}"${selected===m?' selected':''}>${InvoiceAmounts.shipModeLabel(m)}</option>`).join('');}
 // kl: 공백·_·- 를 지운 소문자 헤더. '운송장(번호)'은 운송 방식이 아니다.
@@ -1216,6 +1219,64 @@ function calcInvTotal(){
   document.getElementById('inv-total').textContent=fmt(total);
 }
 
+// ─── 참고 인보이스 연결 (invoices.ref_invoice_id/ref_kind, 변경 요청 승인 후 저장) ───
+const REF_KINDS=['재출고','정정','상계','기타'];
+globalThis.changeSummaryInvoiceNo=id=>_invoices.find(i=>i.id===id)?.no;
+function invLabel(inv){return inv?[inv.no,inv.customer,inv.order_date].filter(Boolean).join(' · '):'';}
+function renderInvRef(v){
+  const el=document.getElementById('view-inv-ref');if(!el)return;
+  const target=v.ref_invoice_id?_invoices.find(i=>i.id===v.ref_invoice_id):null;
+  const referrers=_invoices.filter(i=>i.ref_invoice_id&&i.ref_invoice_id===v.id);
+  const kind=k=>k?`<span class="badge bg-gray">${esc(k)}</span> `:'';
+  const link=inv=>`<a href="#" class="alink" data-ref-open="${esc(inv.id)}">${esc(invLabel(inv))}</a>`;
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600;color:var(--text2)">🔗 참고 인보이스</span>
+    ${v.ref_invoice_id?kind(v.ref_kind)+(target?link(target):'<span style="color:var(--text3)">목록에 없는 인보이스</span>'):'<span style="color:var(--text3)">연결 없음</span>'}
+    <span style="margin-left:auto;display:flex;gap:4px"><button class="btn btn-sm" data-ref-edit>${v.ref_invoice_id?'변경':'연결'}</button>${v.ref_invoice_id?'<button class="btn btn-sm" data-ref-clear>연결 해제</button>':''}</span></div>
+    ${referrers.length?`<div style="margin-top:6px"><span style="font-weight:600;color:var(--text2)">이 인보이스를 참고하는 주문</span> ${referrers.map(i=>kind(i.ref_kind)+link(i)).join(', ')}</div>`:''}`;
+  el.querySelectorAll('[data-ref-open]').forEach(a=>a.addEventListener('click',event=>{event.preventDefault();viewInv(a.dataset.refOpen);}));
+  el.querySelector('[data-ref-edit]')?.addEventListener('click',()=>openInvRefModal(v.id));
+  el.querySelector('[data-ref-clear]')?.addEventListener('click',()=>clearInvRef(v.id));
+}
+let _invRefSource=null,_savingInvRef=false;
+function openInvRefModal(id){
+  const v=_invoices.find(i=>i.id===id);if(!v)return;
+  _invRefSource=id;
+  document.getElementById('inv-ref-current').textContent='대상: '+invLabel(v);
+  document.getElementById('inv-ref-kind').innerHTML=REF_KINDS.map(k=>`<option ${k===(v.ref_kind||REF_KINDS[0])?'selected':''}>${k}</option>`).join('');
+  document.getElementById('inv-ref-q').value='';
+  filterInvRefOptions(v.ref_invoice_id||'');
+  om('m-inv-ref');
+}
+function filterInvRefOptions(selected){
+  const v=_invoices.find(i=>i.id===_invRefSource);if(!v)return;
+  const sel=document.getElementById('inv-ref-target');
+  const keep=typeof selected==='string'?selected:sel.value;
+  const q=(document.getElementById('inv-ref-q')?.value||'').toLowerCase().replace(/\s/g,'');
+  // 같은 거래처 주문을 먼저, 그 안에서는 최근 발주일 순
+  const list=_invoices.filter(i=>i.id!==v.id&&(!q||(String(i.no||'')+String(i.customer||'')).toLowerCase().replace(/\s/g,'').includes(q)))
+    .sort((a,b)=>(b.customer===v.customer)-(a.customer===v.customer)||String(b.order_date||'').localeCompare(String(a.order_date||'')));
+  sel.innerHTML=list.slice(0,300).map(i=>`<option value="${esc(i.id)}"${i.id===keep?' selected':''}>${esc(invLabel(i))}</option>`).join('');
+}
+async function saveInvRef(){
+  const id=_invRefSource,target=document.getElementById('inv-ref-target')?.value||'',kind=document.getElementById('inv-ref-kind')?.value||'';
+  if(!id||!target){toast('참고할 인보이스를 선택하세요.');return;}
+  if(target===id){toast('자기 자신은 연결할 수 없습니다.');return;}
+  const v=_invoices.find(i=>i.id===id);
+  if(v?.ref_invoice_id===target&&v?.ref_kind===kind){toast('이미 같은 내용으로 연결돼 있습니다.');return;}
+  if(await submitInvRef(id,{ref_invoice_id:target,ref_kind:kind}))cm('m-inv-ref');
+}
+async function clearInvRef(id){
+  if(!confirm('참고 인보이스 연결 해제를 요청할까요? 승인 전까지 연결은 유지됩니다.'))return;
+  await submitInvRef(id,{ref_invoice_id:null,ref_kind:null});
+}
+async function submitInvRef(id,values){
+  if(_savingInvRef)return null;
+  _savingInvRef=true;const button=document.getElementById('inv-ref-save');if(button)button.disabled=true;
+  // 변경 전 행은 DB에서 다시 읽어 before로 보내므로, 화면 캐시가 오래돼도 STALE로 거절되지 않습니다.
+  try{return await requestRow('invoices','update',{id},values);}
+  finally{_savingInvRef=false;if(button)button.disabled=false;}
+}
+
 // ─── 인보이스 상세 보기 ───
 function viewInv(id){
   const v=_invoices.find(i=>i.id===id);if(!v)return;
@@ -1252,6 +1313,7 @@ function viewInv(id){
   const focTotal=(parseFloat(v.foc)||0)+itemsByType(items,'FOC')+itemsByType(items,'GWP')+itemsByType(items,'Sample');
   document.getElementById('view-inv-foc-total').textContent=focTotal>0?fmt(focTotal):'-';
   const noteEl=document.getElementById('view-inv-note');
+  renderInvRef(v);
   noteEl.textContent=[v.note?'메모: '+v.note:'',hiddenCount?`미출고·미청구 처리 품목 ${hiddenCount}개는 상세에서 표시하지 않습니다(수정 화면에서 확인).`:''].filter(Boolean).join(' · ');
   // 버튼 연결
   document.getElementById('view-del-btn').onclick=()=>delInv(id);
@@ -1345,7 +1407,7 @@ function renderRaw(){
         pdate:inv.pay_date||'', sdate:inv.ship_date||'', status:inv.status||'',
         ship:inv.ship_status||'', barcode:String(it.barcode||''), product:String(it.name||''),
         st:String(it.sales_type||''), qty:parseFloat(it.qty)||0, price:parseFloat(it.price)||0,
-        shipMode:it.ship_mode||null, amount:InvoiceAmounts.amount(it)
+        shipMode:it.ship_mode||null, amount:InvoiceAmounts.amount(it), note:inv.note||''
       });
     });
   });
@@ -1387,7 +1449,7 @@ function filterRaw(page){
   const tbody=document.getElementById('raw-tbody');if(!tbody)return;
   const qn2=q.replace(/\s/g,'');
   const rows=(window._rr||[]).filter(r=>
-    (!qn2||(r.customer+r.product+r.barcode).toLowerCase().replace(/\s/g,'').includes(qn2))&&
+    (!qn2||(r.customer+r.product+r.barcode+r.note).toLowerCase().replace(/\s/g,'').includes(qn2))&&
     (!st||r.st===st)&&(!mg||r.mgr===mg));
   const cnt=document.getElementById('raw-count');if(cnt)cnt.textContent=`총 ${rows.length}행`;
   window._rr_filtered=rows;
@@ -1414,6 +1476,7 @@ function filterRaw(page){
           <div style="font-size:11px;font-weight:700;color:var(--purple-dark);margin-bottom:3px">${r.inv}</div>
           <div style="font-size:12px;font-weight:600;color:var(--text1);margin-bottom:2px">${r.customer}</div>
           <div style="font-size:10px;color:var(--text3);margin-bottom:6px">${r.odate||'-'}</div>
+          ${r.note?`<div style="font-size:10px;color:var(--text2);margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.note)}">📝 ${esc(r.note)}</div>`:''}
           <div style="display:flex;gap:3px;justify-content:center">
             <button class="btn btn-sm" onclick="editInvoiceOrRequest('${r.invId}',true)" title="수정"><i class="ti ti-pencil"></i></button>
             <button class="btn btn-sm" onclick="delRawItem('${r.invId}')" style="color:var(--red);border-color:var(--red)" title="삭제"><i class="ti ti-trash"></i></button>
@@ -1472,6 +1535,7 @@ function editRawItem(invId){
         <div class="fg"><label>입금일</label><input id="rm-pdate" type="date" value="${inv.pay_date||''}"/></div>
         <div class="fg"><label>출고일</label><input id="rm-sdate" type="date" value="${inv.ship_date||''}"/></div>
       </div>
+      ${rawNoteRow(inv.note)}
       <div class="xg-wrap">
         <table class="xg" id="xg-table">
           <thead><tr>
@@ -1539,6 +1603,7 @@ function openRawManual(){
         <div class="fg"><label>입금일</label><input id="rm-pdate" type="date"/></div>
         <div class="fg"><label>출고일</label><input id="rm-sdate" type="date"/></div>
       </div>
+      ${rawNoteRow('')}
       <div class="xg-wrap">
         <table class="xg" id="xg-table">
           <thead><tr>
@@ -1690,7 +1755,7 @@ function xgReset(){
   _xgSel={r:-1,c:-1,r2:-1,c2:-1};
   xgAddRows(1);
   // 폼 필드도 초기화
-  ['rm-date','rm-pdate','rm-sdate'].forEach(id=>{
+  ['rm-date','rm-pdate','rm-sdate','rm-note'].forEach(id=>{
     const el=document.getElementById(id);
     if(el&&id!=='rm-date')el.value='';
   });
@@ -1964,6 +2029,7 @@ async function saveRawManual(){
   const odate=document.getElementById('rm-date')?.value;
   const pdate=document.getElementById('rm-pdate')?.value||null;
   const sdate=document.getElementById('rm-sdate')?.value||null;
+  const note=rawNoteValue();
   if(!cust||!odate){toast('거래처와 발주일은 필수입니다.');return;}
 
   const items=xgGetItems();
@@ -1979,7 +2045,7 @@ async function saveRawManual(){
     const inv=_invoices.find(i=>i.id===editId);
     const c=custByName(cust);
     if(!inv){toast('수정할 주문을 찾을 수 없습니다. 목록을 다시 불러와 주세요.');return;}
-    const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:cust===inv.customer?inv.mgr:(c?.mgr||''),order_date:odate,pay_date:pdate,ship_date:sdate},items);
+    const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:cust===inv.customer?inv.mgr:(c?.mgr||''),order_date:odate,pay_date:pdate,ship_date:sdate,note},items);
     if(!saved)return;
     window._editRawInvId=null;
     toast(ChangeRequests.message(saved));
@@ -1992,13 +2058,15 @@ async function saveRawManual(){
     const ym=odate.replace(/-/g,'');
     let invNo=`${code}_${ym}`;
     if(_invoices.find(i=>i.no===invNo)){let n=2;while(_invoices.find(i=>i.no===`${invNo}_${n}`))n++;invNo=`${invNo}_${n}`;}
-    window._pendingRaw={cust,c,invNo,odate,pdate,sdate,items};
+    window._pendingRaw={cust,c,invNo,odate,pdate,sdate,note,items};
     _showRawConfirmModal();
   }
 }
 
 function _showRawConfirmModal(){
-  const {cust,invNo,odate,items}=window._pendingRaw;
+  const {cust,invNo,odate,note,items}=window._pendingRaw;
+  const noteEl=document.getElementById('raw-confirm-note');
+  if(noteEl){noteEl.textContent=note?'비고: '+note:'';noteEl.hidden=!note;}
   const amounts=InvoiceAmounts.previewAmounts(items.map(it=>({...it,sales_type:it.salesType,ship_mode:it.shipMode??null})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
   const paidAmt=items.reduce((total,it,index)=>total+(it.salesType==='Paid'?amounts[index]:0),0);
   const focItems=items.filter(i=>i.salesType!=='Paid');
@@ -2023,12 +2091,12 @@ function _showRawConfirmModal(){
 
 async function confirmRawSave(){
   if(_savingRaw||_savingRawUpload)return;
-  const {cust,c,invNo,odate,pdate,sdate,items}=window._pendingRaw||{};
+  const {cust,c,invNo,odate,pdate,sdate,note,items}=window._pendingRaw||{};
   if(!invNo)return;
   const saved=await persistRawInvoice(null,{
     no:invNo,customer:cust,mgr:c?.mgr||'',
     order_date:odate,pay_date:pdate,ship_date:sdate,
-    status:'Ordered',ship_status:'준비중',foc:0,note:''
+    status:'Ordered',ship_status:'준비중',foc:0,note:note||''
   },items);
   if(!saved)return;
   cm('m-raw-confirm');
@@ -2125,7 +2193,7 @@ function handleRawUpload(input){
 
       const colMap={};
       const issues=[];
-      const labels={barcode:'바코드',qty:'수량',price:'단가',customer:'거래처',orderDate:'발주일',payDate:'입금일',shipDate:'출고일',product:'제품명',salesType:'유형',shipMode:'운송방식'};
+      const labels={barcode:'바코드',qty:'수량',price:'단가',customer:'거래처',orderDate:'발주일',payDate:'입금일',shipDate:'출고일',product:'제품명',salesType:'유형',shipMode:'운송방식',note:'비고'};
       Object.keys(rows[0]).forEach(k=>{
         const kl=k.toLowerCase().replace(/[\s_\-*\n()]/g,'');
         let field;
@@ -2139,6 +2207,7 @@ function handleRawUpload(input){
         else if(kl.includes('단가')||kl.includes('unitprice')||kl.includes('price'))field='price';
         else if(kl.includes('입금일')||kl.includes('paydate'))field='payDate';
         else if(kl.includes('출고일')||kl.includes('shipdate'))field='shipDate';
+        else if(kl.includes('비고')||kl.includes('메모')||kl.includes('note')||kl.includes('remark')||kl.includes('memo'))field='note';
         if(field){
           if(colMap[field])issues.push({message:`${labels[field]} 컬럼이 중복됩니다. 사용할 컬럼 하나만 남겨 주세요.`});
           else colMap[field]=k;
@@ -2196,7 +2265,7 @@ function handleRawUpload(input){
 
         const key=`${fixedCust}|${odate}`;
         if(!invMap[key])invMap[key]={rawCustomer:fixedCust,customer:fixedCust,custExact:true,orderDate:odate,
-          payDate:'',shipDate:'',items:[]};
+          payDate:'',shipDate:'',notes:[],items:[]};
         const g=invMap[key];
         for(const field of ['payDate','shipDate']){
           if(g[field]&&dates[field]&&g[field]!==dates[field])error(`같은 발주일(${odate}) 주문의 ${labels[field]}이 다릅니다. ${g[field]} / ${dates[field]} 값을 확인해 주세요.`);
@@ -2208,6 +2277,9 @@ function handleRawUpload(input){
           priceAlerts.push({barcode,name:mappedName,customer:fixedCust,excelPrice,calcPrice,retailPrice,supplyRate});
         }
 
+        // 같은 주문으로 묶인 행의 비고는 중복을 빼고 순서대로 이어 붙입니다.
+        const rowNote=colMap.note?String(row[colMap.note]??'').trim():'';
+        if(rowNote&&!g.notes.includes(rowNote))g.notes.push(rowNote);
         if(!prod)unmappedBarcode++;
         g.items.push({
           barcode,name:mappedName,
@@ -2274,6 +2346,7 @@ function _showRawPreviewModal(unmappedBarcode){
       ${custHtml}
       <span class="badge bg-gray" style="cursor:pointer" onclick="_showRawGroupItems(${gi})">${g.orderDate||'-'}</span>
       <span style="color:var(--text2);cursor:pointer" onclick="_showRawGroupItems(${gi})">${g.items.length}개 품목</span>
+      ${g.notes?.length?`<span style="font-size:10px;color:var(--text2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(g.notes.join(' / '))}">📝 ${esc(g.notes.join(' / '))}</span>`:''}
       <span style="color:var(--purple-dark);font-weight:600">${fmt(paid)}</span>
       ${foc?`<span style="color:var(--red);font-size:10px">FOC ${foc}개</span>`:''}
       <i class="ti ti-chevron-right" style="margin-left:auto;font-size:11px;color:var(--text3);cursor:pointer" onclick="_showRawGroupItems(${gi})"></i>
@@ -2430,7 +2503,7 @@ async function confirmRawUpload(){
         const baseNo=`${code}_${ym}`;
         const used=new Set([..._invoices.map(i=>i.no),...groups.map(x=>x._saveInvoice?.no)]);
         let no=baseNo,n=2;while(used.has(no))no=`${baseNo}_${n++}`;
-        g._saveInvoice={no,customer:g.customer,mgr:c?.mgr||'',order_date:odate,pay_date:g.payDate||null,ship_date:g.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:''};
+        g._saveInvoice={no,customer:g.customer,mgr:c?.mgr||'',order_date:odate,pay_date:g.payDate||null,ship_date:g.shipDate||null,status:'Ordered',ship_status:'준비중',foc:0,note:(g.notes||[]).join(' / ')};
       }
       operations.push({...await invoiceChange(null,g._saveInvoice,g.items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType||'Paid',qty:it.qty,price:it.price,ship_mode:it.shipMode??null}))),auto_number:true});
       g._saveStatus='saving';g._saveError='';

@@ -532,6 +532,7 @@
       <div class="kpi"><div class="lbl">Paid 합계</div><div class="val" style="font-size:13px;color:var(--purple-dark)" id="raw-confirm-paid"></div></div>
       <div class="kpi"><div class="lbl">FOC</div><div class="val" style="font-size:13px;color:var(--red)" id="raw-confirm-foc"></div></div>
     </div>
+    <div id="raw-confirm-note" hidden style="margin:-4px 0 10px;font-size:12px;color:var(--text2);white-space:pre-wrap;overflow-wrap:anywhere"></div>
     <div class="sdiv">품목 내역</div>
     <div style="max-height:320px;overflow-y:auto;border:0.5px solid var(--border);border-radius:var(--radius)">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
@@ -576,6 +577,7 @@
       </table>
     </div>
     <div id="view-inv-note" style="margin-top:8px;font-size:11px;color:var(--text2)"></div>
+    <div id="view-inv-ref" style="margin-top:10px;padding:8px 10px;border:0.5px solid var(--border);border-radius:var(--radius);font-size:11px"></div>
     <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border)">
       <div style="margin-bottom:6px"><span style="font-size:11px;font-weight:600;color:var(--text2)">📎 첨부 서류 (BL, 구매확인서 등)</span></div>
       <div id="inv-drop-zone"
@@ -600,6 +602,19 @@
     <button class="btn btn-primary" id="view-edit-btn"><i class="ti ti-pencil"></i> 수정</button>
   </div>
 </div>
+</div>
+<div class="modal-bg" id="m-inv-ref">
+  <div class="modal" style="width:560px;max-width:calc(100vw - 24px)">
+    <div class="mhd"><h2>참고 인보이스 연결</h2><button class="btn btn-sm" onclick="cm('m-inv-ref')">닫기</button></div>
+    <div class="mbody">
+      <p id="inv-ref-current" style="font-size:12px;color:var(--text2);margin:0 0 10px"></p>
+      <div class="frow c1"><div class="fg"><label for="inv-ref-kind">참고 유형 *</label><select id="inv-ref-kind"></select></div></div>
+      <div class="frow c1"><div class="fg"><label for="inv-ref-q">인보이스 검색</label><input id="inv-ref-q" placeholder="인보이스 번호 / 거래처" oninput="filterInvRefOptions()"/></div></div>
+      <div class="frow c1"><div class="fg"><label for="inv-ref-target">참고할 인보이스 * <span style="font-weight:400;color:var(--text3)">(같은 거래처·최근 발주일 순)</span></label><select id="inv-ref-target" size="8"></select></div></div>
+      <p class="drive-status">연결은 변경 요청으로 제출되며, 관리자 승인 후 상세 화면에 표시됩니다.</p>
+    </div>
+    <div class="mft"><button class="btn" onclick="cm('m-inv-ref')">취소</button><button id="inv-ref-save" class="btn btn-primary" onclick="saveInvRef()">변경 요청 제출</button></div>
+  </div>
 </div>
 <div class="modal-bg" id="m-drive-doc">
   <div class="modal" style="width:560px;max-width:calc(100vw - 24px)">
@@ -633,7 +648,8 @@
 </div>
 </div>
 
-<script src="change-requests.js?v=20260917-invoice-number-1"></script>
+<script src="change-summary.js?v=20261028-change-summary-1"></script>
+<script src="change-requests.js?v=20261028-change-summary-1"></script>
 <script src="drive-documents.js?v=20261027-settlement-evidence-1"></script>
 <script src="invoice-amounts.js?v=20261027-ship-mode-1"></script>
 <script src="dashboard-model.js?v=20260923-reconciliation-1"></script>
@@ -653,7 +669,7 @@
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=e7ff5b804297"></script>
+  <script src="app.js?v=239f3684a97b"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 </body>

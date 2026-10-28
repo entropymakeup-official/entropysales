@@ -11,7 +11,7 @@ function code(name){
 }
 function harness({response={data:{id:'request-1',status:'pending'}},execute,reason='정정 사유',confirm=true}={}){
  const calls=[],notices=[],closed=[],downloads=[],elements={};
- const element=id=>elements[id]||(elements[id]={value:'',textContent:'저장',innerHTML:'',disabled:false,dataset:{},style:{},classList:{contains:()=>true},setAttribute(){},querySelectorAll:()=>[]});
+ const element=id=>elements[id]||(elements[id]={value:'',textContent:'저장',innerHTML:'',disabled:false,dataset:{},style:{},classList:{contains:()=>true},setAttribute(){},querySelector:()=>null,querySelectorAll:()=>[]});
  const ctx={crypto:require('node:crypto').webcrypto,TextEncoder,URL,setTimeout:fn=>fn(),clearTimeout,console,
  _invoices:[{id:'inv-a',no:'OLD',customer:'Demo',status:'Ordered',pay_date:null,ship_status:'준비중',note:'before'}],_items:[{id:'item-a',invoice_id:'inv-a',name:'Old',qty:1,price:10}],_customers:[],_products:[],_taxRecords:[],_stocks:[],_docs:[],_schedules:[],_pd:[],
  _savingInv:false,_editInvBefore:null,_savingRaw:false,_savingRawUpload:false,_editInv:null,_editProd:null,_editCust:null,_editStock:null,_editDoc:null,
@@ -24,7 +24,7 @@ function harness({response={data:{id:'request-1',status:'pending'}},execute,reas
  vm.runInContext(source.slice(source.indexOf('const changeRequests='),source.indexOf('globalThis.invoiceSheetStatus =')),ctx);
  function load(...names){for(const name of names)vm.runInContext(code(name),ctx);}
  // Shared row helpers used by most invoice/RAW renderers.
- load('shipModeBadge','shipModeOptions','shipModeSummary','isShipModeHeader');
+ load('shipModeBadge','shipModeOptions','shipModeSummary','isShipModeHeader','rawNoteValue','invLabel','renderInvRef');
  return{ctx,calls,notices,closed,downloads,elements,element,load,source,code};
 }
 module.exports={harness,code,source};
