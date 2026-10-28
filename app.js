@@ -255,7 +255,7 @@ function renderDash(){
   document.getElementById('topbar-actions').innerHTML='<button class="btn" style="background:#4A154B;color:#fff;border-color:#4A154B" onclick="openWeeklyReport()"><i class="ti ti-brand-slack"></i> 기간별 보고서</button>';
   const summary=DashboardModel.summarizeSupply(_invoices,_items,dashboardPeriod(),_customers);
   _dashSnapshot=summary;
-  const totalRev=summary.revenue,totalFoc=summary.foc,totalLost=summary.lost;
+  const totalRev=summary.revenue,totalFoc=summary.foc;
   const custE=Object.entries(summary.byCustomer).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const mgrE=Object.entries(summary.byManager).sort((a,b)=>b[1]-a[1]);
   const maxC=custE[0]?.[1]||1,maxM=mgrE[0]?.[1]||1;
@@ -268,7 +268,6 @@ function renderDash(){
   <div class="kpi-grid dash-overview">
     ${dashboardMetricCard('recordedRevenue','총매출(등록금액)',summary.recordedRevenue,'세금 기준 확인 필요 금액 포함 · 근거 주문 보기 →')}
     ${dashboardMetricCard('foc','무료 제공 평가금액',totalFoc,`총매출 대비 ${summary.recordedRevenue>0?(totalFoc/summary.recordedRevenue*100).toFixed(1):0}% · 근거 주문 보기 →`)}
-    ${dashboardMetricCard('lost','Lost 금액',totalLost)}
     ${dashboardGoalCard()}
   </div>
   </section>
@@ -737,7 +736,8 @@ ${msg}`}],
 function downloadMeongse(inv){
   const c=custByName(inv.customer)||{};
   const allItems=inv.items||getInvItems(inv.id).map(it=>({...it}));
-  const items=allItems;
+  // Lost(미출고 이월·미청구) 품목은 명세서에 싣지 않는다. 입력·승인 화면에서만 다룬다.
+  const items=allItems.filter(it=>(it.sales_type||it.salesType||it.st)!=='Lost');
   if(!items.length){toast('품목이 없습니다.');return;}
 
   const dateStr=(inv.order_date||inv.orderDate||today()).replace(/-/g,'');
@@ -756,7 +756,7 @@ function downloadMeongse(inv){
     const qty=Number(it.qty)||0;const price=Number(it.price)||0;const amt=InvoiceAmounts.amount(it);
     const sType=(it.sales_type||it.salesType||it.st||'Paid').toUpperCase();
     const isPaid=sType==='PAID';
-    const typeColors={'PAID':'#1D4ED8','FOC':'#DC2626','SAMPLE':'#7C3AED','REPLACEMENT':'#D97706','LOST':'#993C1D'};
+    const typeColors={'PAID':'#1D4ED8','FOC':'#DC2626','SAMPLE':'#7C3AED','REPLACEMENT':'#D97706'};
     const tColor=typeColors[sType]||'#666';
     return `<tr>
       <td>${it.barcode||''}</td>
@@ -1215,7 +1215,7 @@ function calcInvTotal(){
 function viewInv(id){
   const v=_invoices.find(i=>i.id===id);if(!v)return;
   document.getElementById('m-inv-view').dataset.invoiceId=String(id);
-  const items=getInvItems(id);
+  const allItems=getInvItems(id),items=allItems.filter(it=>it.sales_type!=='Lost'),hiddenCount=allItems.length-items.length;
   const rev=itemsRev(items);
   document.getElementById('view-inv-no').textContent=v.no;
   document.getElementById('view-inv-status').innerHTML=statusBadge(v.status);
@@ -1247,11 +1247,11 @@ function viewInv(id){
   const focTotal=(parseFloat(v.foc)||0)+itemsByType(items,'FOC')+itemsByType(items,'GWP')+itemsByType(items,'Sample');
   document.getElementById('view-inv-foc-total').textContent=focTotal>0?fmt(focTotal):'-';
   const noteEl=document.getElementById('view-inv-note');
-  noteEl.textContent=v.note?'메모: '+v.note:'';
+  noteEl.textContent=[v.note?'메모: '+v.note:'',hiddenCount?`미출고·미청구 처리 품목 ${hiddenCount}개는 상세에서 표시하지 않습니다(수정 화면에서 확인).`:''].filter(Boolean).join(' · ');
   // 버튼 연결
   document.getElementById('view-del-btn').onclick=()=>delInv(id);
   document.getElementById('view-dl-btn').onclick=()=>{cm('m-inv-view');downloadMeongse(v);};
-  document.getElementById('view-amount-btn').onclick=()=>invoiceAmounts.open(v,items);
+  document.getElementById('view-amount-btn').onclick=()=>invoiceAmounts.open(v,allItems);
   document.getElementById('view-edit-btn').onclick=()=>{cm('m-inv-view');editInvoiceOrRequest(id);};
   // 첨부 파일 목록 로드 (캐시 무효화 후)
   delete _invFileCache[id];
@@ -2493,7 +2493,7 @@ function renderMonthly(){
   <div class="fb">
     <select id="fm-c" onchange="buildMonthly()"><option value="">전체 거래처</option>${custs.map(c=>`<option>${c}</option>`).join('')}</select>
     <select id="fm-y" onchange="buildMonthly()">${[...new Set([today().slice(0,4),..._invoices.map(i=>(i.order_date||'').slice(0,4)).filter(y=>/^\d{4}$/.test(y))])].sort().reverse().map(y=>`<option>${y}</option>`).join('')}</select>
-    <select id="fm-t" onchange="buildMonthly()"><option value="revenue">매출 등록금액</option><option value="supply">공급가액 집계분</option><option value="pending">세금 기준 확인 필요</option><option value="lost">Lost</option><option value="foc">FOC</option></select>
+    <select id="fm-t" onchange="buildMonthly()"><option value="revenue">매출 등록금액</option><option value="supply">공급가액 집계분</option><option value="pending">세금 기준 확인 필요</option><option value="foc">FOC</option></select>
   </div>
   <div id="monthly-content"></div>`;
   const period=dashboardPeriod();
@@ -2512,7 +2512,7 @@ function buildMonthly(){
   const invs=summary.rows.map(r=>r.invoice);
   const amountsById=new Map(summary.rows.map(r=>[r.invoice.id,r]));
   const custList=cf?[cf]:[...new Set(invs.map(i=>i.customer))];
-  const typeMap={revenue:inv=>amountsById.get(inv.id).recordedRevenue,supply:inv=>amountsById.get(inv.id).revenue,pending:inv=>amountsById.get(inv.id).pendingRevenue,lost:inv=>amountsById.get(inv.id).lost,foc:inv=>amountsById.get(inv.id).foc};
+  const typeMap={revenue:inv=>amountsById.get(inv.id).recordedRevenue,supply:inv=>amountsById.get(inv.id).revenue,pending:inv=>amountsById.get(inv.id).pendingRevenue,foc:inv=>amountsById.get(inv.id).foc};
   const getAmt=typeMap[tf]||typeMap.revenue;
   const data={};
   const recorded=new Set(),recordedMonths=new Set(),recordKey=(customer,month)=>JSON.stringify([customer,month]);
@@ -2520,7 +2520,7 @@ function buildMonthly(){
   invs.forEach(inv=>{const m=(inv.order_date||'').slice(5,7);if(!m||!data[inv.customer])return;data[inv.customer][m]=(data[inv.customer][m]||0)+getAmt(inv);if(['revenue','supply','pending'].includes(tf)&&getInvItems(inv.id).some(i=>i.sales_type==='Paid')){recorded.add(recordKey(inv.customer,m));recordedMonths.add(m);}});
   const totals={};months.forEach(m=>{totals[m]=custList.reduce((a,c)=>a+(data[c]?.[m]||0),0);});
   const maxM=Math.max(...Object.values(totals),1);
-  const colors={revenue:'#AFA9EC',lost:'#F09595',sample:'#85B7EB',foc:'#EF9F27'};
+  const colors={revenue:'#AFA9EC',sample:'#85B7EB',foc:'#EF9F27'};
   const col=colors[tf]||'#AFA9EC';
   // Q1~Q4 집계
   const quarters={Q1:['01','02','03'],Q2:['04','05','06'],Q3:['07','08','09'],Q4:['10','11','12']};
@@ -2540,7 +2540,7 @@ function buildMonthly(){
       </div>
     </div>
   </div>
-  <div class="card"><div class="card-hd"><h3>${{revenue:'매출 등록금액',supply:'공급가액 집계분',pending:'세금 기준 확인 필요',lost:'Lost',foc:'FOC'}[tf]} — 거래처별 월별 (${yr})</h3></div>
+  <div class="card"><div class="card-hd"><h3>${{revenue:'매출 등록금액',supply:'공급가액 집계분',pending:'세금 기준 확인 필요',foc:'FOC'}[tf]} — 거래처별 월별 (${yr})</h3></div>
   <div class="tw"><table><thead><tr><th>거래처</th>${months.map(m=>`<th style="text-align:right">${m}월</th>`).join('')}<th style="text-align:right">합계</th><th style="text-align:right">비중</th></tr></thead><tbody>
   ${(()=>{
     // 월별 최고/최저 계산
@@ -3855,8 +3855,7 @@ function buildCustAnalysis(cust){
   const paid=items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
   const foc=items.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
   const sample=items.filter(i=>i.sales_type==='Sample').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
-  const lost=items.filter(i=>i.sales_type==='Lost').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
-  const total=paid+foc+sample+lost;
+  const total=paid+foc+sample;
   const pct=(v)=>total>0?((v/total)*100).toFixed(1):0;
 
   // 월별 매출
@@ -3864,7 +3863,7 @@ function buildCustAnalysis(cust){
   invs.forEach(v=>{
     if(!v.order_date)return;
     const m=v.order_date.slice(0,7);
-    if(!monthMap[m])monthMap[m]={paid:0,foc:0,sample:0,lost:0};
+    if(!monthMap[m])monthMap[m]={paid:0,foc:0,sample:0};
     const iItems=_items.filter(i=>i.invoice_id===v.id);
     iItems.forEach(i=>{
       const amt=InvoiceAmounts.amount(i);
@@ -3873,7 +3872,6 @@ function buildCustAnalysis(cust){
       if(t==='paid')monthMap[m].paid+=amt;
       else if(t==='foc')monthMap[m].foc+=amt;
       else if(t==='sample')monthMap[m].sample+=amt;
-      else if(t==='lost')monthMap[m].lost+=amt;
     });
   });
   const months=Object.keys(monthMap).sort();
@@ -3898,7 +3896,7 @@ function buildCustAnalysis(cust){
 
   document.getElementById('ca-body').innerHTML=`
   <!-- KPI -->
-  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+  <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
     <div class="kpi" style="background:linear-gradient(135deg,#1D4ED8,#2563EB);border-color:#2563EB">
       <div class="lbl" style="color:rgba(255,255,255,0.7)">Paid 매출</div>
       <div class="val" style="color:#fff;font-size:18px">${fmt(paid)}</div>
@@ -3913,11 +3911,6 @@ function buildCustAnalysis(cust){
       <div class="lbl">Sample</div>
       <div class="val" style="color:var(--purple);font-size:18px">${fmt(sample)}</div>
       <div style="font-size:10px;color:var(--text3);margin-top:2px">전체의 ${pct(sample)}%</div>
-    </div>
-    <div class="kpi">
-      <div class="lbl">Lost</div>
-      <div class="val" style="color:#993C1D;font-size:18px">${fmt(lost)}</div>
-      <div style="font-size:10px;color:var(--text3);margin-top:2px">전체의 ${pct(lost)}%</div>
     </div>
   </div>
 
@@ -3935,7 +3928,6 @@ function buildCustAnalysis(cust){
       ${paid>0?`<div style="flex:${paid};background:#2563EB;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:600">Paid ${pct(paid)}%</div>`:''}
       ${foc>0?`<div style="flex:${foc};background:#DC2626;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:600">FOC ${pct(foc)}%</div>`:''}
       ${sample>0?`<div style="flex:${sample};background:#7C3AED;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:600">Sample ${pct(sample)}%</div>`:''}
-      ${lost>0?`<div style="flex:${lost};background:#993C1D;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:600">Lost ${pct(lost)}%</div>`:''}
     </div>
   </div>
 
@@ -4022,8 +4014,7 @@ function printCustReport(){
   const paid=items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
   const foc=items.filter(i=>i.sales_type==='FOC').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
   const sample=items.filter(i=>i.sales_type==='Sample').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
-  const lost=items.filter(i=>i.sales_type==='Lost').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);
-  const total=paid+foc+sample+lost;
+  const total=paid+foc+sample;
   const pct=v=>total>0?((v/total)*100).toFixed(1):0;
   const lastOrder=invs.sort((a,b)=>(b.order_date||'').localeCompare(a.order_date||''))[0]?.order_date||'-';
 
@@ -4032,7 +4023,7 @@ function printCustReport(){
   invs.forEach(v=>{
     if(!v.order_date)return;
     const m=v.order_date.slice(0,7);
-    if(!monthMap[m])monthMap[m]={paid:0,foc:0,sample:0,lost:0,cnt:0,hasPaid:false};
+    if(!monthMap[m])monthMap[m]={paid:0,foc:0,sample:0,cnt:0,hasPaid:false};
     monthMap[m].cnt++;
     _items.filter(i=>i.invoice_id===v.id).forEach(i=>{
       const amt=InvoiceAmounts.amount(i);
@@ -4041,7 +4032,6 @@ function printCustReport(){
       if(t==='paid')monthMap[m].paid+=amt;
       else if(t==='foc')monthMap[m].foc+=amt;
       else if(t==='sample')monthMap[m].sample+=amt;
-      else if(t==='lost')monthMap[m].lost+=amt;
     });
   });
   const months=Object.keys(monthMap).sort();
@@ -4105,7 +4095,7 @@ function printCustReport(){
   <!-- KPI -->
   <div class="section">
     <div class="section-title">매출 현황</div>
-    <div class="kpi-grid">
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
       <div class="kpi blue">
         <div class="kpi-lbl w">Paid 매출</div>
         <div class="kpi-val w">${fmt(paid)}</div>
@@ -4121,11 +4111,6 @@ function printCustReport(){
         <div class="kpi-val" style="color:#7C3AED">${fmt(sample)}</div>
         <div class="kpi-sub">전체의 ${pct(sample)}%</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-lbl">Lost</div>
-        <div class="kpi-val" style="color:#993C1D">${fmt(lost)}</div>
-        <div class="kpi-sub">전체의 ${pct(lost)}%</div>
-      </div>
     </div>
 
     <!-- 비율 바 -->
@@ -4133,7 +4118,6 @@ function printCustReport(){
       ${paid>0?`<div class="ratio-seg" style="width:${pct(paid)}%;background:#1D4ED8!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important">Paid ${pct(paid)}%</div>`:''}
       ${foc>0?`<div class="ratio-seg" style="width:${pct(foc)}%;background:#DC2626!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important">FOC ${pct(foc)}%</div>`:''}
       ${sample>0?`<div class="ratio-seg" style="width:${pct(sample)}%;background:#7C3AED!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important">SMP ${pct(sample)}%</div>`:''}
-      ${lost>0?`<div class="ratio-seg" style="width:${pct(lost)}%;background:#993C1D!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important">Lost ${pct(lost)}%</div>`:''}
     </div>
 
     <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
@@ -4147,18 +4131,17 @@ function printCustReport(){
   <div class="section">
     <div class="section-title">월별 매출 현황</div>
     <table>
-      <thead><tr><th>월</th><th>발주건수</th><th class="num">Paid</th><th class="num">FOC</th><th class="num">Sample</th><th class="num">Lost</th><th class="num">합계</th></tr></thead>
+      <thead><tr><th>월</th><th>발주건수</th><th class="num">Paid</th><th class="num">FOC</th><th class="num">Sample</th><th class="num">합계</th></tr></thead>
       <tbody>
         ${months.map(m=>{
           const r=monthMap[m];
-          const mTotal=r.paid+r.foc+r.sample+r.lost;
+          const mTotal=r.paid+r.foc+r.sample;
           return`<tr>
             <td><strong>${m}</strong></td>
             <td>${r.cnt}건</td>
             <td class="num">${r.hasPaid?fmt(r.paid):'-'}</td>
             <td class="num" style="color:#DC2626">${r.foc>0?fmt(r.foc):'-'}</td>
             <td class="num" style="color:#7C3AED">${r.sample>0?fmt(r.sample):'-'}</td>
-            <td class="num" style="color:#993C1D">${r.lost>0?fmt(r.lost):'-'}</td>
             <td class="num"><strong>${fmt(mTotal)}</strong></td>
           </tr>`;
         }).join('')}
@@ -4167,7 +4150,6 @@ function printCustReport(){
           <td class="num">${fmt(paid)}</td>
           <td class="num" style="color:#DC2626">${fmt(foc)}</td>
           <td class="num" style="color:#7C3AED">${fmt(sample)}</td>
-          <td class="num" style="color:#993C1D">${fmt(lost)}</td>
           <td class="num">${fmt(total)}</td>
         </tr>
       </tbody>
