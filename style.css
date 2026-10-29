@@ -402,3 +402,6 @@ tr:hover td{background:var(--bg3)}
 .tax-ledger-body table{min-width:820px}.tax-ledger-body td{vertical-align:top}.tax-ledger-money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .tax-ledger-body td a{white-space:nowrap}.tax-ledger-refresh{margin-top:12px}.tax-ledger-note{margin-top:12px}
 @media(max-width:640px){.tax-ledger-totals{gap:12px;grid-template-columns:1fr}.tax-ledger-totals>div{display:flex;align-items:center;justify-content:space-between}.tax-ledger-totals strong{font-size:19px}}
+/* 인보이스 상세: Paid / FOC / 기타 무상 구역 소계 행 */
+#view-inv-items tr.inv-group-row td{background:var(--bg3);font-size:11px;font-weight:600;color:var(--text2)}
+#view-inv-items tr.inv-group-foc td{color:var(--red)}
