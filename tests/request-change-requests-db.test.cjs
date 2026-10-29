@@ -1,0 +1,74 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {PGlite}=require('@electric-sql/pglite');
+const A='00000000-0000-0000-0000-000000000001',U='00000000-0000-0000-0000-000000000002';
+const sql=name=>fs.readFileSync(path.join(__dirname,'../sql',name),'utf8');
+test('admin asks for changes on a pending request; it stays pending until the owner revises',async()=>{
+const db=new PGlite();try{
+ await db.exec(`create role anon; create role authenticated; create schema auth;
+ create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_app_meta_data jsonb default '{}',raw_user_meta_data jsonb default '{}');
+ insert into auth.users values('${A}','entropyadmin@entropy.internal',now(),'{}','{}'),('${U}','member@entropymakeup.com',now(),'{}','{}');
+ create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+ create table public.customers(id uuid primary key default gen_random_uuid(),name text not null,created_at timestamptz default now());
+ create table public.products(id uuid primary key default gen_random_uuid(),name text not null,price numeric,created_at timestamptz default now());
+ create table public.invoices(id uuid primary key default gen_random_uuid(),no text unique not null,customer text,note text,created_at timestamptz default now());
+ create table public.invoice_items(id uuid primary key default gen_random_uuid(),invoice_id uuid references invoices on delete cascade,name text,qty numeric,price numeric,sales_type text,created_at timestamptz default now());
+ create table public.invoice_drive_documents(id uuid primary key default gen_random_uuid(),invoice_id uuid references invoices on delete cascade,name text);
+ create table public.documents(id uuid primary key default gen_random_uuid(),name text);
+ create table public.stocks(id uuid primary key default gen_random_uuid(),name text,qty numeric);
+ create table public.schedules(id uuid primary key default gen_random_uuid(),title text,date date);
+ create table public.tax_records(id uuid primary key default gen_random_uuid(),customer_id uuid,month text,status text,unique(customer_id,month));
+ create table public.app_settings(key text primary key,value text);
+ create table public.product_details(barcode text primary key,name_kr text);
+ create table public.tax_invoice_amounts(approval_number text primary key,gross_amount numeric);
+ create schema storage;create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text,unique(bucket_id,name));
+ alter table storage.objects enable row level security;
+ grant usage on schema storage to authenticated;grant select,insert,update,delete on storage.objects to authenticated;
+ grant usage on schema public,auth to authenticated,anon;
+ grant select,insert,update,delete on all tables in schema public to authenticated;
+ create function public.save_invoice_atomic(p_id text,p_invoice jsonb,p_items jsonb) returns jsonb language plpgsql as $$begin return '{}'::jsonb;end$$;
+ insert into products(id,name,price) values('10000000-0000-0000-0000-000000000001','Original',100);
+ `);
+ await db.exec(sql('change-approvals.sql'));
+ await db.exec('alter table invoices add column status text, add column ship_status text, add column pay_date date, add column ship_date date; alter table customers add column code text;');
+ await db.exec(sql('invoice-number-allocation.sql'));
+ await db.exec(sql('request-revisions.sql'));
+ await db.exec(sql('request-change-requests.sql'));
+ const login=async id=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec('set role authenticated');};
+ const list=async()=>(await db.query('select public.list_change_requests() r')).rows[0].r;
+ const ask=async(id,note,version)=>(await db.query('select public.request_change_request_revision($1::uuid,$2,$3::integer) r',[id,note,version])).rows[0].r;
+ const revise=async(id,version,ops)=>(await db.query('select public.revise_change_request($1::uuid,$2::integer,$3::jsonb,$4) r',[id,version,JSON.stringify(ops),'단가 보완'])).rows[0].r;
+ const review=async(id,version,approve=true,note='')=>(await db.query('select public.review_change_request_versioned($1::uuid,$2,$3,$4::integer) r',[id,approve,note,version])).rows[0].r;
+
+ await login(U);
+ const before=(await db.query('select to_jsonb(p) r from products p')).rows[0].r;
+ const op={table:'products',action:'update',key:{id:before.id},before,values:{price:200}};
+ const r=(await db.query('select public.submit_change_request($1::jsonb,$2,$3::uuid) r',[JSON.stringify([op]),'최초 요청',crypto.randomUUID()])).rows[0].r;
+ await assert.rejects(()=>ask(r.id,'금액 확인',1),/ADMIN_REQUIRED/);
+
+ await login(A);
+ await assert.rejects(()=>ask(r.id,'   ',1),/CHANGE_NOTE_REQUIRED/);
+ await assert.rejects(()=>ask(r.id,'x'.repeat(2001),1),/CHANGE_NOTE_REQUIRED/);
+ await assert.rejects(()=>ask(r.id,'금액 확인',2),/REQUEST_UPDATED/);
+ const asked=await ask(r.id,' 단가를 VAT 포함으로 맞춰 주세요 ',1);
+ assert.deepEqual(asked,{id:r.id,status:'pending',revision:1});
+ assert.equal((await db.query('select price from products')).rows[0].price,'100');
+
+ await login(U);
+ let own=(await list()).requests.find(x=>x.id===r.id);
+ assert.equal(own.status,'pending');assert.equal(own.can_edit,true);
+ assert.equal(own.change_request_note,'단가를 VAT 포함으로 맞춰 주세요');
+ assert.equal(own.change_requested_by_email,'entropyadmin@entropy.internal');
+ assert.equal(own.change_requested_revision,1);assert.ok(own.change_requested_at);
+ await revise(r.id,1,[{...op,values:{price:220}}]);
+ own=(await list()).requests.find(x=>x.id===r.id);
+ assert.equal(own.revision,2);assert.equal(own.change_requested_revision,1,'the note stays attached to the revision it asked about');
+
+ await login(A);
+ await review(r.id,2);
+ assert.equal((await db.query('select price from products')).rows[0].price,'220');
+ await assert.rejects(()=>ask(r.id,'다시 확인',2),/ALREADY_REVIEWED/);
+ await assert.rejects(()=>db.query('update approval_private.requests set change_request_note=null'),/permission denied/);
+ await db.exec('reset role;set role anon');
+ await assert.rejects(()=>ask(r.id,'익명',2),/permission denied/);
+}finally{await db.close();}});
