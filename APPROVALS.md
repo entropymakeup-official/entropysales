@@ -36,9 +36,9 @@ DB 설치는 `storage.objects`에도 제한 정책을 추가합니다. 회사 �
 
 입금완료(Paid·Closed)와 출고완료는 같은 요청 안에 Google Drive 증빙을 연결해야 접수됩니다. 입금은 `입금증빙`(은행 거래내역·SWIFT 등), 출고는 `선적서류`(B/L·AWB·수출신고필증 등) 유형이며, 주문에 이미 같은 유형의 증빙이 연결돼 있으면 새 링크 없이 요청할 수 있습니다. 서버는 제출 검증과 승인 반영 때 모두 확인하므로 화면을 거치지 않은 요청도 거절합니다. 새 주문을 처음부터 입금완료·출고완료로 등록할 수 없습니다.
 
-이 두 상태가 들어간 요청은 요청자 본인이 승인할 수 없습니다(다른 변경 요청의 본인 승인은 기존과 같습니다). 승인되면 서버가 승인자 이메일과 시각을 `invoices.pay_verified_by/pay_verified_at`, `ship_verified_by/ship_verified_at`에 기록하고, 완료를 취소하면 지웁니다. 요청 값으로 이 열을 쓸 수 없습니다. 이 기능 이전에 완료된 주문은 "검증 기록 없음"으로 표시합니다. RAW의 일괄 "Paid → 인보이스 연동"은 주문별 증빙을 붙일 수 없어 사용하지 않습니다.
+이 두 상태가 들어간 요청을 요청자 본인이 승인하려면 검토 메모에 확인한 증빙을 적어야 합니다(2026-10-29부터, `sql/settlement-self-approval.sql`). 메모가 없으면 `SELF_APPROVAL_NOTE_REQUIRED`로 거절하고, 처리 결과에는 "본인 승인"으로 표시합니다. 다른 변경 요청의 본인 승인은 기존과 같습니다. 승인되면 서버가 승인자 이메일과 시각을 `invoices.pay_verified_by/pay_verified_at`, `ship_verified_by/ship_verified_at`에 기록하고, 완료를 취소하면 지웁니다. 요청 값으로 이 열을 쓸 수 없습니다. 이 기능 이전에 완료된 주문은 "검증 기록 없음"으로 표시합니다. RAW의 일괄 "Paid → 인보이스 연동"은 주문별 증빙을 붙일 수 없어 사용하지 않습니다.
 
-설치 순서: `sql/invoice-settlement-evidence.sql`을 먼저 실행한 뒤 `app.js`, `index.html`, `request-editor.js`, `drive-documents.js`, `admin-approvals.js`, `admin.html`을 배포합니다. 설치 SQL은 `review_versioned`(request-revisions 설치 시) 또는 `review` 정의에서 확인한 문자열만 바꾸며, 정의가 다르거나 이미 설치됐으면 중단합니다. 운영에 승인 가능한 관리자가 2명 이상 있어야 입금·출고 요청을 처리할 수 있습니다.
+설치 순서: `sql/invoice-settlement-evidence.sql`을 먼저 실행한 뒤 `app.js`, `index.html`, `request-editor.js`, `drive-documents.js`, `admin-approvals.js`, `admin.html`을 배포합니다. 설치 SQL은 `review_versioned`(request-revisions 설치 시) 또는 `review` 정의에서 확인한 문자열만 바꾸며, 정의가 다르거나 이미 설치됐으면 중단합니다. 이어서 `sql/settlement-self-approval.sql`을 실행하면 관리자 1명도 메모와 함께 입금·출고 요청을 처리할 수 있습니다. 이 SQL도 설치된 정의에서 기존 차단 문구를 정확히 1번 찾지 못하면 중단합니다.
 
 ## 수정 요청 (2026-10-29)
 

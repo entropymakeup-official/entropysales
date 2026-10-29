@@ -8,9 +8,10 @@ const MEMBER = '00000000-0000-0000-0000-000000000002';
 const SECOND_ADMIN = '00000000-0000-0000-0000-000000000004';
 const settlementPath = path.join(__dirname, '../sql/invoice-settlement-evidence.sql');
 const revisionsPath = path.join(__dirname, '../sql/request-revisions.sql');
+const selfApprovalPath = path.join(__dirname, '../sql/settlement-self-approval.sql');
 
 // The shared fixture keeps a minimal Drive table; give it the production columns and type check.
-async function prepare({revisions = false} = {}) {
+async function prepare({revisions = false, selfApproval = false} = {}) {
   const db = await createDatabase();
   await db.exec(`
     alter table public.invoice_drive_documents add column drive_file_id text, add column resource_key text,
@@ -18,6 +19,7 @@ async function prepare({revisions = false} = {}) {
     insert into auth.users values ('${SECOND_ADMIN}','second-admin@entropymakeup.com',now(),'{"dashboard_admin":true}','{}');`);
   if (revisions) await db.exec(fs.readFileSync(revisionsPath, 'utf8'));
   if (fs.existsSync(settlementPath)) await db.exec(fs.readFileSync(settlementPath, 'utf8'));
+  if (selfApproval) await db.exec(fs.readFileSync(selfApprovalPath, 'utf8'));
   return db;
 }
 
@@ -66,7 +68,18 @@ function suite(label, options) {
       assert.equal(inv.ship_verified_by, 'entropyadmin@entropy.internal');
     });
 
-    test('requester cannot approve their own settlement request; another admin can', async () => {
+    if (options?.selfApproval) test('requester approves their own settlement request only with a note', async () => {
+      await h.login(ADMIN);
+      const pending = await h.submit([evidence('입금증빙'), await statusOp({status: 'Paid', pay_date: '2026-10-05'})]);
+      await assert.rejects(() => h.query(`select public.review_change_request${options.revisions ? '_versioned' : ''}($1::uuid,true,'  '${options.revisions ? ',1' : ''})`, [pending.id]), /SELF_APPROVAL_NOTE_REQUIRED/);
+      assert.equal((await h.invoice()).status, 'Ordered');
+      const done = (await h.query(`select public.review_change_request${options.revisions ? '_versioned' : ''}($1::uuid,true,'통장 10/05 입금 확인'${options.revisions ? ',1' : ''}) r`, [pending.id])).rows[0].r;
+      assert.equal(done.status, 'approved');
+      const inv = await h.invoice();
+      assert.equal(inv.status, 'Paid'); assert.equal(inv.pay_verified_by, 'entropyadmin@entropy.internal');
+    });
+
+    if (!options?.selfApproval) test('requester cannot approve their own settlement request; another admin can', async () => {
       await h.login(ADMIN);
       const pending = await h.submit([evidence('입금증빙'), await statusOp({status: 'Paid', pay_date: '2026-10-05'})]);
       await assert.rejects(() => h.review(pending.id), /SELF_APPROVAL_BLOCKED/);
@@ -124,3 +137,5 @@ test('installing twice is rejected instead of patching again', async () => {
   try { await assert.rejects(() => db.exec(fs.readFileSync(settlementPath, 'utf8')), /already installed/); }
   finally { await db.close(); }
 });
+suite('settlement self approval SQL', {selfApproval: true});
+suite('settlement self approval SQL with request revisions', {revisions: true, selfApproval: true});
