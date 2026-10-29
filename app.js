@@ -119,6 +119,7 @@ function loading(){return '<div class="loading"><i class="ti ti-loader"></i>불�
 
 function itemsRev(items){return(items||[]).filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+InvoiceAmounts.amount(i),0);}
 function itemsByType(items,t){return(items||[]).filter(i=>i.sales_type===t).reduce((a,i)=>a+InvoiceAmounts.amount(i),0);}
+function itemsQtyByType(items,t){return(items||[]).filter(i=>i.sales_type===t).reduce((a,i)=>a+(parseFloat(i.qty)||0),0);}
 function getInvItems(invId){return _items.filter(i=>i.invoice_id===invId);}
 
 function genInvNo(code,date){
@@ -958,9 +959,10 @@ function renderInvoices(){
     <select id="fi-pay" onchange="filterInv()"><option value="">입금 전체</option><option>미입금</option><option>입금완료</option></select>
     <select id="fi-sh" onchange="filterInv()"><option value="">출고 전체</option><option>준비중</option><option>출고완료</option></select>
     <select id="fi-mg" onchange="filterInv()"><option value="">담당자 전체</option>${MGRS.map(m=>`<option>${m}</option>`).join('')}</select>
+    <select id="fi-foc" onchange="filterInv()"><option value="">FOC 전체</option><option>FOC 있음</option><option>FOC 없음</option></select>
   </div>
   <div class="card"><div class="tw"><table>
-    <thead><tr><th>인보이스 번호</th><th>거래처</th><th class="inv-hide-mobile">담당자</th><th class="inv-hide-mobile">발주일</th><th style="text-align:right">매출</th><th style="text-align:right" class="inv-hide-mobile">FOC</th><th>입금 ✎</th><th>출고 ✎</th><th class="inv-hide-mobile">Tracking No.</th><th>첨부파일</th></tr></thead>
+    <thead><tr><th>인보이스 번호</th><th>거래처</th><th class="inv-hide-mobile">담당자</th><th class="inv-hide-mobile">발주일</th><th style="text-align:right">매출</th><th style="text-align:right">FOC</th><th>입금 ✎</th><th>출고 ✎</th><th class="inv-hide-mobile">Tracking No.</th><th>첨부파일</th></tr></thead>
     <tbody id="inv-tbody"></tbody>
   </table></div></div>
   <div id="inv-count" role="status" style="font-size:12px;color:var(--text3);padding:8px 0"></div>`;
@@ -971,30 +973,35 @@ function filterInv(){
   const pay=(document.getElementById('fi-pay')||{value:''}).value;
   const sh=(document.getElementById('fi-sh')||{value:''}).value;
   const mg=(document.getElementById('fi-mg')||{value:''}).value;
+  const focF=(document.getElementById('fi-foc')||{value:''}).value;
   const tbody=document.getElementById('inv-tbody');if(!tbody)return;
   const qn=q.replace(/\s/g,'');
-  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||(pay==='입금완료'?v.status==='Paid':v.status!=='Paid'))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg));
+  // FOC = 수기 FOC 금액 + 품목 sales_type FOC (매출 합계에는 포함하지 않음)
+  const focOf=v=>{const items=getInvItems(v.id);return{amt:(parseFloat(v.foc)||0)+itemsByType(items,'FOC'),qty:itemsQtyByType(items,'FOC')};};
+  const hasFoc=v=>{const f=focOf(v);return f.amt>0||f.qty>0;};
+  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||(pay==='입금완료'?v.status==='Paid':v.status!=='Paid'))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg)&&(!focF||(focF==='FOC 있음'?hasFoc(v):!hasFoc(v))));
   window._inv_filtered=list;
   const count=document.getElementById('inv-count');
-  if(count)count.textContent=`총 ${list.length}건`;
+  if(count){const foc=list.reduce((a,v)=>{const f=focOf(v);return{amt:a.amt+f.amt,qty:a.qty+f.qty,n:a.n+(f.amt>0||f.qty>0?1:0)};},{amt:0,qty:0,n:0});
+    count.textContent=`총 ${list.length}건`+(foc.n?` · FOC 포함 ${foc.n}건 · FOC ${fmt(foc.amt)} (${fmtN(foc.qty)}개, 매출 합계 제외)`:'');}
   if(!list.length){tbody.innerHTML=`<tr><td colspan="10"><div class="est"><i class="ti ti-file-invoice"></i>인보이스 없음<br><small style="display:block;margin-top:4px">파일 업로드 또는 직접 등록으로 추가하세요</small></div></td></tr>`;
     return;}
   tbody.innerHTML=list.map(v=>{
     const items=getInvItems(v.id);
     const rev=itemsRev(items);
-    const focAmt=(parseFloat(v.foc)||0)+itemsByType(items,'FOC');
+    const focAmt=(parseFloat(v.foc)||0)+itemsByType(items,'FOC'),focQty=itemsQtyByType(items,'FOC');
     return`<tr>
       <td><span class="alink" style="font-weight:600;font-size:10px" onclick="viewInv('${v.id}')">${v.no}</span> ${shipModeSummary(items)}</td>
       <td style="font-weight:500">${v.customer}</td>
-      <td><span class="badge bg-gray">${v.mgr||'-'}</span></td>
-      <td style="font-size:11px">${v.order_date||'-'}</td>
+      <td class="inv-hide-mobile"><span class="badge bg-gray">${v.mgr||'-'}</span></td>
+      <td class="inv-hide-mobile" style="font-size:11px">${v.order_date||'-'}</td>
       <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
-      <td style="text-align:right;color:var(--red);font-size:11px">${focAmt>0?fmt(focAmt):'-'}</td>
+      <td style="text-align:right;color:var(--red);font-size:11px">${focAmt>0?fmt(focAmt):'-'}${focQty>0?`<div style="font-size:10px;color:var(--text3)">${fmtN(focQty)}개</div>`:''}</td>
       <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="openInvoiceStatusRequest('${v.id}')"`:''}>
         ${invoicePaymentMarkup(v,rev)}
       </td>
       <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select></td>
-      <td onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
+      <td class="inv-hide-mobile" onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
         style="border:none;background:transparent;font-size:11px;width:120px;color:var(--text);outline:none;border-bottom:1px solid var(--border);padding:2px 4px"
         onchange="updTracking('${v.id}',this.value)"/></td>
       <td style="text-align:center;position:relative" id="inv-file-td-${v.id}" onclick="event.stopPropagation()"></td>
@@ -1278,6 +1285,9 @@ function viewInv(id){
   document.getElementById('m-inv-view').dataset.invoiceId=String(id);
   const allItems=getInvItems(id),items=allItems.filter(it=>it.sales_type!=='Lost'),hiddenCount=allItems.length-items.length;
   const rev=itemsRev(items);
+  const manualFoc=parseFloat(v.foc)||0,focAmt=manualFoc+itemsByType(items,'FOC'),focQty=itemsQtyByType(items,'FOC');
+  const otherFree=itemsByType(items,'GWP')+itemsByType(items,'Sample');
+  const focSub=[focQty>0?`${fmtN(focQty)}개`:'',manualFoc?`수기 FOC ${fmt(manualFoc)} 포함`:'',otherFree>0?`GWP·Sample ${fmt(otherFree)} 별도`:''].filter(Boolean).join(' · ');
   document.getElementById('view-inv-no').textContent=v.no;
   document.getElementById('view-inv-status').innerHTML=statusBadge(v.status);
   document.getElementById('view-inv-ship').innerHTML=shipBadge(v.ship_status||'준비중');
@@ -1286,27 +1296,29 @@ function viewInv(id){
     <div class="kpi"><div class="lbl">담당자</div><div class="val" style="font-size:13px">${v.mgr||'-'}</div></div>
     <div class="kpi"><div class="lbl">발주일</div><div class="val" style="font-size:13px">${v.order_date||'-'}</div></div>
     <div class="kpi"><div class="lbl">Paid 매출</div><div class="val" style="font-size:13px;color:var(--purple-dark)">${fmt(rev)}</div></div>
-    <div class="kpi"><div class="lbl">FOC</div><div class="val" style="font-size:13px;color:var(--red)" id="view-inv-foc-total">-</div></div>
+    <div class="kpi"><div class="lbl">FOC (매출 제외)</div><div class="val" style="font-size:13px;color:var(--red)" id="view-inv-foc-total">${focAmt>0?fmt(focAmt):'-'}</div>${focSub?`<div style="font-size:10px;color:var(--text3);margin-top:2px">${focSub}</div>`:''}</div>
     <div class="kpi"><div class="lbl">품목 수</div><div class="val" style="font-size:13px">${items.length}개</div></div>
   `;
   const tbody=document.getElementById('view-inv-items');
   if(!items.length){tbody.innerHTML='<tr><td colspan="7"><div class="est"><i class="ti ti-box"></i>품목 없음</div></td></tr>';}
   else{
-    tbody.innerHTML=items.map(it=>{
-      const amt=InvoiceAmounts.amount(it);
-      return`<tr>
+    const row=it=>`<tr>
         <td><strong style="font-weight:500">${it.name}</strong></td>
         <td style="font-size:10px;color:var(--text3)">${it.barcode||'-'}</td>
-        <td>${stBadge(it.sales_type)}</td>
+        <td>${it.sales_type==='GWP'||it.sales_type==='Sample'?`<span class="badge bg-red">${it.sales_type}</span>`:stBadge(it.sales_type)}</td>
         <td>${shipModeBadge(it.ship_mode)}</td>
         <td style="text-align:right">${fmtN(it.qty)}</td>
         <td style="text-align:right">${fmt(it.price)}</td>
-        <td style="text-align:right;font-weight:600">${fmt(amt)}</td>
+        <td style="text-align:right;font-weight:600">${fmt(InvoiceAmounts.amount(it))}</td>
       </tr>`;
-    }).join('');
+    // Paid / FOC / 기타 무상 구역으로 나눠 소계 표시 (한 종류뿐이면 구역 없이 표시)
+    const groups=[
+      {label:'Paid 매출',cls:'paid',items:items.filter(it=>it.sales_type==='Paid')},
+      {label:'FOC 무상 제공 (매출 제외)',cls:'foc',items:items.filter(it=>it.sales_type==='FOC')},
+      {label:'GWP·Sample·Replacement (매출 제외)',cls:'other',items:items.filter(it=>it.sales_type!=='Paid'&&it.sales_type!=='FOC')}
+    ].filter(g=>g.items.length);
+    tbody.innerHTML=groups.length===1?items.map(row).join(''):groups.map(g=>`<tr class="inv-group-row inv-group-${g.cls}"><td colspan="4">${g.label}</td><td style="text-align:right">${fmtN(g.items.reduce((a,it)=>a+(parseFloat(it.qty)||0),0))}</td><td></td><td style="text-align:right">${fmt(g.items.reduce((a,it)=>a+InvoiceAmounts.amount(it),0))}</td></tr>`+g.items.map(row).join('')).join('');
   }
-  const focTotal=(parseFloat(v.foc)||0)+itemsByType(items,'FOC')+itemsByType(items,'GWP')+itemsByType(items,'Sample');
-  document.getElementById('view-inv-foc-total').textContent=focTotal>0?fmt(focTotal):'-';
   const noteEl=document.getElementById('view-inv-note');
   renderInvRef(v);
   noteEl.textContent=[v.note?'메모: '+v.note:'',hiddenCount?`미출고·미청구 처리 품목 ${hiddenCount}개는 상세에서 표시하지 않습니다(수정 화면에서 확인).`:''].filter(Boolean).join(' · ');
