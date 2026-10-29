@@ -962,7 +962,7 @@ function renderInvoices(){
     <select id="fi-foc" onchange="filterInv()"><option value="">FOC 전체</option><option>FOC 있음</option><option>FOC 없음</option></select>
   </div>
   <div class="card"><div class="tw"><table>
-    <thead><tr><th>인보이스 번호</th><th>거래처</th><th class="inv-hide-mobile">담당자</th><th class="inv-hide-mobile">발주일</th><th style="text-align:right">매출</th><th style="text-align:right" class="inv-hide-mobile">FOC</th><th>입금 ✎</th><th>출고 ✎</th><th class="inv-hide-mobile">Tracking No.</th><th>첨부파일</th></tr></thead>
+    <thead><tr><th>인보이스 번호</th><th>거래처</th><th class="inv-hide-mobile">담당자</th><th class="inv-hide-mobile">발주일</th><th style="text-align:right">매출</th><th style="text-align:right">FOC</th><th>입금 ✎</th><th>출고 ✎</th><th class="inv-hide-mobile">Tracking No.</th><th>첨부파일</th></tr></thead>
     <tbody id="inv-tbody"></tbody>
   </table></div></div>
   <div id="inv-count" role="status" style="font-size:12px;color:var(--text3);padding:8px 0"></div>`;
@@ -993,15 +993,15 @@ function filterInv(){
     return`<tr>
       <td><span class="alink" style="font-weight:600;font-size:10px" onclick="viewInv('${v.id}')">${v.no}</span> ${shipModeSummary(items)}</td>
       <td style="font-weight:500">${v.customer}</td>
-      <td><span class="badge bg-gray">${v.mgr||'-'}</span></td>
-      <td style="font-size:11px">${v.order_date||'-'}</td>
+      <td class="inv-hide-mobile"><span class="badge bg-gray">${v.mgr||'-'}</span></td>
+      <td class="inv-hide-mobile" style="font-size:11px">${v.order_date||'-'}</td>
       <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
       <td style="text-align:right;color:var(--red);font-size:11px">${focAmt>0?fmt(focAmt):'-'}${focQty>0?`<div style="font-size:10px;color:var(--text3)">${fmtN(focQty)}개</div>`:''}</td>
       <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="openInvoiceStatusRequest('${v.id}')"`:''}>
         ${invoicePaymentMarkup(v,rev)}
       </td>
       <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select></td>
-      <td onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
+      <td class="inv-hide-mobile" onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
         style="border:none;background:transparent;font-size:11px;width:120px;color:var(--text);outline:none;border-bottom:1px solid var(--border);padding:2px 4px"
         onchange="updTracking('${v.id}',this.value)"/></td>
       <td style="text-align:center;position:relative" id="inv-file-td-${v.id}" onclick="event.stopPropagation()"></td>

@@ -27,3 +27,9 @@ test('invoice detail splits Paid, FOC and other free lines with subtotals',()=>{
  assert.match(body,/inv-group-other[\s\S]*Gift item/);
  h.ctx._invoices[0].foc=30;h.ctx.viewInv('inv-a');assert.match(h.element('view-inv-meta').innerHTML,/₩80<\/div>[\s\S]*수기 FOC ₩30 포함/);
 });
+test('narrow-screen hidden columns match between list header and rows, and FOC stays visible',()=>{
+ const h=fixture();h.load('filterInv','renderInvoices');Object.assign(h.ctx,{loadDriveDocs(){}});h.ctx.renderInvoices();
+ const head=h.element('content').innerHTML.match(/<thead>([\s\S]*?)<\/thead>/)[1].match(/<th[^>]*>/g).map(t=>t.includes('inv-hide-mobile'));
+ const row=h.element('inv-tbody').innerHTML.split('</tr>')[0].match(/<td\b[^>]*>/g).map(t=>t.includes('inv-hide-mobile'));
+ assert.equal(row.length,head.length);assert.deepEqual(row,head);assert.equal(head[5],false);
+});
