@@ -40,6 +40,14 @@ DB 설치는 `storage.objects`에도 제한 정책을 추가합니다. 회사 �
 
 설치 순서: `sql/invoice-settlement-evidence.sql`을 먼저 실행한 뒤 `app.js`, `index.html`, `request-editor.js`, `drive-documents.js`, `admin-approvals.js`, `admin.html`을 배포합니다. 설치 SQL은 `review_versioned`(request-revisions 설치 시) 또는 `review` 정의에서 확인한 문자열만 바꾸며, 정의가 다르거나 이미 설치됐으면 중단합니다. 운영에 승인 가능한 관리자가 2명 이상 있어야 입금·출고 요청을 처리할 수 있습니다.
 
+## 수정 요청 (2026-10-29)
+
+관리자는 승인 대기 요청을 반려하지 않고 "수정 요청"으로 돌려보낼 수 있습니다. 검토 메모(1~2000자)가 필수이며, 요청은 승인 대기 상태로 남고 확정 자료와 동기화 큐는 바뀌지 않습니다. 서버는 메모·요청한 관리자·시각과 함께 메모가 가리키는 버전(`change_requested_revision`)을 기록합니다. 관리자가 확인한 버전이 아니면 `REQUEST_UPDATED`로 거절합니다.
+
+요청자는 목록에서 "수정 요청됨" 표시와 메모를 보고 기존 "내 요청 수정"으로 고칩니다. 새 버전이 저장되면 표시는 "버전 N 수정 요청 반영됨"으로 바뀌고 관리자가 새 버전을 다시 승인·반려·수정 요청합니다. 기존 버전 확인 때문에 수정 전에 열어 둔 화면으로는 새 버전을 승인할 수 없습니다.
+
+설치 순서: `sql/request-revisions.sql` 적용 후 `sql/request-change-requests.sql`을 한 번 실행하고 `admin-approvals.js`, `approvals.css`, `admin.html`을 배포합니다. 이 SQL은 `list_requests`를 다시 정의해 수정 요청 열을 목록에 추가합니다. 프론트를 먼저 배포하면 수정 요청 버튼이 RPC 없음 오류로 실패하며 다른 승인·반려는 그대로 동작합니다.
+
 ## 복구
 
 요청 처리 중 장애라면 재시도 전 요청 상태를 조회합니다. 승인 완료를 다시 적용하지 않습니다. 이미 승인된 업무 변경을 배포 복구로 자동 되돌리지 않습니다.
