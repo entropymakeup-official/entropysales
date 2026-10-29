@@ -26,6 +26,35 @@ function prepareInvoice(inv,requests,items){
  }
  return {reason:'',operations:[{table:'invoices',action:'update',key:{id:inv.id},before:clone(inv),values:Object.fromEntries(statusKeys.map(k=>[k,inv[k]??(k==='ship_status'?'준비중':null)]))}]};
 }
+// 입금완료·출고완료로 바뀌는 주문은 같은 요청에 Drive 증빙을 붙여야 한다(서버도 같은 기준으로 거절한다).
+const settlementKinds={pay:{type:'입금증빙',label:'입금완료'},ship:{type:'선적서류',label:'출고완료'}};
+const isPaid=s=>s==='Paid'||s==='Closed';
+function settlementNeeds(draft){
+ const needs=[];
+ for(const op of draft.operations){
+  if(!(op.action==='invoice'||(op.table==='invoices'&&op.action==='update')))continue;
+  const next=op.action==='invoice'?op.invoice:op.values,prev=op.action==='invoice'?op.before?.invoice:op.before,id=op.action==='invoice'?op.id:op.key?.id;
+  if(!id||!next)continue;
+  if(isPaid(next.status)&&!isPaid(prev?.status))needs.push({invoiceId:id,kind:'pay',...settlementKinds.pay});
+  if(next.ship_status==='출고완료'&&prev?.ship_status!=='출고완료')needs.push({invoiceId:id,kind:'ship',...settlementKinds.ship});
+ }
+ return needs;
+}
+const isEvidenceFor=need=>op=>op.table==='invoice_drive_documents'&&op.action==='insert'&&op.values?.invoice_id===need.invoiceId&&op.values?.type===need.type;
+function attachEvidence(draft,links,hasExisting,prepare){
+ const next=clone(draft),added=[];
+ for(const need of settlementNeeds(next)){
+  const link=links?.[need.kind]||{};
+  if(String(link.url||'').trim()){
+   next.operations=next.operations.filter(op=>!isEvidenceFor(need)(op));
+   added.push({table:'invoice_drive_documents',action:'insert',key:{},before:null,values:prepare({invoice_id:need.invoiceId,type:need.type,name:String(link.name||'').trim()||need.type,url:link.url})});
+  }else if(!next.operations.some(isEvidenceFor(need))&&!hasExisting(need.invoiceId,need.type))
+   throw Error(`${need.label}에는 ${need.type} Google Drive 링크가 필요합니다.`);
+ }
+ // 서버는 주문 상태를 바꾸는 순간 증빙을 확인하므로 증빙 연결이 먼저 와야 한다.
+ next.operations=[...added,...next.operations];
+ return next;
+}
 function fields(draft){
  const result=[];
  function walk(value,path,group){
@@ -36,7 +65,7 @@ function fields(draft){
   }
  }
  draft.operations.forEach((op,i)=>{
-  if(op.action==='delete')return;
+  if(op.action==='delete'||op.table==='invoice_drive_documents')return;
   const kind=op.action==='invoice'?'invoice':'values',values=op[kind]||{};
   if(op.action==='invoice'||op.table==='invoices'){
    const before=op.action==='invoice'?op.before?.invoice:op.before;
@@ -64,12 +93,16 @@ function input(field,index,label){
  field.type==='text'?`<textarea ${name} rows="2">${esc(value)}</textarea>`:`<input ${name} type="${field.type}" step="any" value="${esc(value)}">`;
  return `<label>${esc(label||labels[field.key]||field.key)}${control}</label>`;
 }
-async function open({document,request,client,submit,onSaved=()=>{},label}){
+function evidenceInputs(links){
+ return `<fieldset class="request-evidence"><legend>증빙 (Google Drive 링크)</legend><p>입금완료로 바꾸면 입금증빙, 출고완료로 바꾸면 선적서류 링크가 필요합니다. 이미 연결된 증빙이 있으면 비워 둘 수 있습니다. 요청자가 아닌 다른 관리자가 승인합니다.</p>${Object.entries(settlementKinds).map(([k,v])=>`<label>${esc(v.type)} 서류명<input data-evidence-name="${k}" maxlength="250" value="${esc(links[k].name)}" placeholder="예: ${k==='pay'?'10월 입금 거래내역':'B/L'}"></label><label>${esc(v.type)} 링크<input data-evidence-url="${k}" type="url" value="${esc(links[k].url)}" placeholder="https://drive.google.com/file/d/…/view"></label>`).join('')}</fieldset>`;
+}
+async function open({document,request,client,submit,onSaved=()=>{},label,evidence}){
  if(activeDialog){activeDialog.focus?.();return activeDialog;}
  const session=await client.auth?.getSession?.();if(session?.error)throw session.error;
  if(activeDialog){activeDialog.focus?.();return activeDialog;}
  let actor=session?.data?.session?.user?.id||request.requester_id||null;
  const draft=clone(request),dialog=document.createElement('dialog'),previous=document.activeElement;let busy=false,closed=false,sessionChanged=false;
+ const links={pay:{name:'',url:''},ship:{name:'',url:''}};
  // Requests saved before ship_mode existed still get an editable, blank choice.
  for(const op of draft.operations)if(op.action==='invoice')for(const item of op.items)if(!('ship_mode' in item))item.ship_mode=null;
  dialog.className='request-editor';dialog.setAttribute('aria-label',draft.id?'내 요청 수정':'주문·출고 상태 변경');
@@ -77,8 +110,10 @@ async function open({document,request,client,submit,onSaved=()=>{},label}){
  function finish(result){if(closed)return;closed=true;subscription?.unsubscribe?.();activeDialog=null;dialog.close();dialog.remove();previous?.focus?.();return result;}
  function draw(){
   const schema=fields(draft);
-  dialog.innerHTML=`<form><h2>${draft.id?'내 요청 수정':'주문·출고 상태 변경'}</h2><p>${draft.id?'기존 대기 요청을 보완합니다.':'주문 상태와 출고 상태를 함께 선택할 수 있습니다.'} 관리자 승인 후 확정 자료에 반영됩니다.</p><div class="request-editor-fields">${schema.map((f,i)=>`${i===0||schema[i-1].group!==f.group?`<h3>${esc(f.group)}</h3>`:''}${input(f,i,label?.(f.key))}`).join('')}</div>${draft.operations.map((op,i)=>op.action==='invoice'?`<div class="request-item-actions"><button type="button" data-add="${i}">품목 추가</button>${op.items.map((_,j)=>`<button type="button" data-remove="${i},${j}">품목 ${j+1} 삭제</button>`).join('')}</div>`:op.action==='delete'?'<p>삭제 대상은 유지됩니다. 변경 사유를 수정할 수 있습니다.</p>':'').join('')}<label>변경 사유<textarea data-reason required maxlength="2000" rows="3">${esc(draft.reason||'')}</textarea></label><p data-error role="alert"></p><footer><button type="button" data-cancel>취소</button><button type="submit">${draft.id?'수정 요청 저장':'변경 요청 제출'}</button></footer></form>`;
-  const sync=()=>{for(const el of dialog.querySelectorAll('[data-field]'))assign(draft,schema[Number(el.dataset.field)],el.value);draft.reason=dialog.querySelector('[data-reason]').value.trim();};
+  dialog.innerHTML=`<form><h2>${draft.id?'내 요청 수정':'주문·출고 상태 변경'}</h2><p>${draft.id?'기존 대기 요청을 보완합니다.':'주문 상태와 출고 상태를 함께 선택할 수 있습니다.'} 관리자 승인 후 확정 자료에 반영됩니다.</p><div class="request-editor-fields">${schema.map((f,i)=>`${i===0||schema[i-1].group!==f.group?`<h3>${esc(f.group)}</h3>`:''}${input(f,i,label?.(f.key))}`).join('')}</div>${draft.operations.map((op,i)=>op.action==='invoice'?`<div class="request-item-actions"><button type="button" data-add="${i}">품목 추가</button>${op.items.map((_,j)=>`<button type="button" data-remove="${i},${j}">품목 ${j+1} 삭제</button>`).join('')}</div>`:op.action==='delete'?'<p>삭제 대상은 유지됩니다. 변경 사유를 수정할 수 있습니다.</p>':'').join('')}${evidence?evidenceInputs(links):''}<label>변경 사유<textarea data-reason required maxlength="2000" rows="3">${esc(draft.reason||'')}</textarea></label><p data-error role="alert"></p><footer><button type="button" data-cancel>취소</button><button type="submit">${draft.id?'수정 요청 저장':'변경 요청 제출'}</button></footer></form>`;
+  const sync=()=>{for(const el of dialog.querySelectorAll('[data-field]'))assign(draft,schema[Number(el.dataset.field)],el.value);draft.reason=dialog.querySelector('[data-reason]').value.trim();
+   for(const el of dialog.querySelectorAll('[data-evidence-name]'))links[el.dataset.evidenceName].name=el.value;
+   for(const el of dialog.querySelectorAll('[data-evidence-url]'))links[el.dataset.evidenceUrl].url=el.value;};
   dialog.querySelector('[data-cancel]').onclick=()=>{if(!busy)finish(false);};
   for(const button of dialog.querySelectorAll('[data-add],[data-remove]'))button.onclick=()=>{sync();if(button.dataset.add!==undefined)draft.operations[Number(button.dataset.add)].items.push({name:'',barcode:'',sales_type:'Paid',qty:1,price:0,ship_mode:null});else{const [i,j]=button.dataset.remove.split(',').map(Number);draft.operations[i].items.splice(j,1);}draw();};
   dialog.querySelector('form').onsubmit=async event=>{
@@ -86,10 +121,11 @@ async function open({document,request,client,submit,onSaved=()=>{},label}){
    const error=dialog.querySelector('[data-error]');error.textContent='';
    try{
     sync();if(!draft.reason)throw Error('변경 사유를 입력해 주세요.');
+    const operations=evidence?attachEvidence(draft,links,evidence.hasExisting,evidence.prepare).operations:draft.operations;
     busy=true;for(const el of dialog.querySelectorAll('input,textarea,select,button'))el.disabled=true;
     let result;
-    if(draft.id){const {data,error:rpcError}=await client.rpc('revise_change_request',{p_id:draft.id,p_revision:draft.revision,p_operations:draft.operations,p_reason:draft.reason});if(rpcError)throw rpcError;result=data;if(result?.revision!==draft.revision+1)throw Error('수정 결과를 확인하지 못했습니다. 요청 목록을 새로고침해 주세요.');}
-    else result=await submit(draft.operations,{reason:draft.reason});
+    if(draft.id){const {data,error:rpcError}=await client.rpc('revise_change_request',{p_id:draft.id,p_revision:draft.revision,p_operations:operations,p_reason:draft.reason});if(rpcError)throw rpcError;result=data;if(result?.revision!==draft.revision+1)throw Error('수정 결과를 확인하지 못했습니다. 요청 목록을 새로고침해 주세요.');}
+    else result=await submit(operations,{reason:draft.reason});
     if(!result?.id||result.status!=='pending')throw Error('요청 결과를 목록에서 확인해 주세요.');
     if(!sessionChanged){finish(true);await onSaved(result);}
    }catch(e){error.textContent='저장하지 못했거나 결과 확인이 필요합니다. '+(e.message||String(e));}
@@ -100,5 +136,5 @@ async function open({document,request,client,submit,onSaved=()=>{},label}){
  for(const type of ['keydown','paste'])dialog.addEventListener(type,event=>event.stopPropagation());
  draw();document.body.appendChild(dialog);dialog.showModal();activeDialog=dialog;dialog.querySelector('input,select,textarea')?.focus();return dialog;
 }
-return {prepareInvoice,fields,assign,open};
+return {prepareInvoice,fields,assign,open,settlementNeeds,attachEvidence};
 });
