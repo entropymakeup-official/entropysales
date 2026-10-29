@@ -12,7 +12,7 @@ function fixture(){
 }
 test('invoice list keeps Paid revenue, shows FOC qty and filters invoices with FOC',()=>{
  const h=fixture();h.load('filterInv');h.ctx.filterInv();
- const rows=h.element('inv-tbody').innerHTML;assert.match(rows,/₩120/);assert.match(rows,/₩50<div[^>]*>5개<\/div>/);
+ const rows=h.element('inv-tbody').innerHTML;assert.match(rows,/₩120/);assert.match(rows,/white-space:nowrap">₩50 <span[^>]*>5개<\/span><\/td>/);
  assert.match(h.element('inv-count').textContent,/총 2건 · FOC 포함 1건 · FOC ₩50 \(5개, 매출 합계 제외\)/);
  h.element('fi-foc').value='FOC 있음';h.ctx.filterInv();assert.deepEqual(h.ctx.window._inv_filtered.map(v=>v.no),['A-1']);
  h.element('fi-foc').value='FOC 없음';h.ctx.filterInv();assert.deepEqual(h.ctx.window._inv_filtered.map(v=>v.no),['B-1']);
