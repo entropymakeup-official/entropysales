@@ -36,7 +36,7 @@ test('existing evidence on the invoice or in the pending draft is reused',()=>{
  assert.equal(docs.length,1);assert.equal(docs[0].values.name,'AWB');
 });
 
-test('admin page disables approving your own paid/shipped request but not others',()=>{
+test('admin page lets you approve your own paid/shipped request with a note',()=>{
  const UI=require('../admin-approvals.js');
  const op={table:'invoices',action:'update',key:{id:'i'},before:{id:'i',status:'Ordered',ship_status:'준비중'},values:{status:'Paid'}};
  assert.equal(UI.hasSettlementChange([op]),true);
@@ -44,7 +44,7 @@ test('admin page disables approving your own paid/shipped request but not others
  const base={id:'00000000-0000-4000-8000-000000000001',status:'pending',operations:[op],requester_email:'a@entropymakeup.com',created_at:'2026-10-27T00:00:00Z',revision:1};
  const approve=html=>html.match(/<button type="button" class="approve"[^>]*>/)[0];
  const own=UI.render({requests:[{...base,can_edit:true}],isAdmin:true});
- assert.match(approve(own),/disabled/);assert.match(own,/다른 관리자가 승인/);
+ assert.doesNotMatch(approve(own),/disabled/);assert.match(own,/검토 메모에 확인한 증빙/);
  const other=UI.render({requests:[{...base,can_edit:false}],isAdmin:true});
  assert.doesNotMatch(approve(other),/disabled/);
 });
@@ -53,4 +53,19 @@ test('evidence operations are not shown as editable fields',()=>{
  const draft=E.prepareInvoice(inv,[]);draft.operations[0].values.status='Paid';
  const done=E.attachEvidence(draft,{pay:{url:'u',name:'입금'}},none,prepare);
  assert.ok(!E.fields(done).some(f=>['drive_file_id','type','resource_key'].includes(f.key)));
+});
+
+test('own paid/shipped approval needs a note before the RPC; result shows self approval',async()=>{
+ const UI=require('../admin-approvals.js');
+ const op={table:'invoices',action:'update',key:{id:'i'},before:{id:'i',status:'Ordered'},values:{status:'Paid'}};
+ const own={id:'00000000-0000-4000-8000-000000000001',status:'pending',operations:[op],requester_email:'a@entropymakeup.com',can_edit:true,revision:1};
+ const calls=[];
+ const rpc=async(name,args)=>{calls.push(name);if(name==='list_change_requests')return {data:{requests:[own],is_admin:true}};return {data:{id:args.p_id,status:'approved'}};};
+ const c=UI.createController({rpc});await c.load();
+ assert.equal(await c.review(own.id,true,'  '),false);
+ assert.match(c.state.error,/검토 메모에 확인한 증빙/);
+ assert.ok(!calls.includes('review_change_request_versioned'));
+ assert.equal(await c.review(own.id,true,'통장 입금 확인'),true);
+ const html=UI.render({requests:[{...own,status:'approved',reviewer_email:'a@entropymakeup.com'}],isAdmin:true});
+ assert.match(html,/본인 승인/);
 });

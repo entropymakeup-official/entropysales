@@ -94,7 +94,7 @@ function input(field,index,label){
  return `<label>${esc(label||labels[field.key]||field.key)}${control}</label>`;
 }
 function evidenceInputs(links){
- return `<fieldset class="request-evidence"><legend>증빙 (Google Drive 링크)</legend><p>입금완료로 바꾸면 입금증빙, 출고완료로 바꾸면 선적서류 링크가 필요합니다. 이미 연결된 증빙이 있으면 비워 둘 수 있습니다. 요청자가 아닌 다른 관리자가 승인합니다.</p>${Object.entries(settlementKinds).map(([k,v])=>`<label>${esc(v.type)} 서류명<input data-evidence-name="${k}" maxlength="250" value="${esc(links[k].name)}" placeholder="예: ${k==='pay'?'10월 입금 거래내역':'B/L'}"></label><label>${esc(v.type)} 링크<input data-evidence-url="${k}" type="url" value="${esc(links[k].url)}" placeholder="https://drive.google.com/file/d/…/view"></label>`).join('')}</fieldset>`;
+ return `<fieldset class="request-evidence"><legend>증빙 (Google Drive 링크)</legend><p>입금완료로 바꾸면 입금증빙, 출고완료로 바꾸면 선적서류 링크가 필요합니다. 이미 연결된 증빙이 있으면 비워 둘 수 있습니다. 요청자 본인이 승인할 때는 검토 메모에 확인한 증빙을 적어야 합니다.</p>${Object.entries(settlementKinds).map(([k,v])=>`<label>${esc(v.type)} 서류명<input data-evidence-name="${k}" maxlength="250" value="${esc(links[k].name)}" placeholder="예: ${k==='pay'?'10월 입금 거래내역':'B/L'}"></label><label>${esc(v.type)} 링크<input data-evidence-url="${k}" type="url" value="${esc(links[k].url)}" placeholder="https://drive.google.com/file/d/…/view"></label>`).join('')}</fieldset>`;
 }
 async function open({document,request,client,submit,onSaved=()=>{},label,evidence}){
  if(activeDialog){activeDialog.focus?.();return activeDialog;}
