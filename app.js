@@ -1094,10 +1094,10 @@ function invoicePaymentMarkup(inv,rev){
     ?`<span class="badge bg-green">입금완료</span> <span style="font-size:9px;color:var(--text3)">${esc(inv.pay_date||'')}</span>${verificationMarkup(inv.pay_verified_by,inv.pay_verified_at)}`
     :'<span class="badge bg-amber">미입금</span>';
 }
-// 승인 시 서버가 기록한 검증자·검증일. 이 기능 이전에 완료된 주문은 기록이 없다.
+// 승인 시 서버가 기록한 검증자·검증일. 이 기능 이전에 승인된 주문은 기록이 없으므로 아무것도 표시하지 않는다.
 function verificationMarkup(by,at){
-  const text=by?`검증 ${by.split('@')[0]} · ${String(at||'').slice(0,10)}`:'검증 기록 없음';
-  return `<div class="inv-verified" style="font-size:9px;color:var(--text3)" title="${esc(by||'')}">${esc(text)}</div>`;
+  if(!by)return '';
+  return `<div class="inv-verified" style="font-size:9px;color:var(--text3)" title="${esc(by)}">${esc(`검증 ${by.split('@')[0]} · ${String(at||'').slice(0,10)}`)}</div>`;
 }
 function refreshInvoiceStatusControls(id){
   const inv=_invoices.find(i=>i.id===id);if(!inv)return;
