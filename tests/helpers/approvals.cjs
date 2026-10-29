@@ -24,7 +24,7 @@ function harness({response={data:{id:'request-1',status:'pending'}},execute,reas
  vm.runInContext(source.slice(source.indexOf('const changeRequests='),source.indexOf('globalThis.invoiceSheetStatus =')),ctx);
  function load(...names){for(const name of names)vm.runInContext(code(name),ctx);}
  // Shared row helpers used by most invoice/RAW renderers.
- load('shipModeBadge','shipModeOptions','shipModeSummary','isShipModeHeader','rawNoteValue','invLabel','renderInvRef');
+ load('shipModeBadge','shipModeOptions','shipModeSummary','isShipModeHeader','rawNoteValue','invLabel','renderInvRef','itemsQtyByType');
  return{ctx,calls,notices,closed,downloads,elements,element,load,source,code};
 }
 module.exports={harness,code,source};
