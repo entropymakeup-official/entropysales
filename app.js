@@ -996,7 +996,7 @@ function filterInv(){
       <td class="inv-hide-mobile"><span class="badge bg-gray">${v.mgr||'-'}</span></td>
       <td class="inv-hide-mobile" style="font-size:11px">${v.order_date||'-'}</td>
       <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
-      <td style="text-align:right;color:var(--red);font-size:11px">${focAmt>0?fmt(focAmt):'-'}${focQty>0?`<div style="font-size:10px;color:var(--text3)">${fmtN(focQty)}개</div>`:''}</td>
+      <td style="text-align:right;color:var(--red);font-size:11px;white-space:nowrap">${focAmt>0?fmt(focAmt):'-'}${focQty>0?` <span style="font-size:10px;color:var(--text3)">${fmtN(focQty)}개</span>`:''}</td>
       <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="openInvoiceStatusRequest('${v.id}')"`:''}>
         ${invoicePaymentMarkup(v,rev)}
       </td>
