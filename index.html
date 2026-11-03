@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="style.css?v=20261029-invoice-foc-1"/>
+<link rel="stylesheet" href="style.css?v=20261103-new-invoice-docs-1"/>
 <link rel="stylesheet" href="request-editor.css?v=20260929-1">
 <script src="request-editor.js?v=20261029-self-settlement-1" defer></script>
 </head>
@@ -160,6 +160,7 @@
     <tbody id="inv-items"></tbody></table>
     <button class="btn btn-sm" onclick="addInvItem()"><i class="ti ti-plus"></i> 품목 추가</button>
     <div class="trow">매출(Paid) 합계: <strong id="inv-total">₩0</strong></div>
+    <div id="inv-docs-wrap"></div>
   </div>
   <div class="mft">
     <button class="btn" onclick="cm('m-inv')">취소</button>
@@ -532,6 +533,7 @@
       <div class="kpi"><div class="lbl">Paid 합계</div><div class="val" style="font-size:13px;color:var(--purple-dark)" id="raw-confirm-paid"></div></div>
       <div class="kpi"><div class="lbl">FOC</div><div class="val" style="font-size:13px;color:var(--red)" id="raw-confirm-foc"></div></div>
     </div>
+    <div id="raw-confirm-docs" hidden style="margin:-4px 0 10px;font-size:12px;color:var(--text2);overflow-wrap:anywhere"></div>
     <div id="raw-confirm-note" hidden style="margin:-4px 0 10px;font-size:12px;color:var(--text2);white-space:pre-wrap;overflow-wrap:anywhere"></div>
     <div class="sdiv">품목 내역</div>
     <div style="max-height:320px;overflow-y:auto;border:0.5px solid var(--border);border-radius:var(--radius)">
@@ -648,9 +650,9 @@
 </div>
 </div>
 
-<script src="change-summary.js?v=20261028-change-summary-1"></script>
+<script src="change-summary.js?v=20261103-new-invoice-docs-1"></script>
 <script src="change-requests.js?v=20261028-change-summary-1"></script>
-<script src="drive-documents.js?v=20261027-settlement-evidence-1"></script>
+<script src="drive-documents.js?v=20261103-new-invoice-docs-1"></script>
 <script src="invoice-amounts.js?v=20261027-ship-mode-1"></script>
 <script src="dashboard-model.js?v=20260923-reconciliation-1"></script>
 <script src="tax-ledger.js?v=20261002-tax-ledger-1"></script>
@@ -669,7 +671,7 @@
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=a4336f6a1932"></script>
+  <script src="app.js?v=e7fdd00397ab"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 </body>

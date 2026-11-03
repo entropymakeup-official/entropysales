@@ -59,3 +59,13 @@ test('admin request card shows the change summary above the full diff',()=>{
   assert.ok(html.indexOf('변경 내역')<html.indexOf('변경 전후 상세 확인'));
   assert.match(text(html),/참고 인보이스 \(빈칸\) → INV-0/);
 });
+
+test('new invoice lists the Drive evidence approved with it, linked and escaped',()=>{
+  const html=Summary.render([{action:'invoice',id:null,before:null,invoice:header,items:[{name:'Lip',barcode:'880',sales_type:'Paid',qty:2,price:10,ship_mode:null}],
+    documents:[{drive_file_id:'synthetic_file_0001',resource_key:'0-key',name:'<발주서>',type:'기타'},{drive_file_id:'bad/id',resource_key:null,name:'명세서',type:'거래명세서'}]}]);
+  assert.match(text(html),/함께 연결할 Drive 증빙 2개/);
+  assert.match(html,/href="https:\/\/drive\.google\.com\/file\/d\/synthetic_file_0001\/view\?resourcekey=0-key"/);
+  assert.match(html,/&lt;발주서&gt;/);
+  assert.equal((html.match(/<a /g)||[]).length,1);
+  assert.doesNotMatch(text(Summary.render([{action:'invoice',id:null,before:null,invoice:header,items:[]}])),/Drive 증빙/);
+});

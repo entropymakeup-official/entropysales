@@ -31,3 +31,13 @@ test('remove submits full before snapshot without deleting Drive file',async()=>
  const sb={rpc:async(name,args)=>{calls.push({name,args});return {data:{id:'r',status:'pending'}};},from(){throw Error('unexpected write');}};
  const result=await m.remove(sb,id,before);assert.equal(result.status,'pending');assert.equal(calls[0].args.p_operations[0].before.created_at,'2026-09-11');assert.equal(calls[0].args.p_operations[0].action,'delete');await assert.rejects(m.remove(sb,'bad-id',before));
 });
+test('new order evidence skips blank rows, defaults the name to the type and rejects duplicates',()=>{
+ const m=model(),url='https://drive.google.com/file/d/'+fileId+'/view?resourcekey=0-example_key';
+ assert.deepEqual(JSON.parse(JSON.stringify(m.prepareNew([{type:'기타',name:'',url:''},{type:'기타',name:' ',url},{type:'거래명세서',name:' 발주서.pdf ',url:'https://drive.google.com/open?id=other_file_123456'}]))),
+  [{drive_file_id:fileId,resource_key:'0-example_key',name:'기타',type:'기타'},{drive_file_id:'other_file_123456',resource_key:null,name:'발주서.pdf',type:'거래명세서'}]);
+ assert.deepEqual(JSON.parse(JSON.stringify(m.prepareNew([]))),[]);
+ assert.throws(()=>m.prepareNew([{type:'기타',url},{type:'거래명세서',url:'https://drive.google.com/open?id='+fileId}]),/두 번/);
+ assert.throws(()=>m.prepareNew([{type:'<script>',url}]),/종류/);
+ assert.throws(()=>m.prepareNew([{type:'기타',url:'https://example.test/file'}]),/공유 링크/);
+ assert.throws(()=>m.prepareNew(Array.from({length:21},(_,i)=>({type:'기타',url:'https://drive.google.com/open?id=file_number_'+String(i).padStart(4,'0')}))),/20개/);
+});

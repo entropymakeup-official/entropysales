@@ -31,6 +31,22 @@
   const link=parseLink(form.url);
   return {invoice_id:invoiceId,drive_file_id:link.fileId,resource_key:link.resourceKey,name,type:form.type};
  }
+ // 새 주문 요청에 함께 보낼 증빙. 주문 ID는 승인 때 서버가 채운다. 링크가 빈 줄은 건너뛴다.
+ function prepareNew(rows){
+  const result=[],seen=new Set();
+  for(const row of rows||[]){
+   if(!String(row?.url||'').trim())continue;
+   const name=String(row.name||'').trim()||String(row.type||'');
+   if(!types.includes(row.type))throw new Error('증빙 종류를 선택해 주세요.');
+   if(name.length>250)throw new Error('서류명을 250자 이내로 입력해 주세요.');
+   const link=parseLink(row.url);
+   if(seen.has(link.fileId))throw new Error('같은 Drive 파일을 두 번 연결할 수 없습니다.');
+   seen.add(link.fileId);
+   result.push({drive_file_id:link.fileId,resource_key:link.resourceKey,name,type:row.type});
+  }
+  if(result.length>20)throw new Error('증빙은 한 번에 20개까지 연결할 수 있습니다.');
+  return result;
+ }
  function validRow(r){return !!r&&uuid.test(r.id||'')&&uuid.test(r.invoice_id||'')&&fileIdPattern.test(r.drive_file_id||'')&&
   (r.resource_key===null||resourcePattern.test(r.resource_key||''))&&typeof r.name==='string'&&r.name.trim().length>0&&r.name.length<=250&&types.includes(r.type);}
  function urlFor(row){return validRow(row)?canonical(row.drive_file_id,row.resource_key):'';}
@@ -58,5 +74,5 @@
   const client=requests(sb);
   return client.submit([await client.row('invoice_drive_documents','delete',{id},null,before)]);
  }
- root.DriveDocuments={types,parseLink,prepare,urlFor,list,save,remove};
+ root.DriveDocuments={types,parseLink,prepare,prepareNew,canonical,urlFor,list,save,remove};
 })(typeof globalThis!=='undefined'?globalThis:window);

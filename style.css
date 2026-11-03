@@ -405,3 +405,11 @@ tr:hover td{background:var(--bg3)}
 /* 인보이스 상세: Paid / FOC / 기타 무상 구역 소계 행 */
 #view-inv-items tr.inv-group-row td{background:var(--bg3);font-size:11px;font-weight:600;color:var(--text2)}
 #view-inv-items tr.inv-group-foc td{color:var(--red)}
+/* 새 주문 요청에 함께 보낼 Drive 증빙 입력 줄 */
+.new-docs{margin:10px 0}
+.new-docs-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.new-docs-hd label{font-size:11px;color:var(--text2)}
+.new-docs-row{display:grid;grid-template-columns:110px minmax(0,1fr) minmax(0,2fr) auto;gap:6px;margin-bottom:6px}
+.new-docs-row select,.new-docs-row input{min-width:0;padding:5px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);font-size:11px;background:var(--bg2);color:var(--text);font-family:inherit}
+.new-docs-help{font-size:10px;color:var(--text3);margin:2px 0 0}
+@media (max-width:640px){.new-docs-row{grid-template-columns:minmax(0,1fr) auto}.new-docs-row input{grid-column:1/-1}}
