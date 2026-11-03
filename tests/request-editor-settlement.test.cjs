@@ -36,6 +36,26 @@ test('existing evidence on the invoice or in the pending draft is reused',()=>{
  assert.equal(docs.length,1);assert.equal(docs[0].values.name,'AWB');
 });
 
+test('a shipping document link turns the request into a shipment with that evidence',()=>{
+ const draft=E.prepareInvoice({...inv,status:'Paid',pay_date:'2026-10-12',ship_date:'2026-10-12'},[]);
+ const done=E.attachEvidence(draft,{ship:{url:'u',name:'10월 출고요청서'}},none,prepare);
+ assert.equal(done.operations[0].values.type,'선적서류');
+ assert.equal(done.operations[1].values.ship_status,'출고완료');
+ assert.equal(done.operations[1].values.ship_date,'2026-10-12');
+ const undated=E.prepareInvoice(inv,[]);
+ assert.throws(()=>E.attachEvidence(undated,{ship:{url:'u'}},none,prepare),/출고일/);
+});
+
+test('links are never dropped silently and already linked files are skipped',()=>{
+ const draft=E.prepareInvoice({...inv,status:'Paid',pay_date:'2026-10-12',ship_date:'2026-10-12'},[]);
+ const extra=E.attachEvidence(draft,{pay:{url:'u',name:'입금'}},none,prepare);
+ assert.deepEqual(extra.operations.filter(op=>op.table==='invoice_drive_documents').map(op=>op.values.type),['입금증빙']);
+ const linked=(id,file)=>id==='i'&&file==='file_입금증빙';
+ const done=E.attachEvidence(draft,{pay:{url:'u'},ship:{url:'u2'}},(id,type)=>type==='입금증빙',prepare,linked);
+ assert.deepEqual(done.operations.filter(op=>op.table==='invoice_drive_documents').map(op=>op.values.type),['선적서류']);
+ assert.equal(done.operations.at(-1).values.ship_status,'출고완료');
+});
+
 test('admin page lets you approve your own paid/shipped request with a note',()=>{
  const UI=require('../admin-approvals.js');
  const op={table:'invoices',action:'update',key:{id:'i'},before:{id:'i',status:'Ordered',ship_status:'준비중'},values:{status:'Paid'}};
