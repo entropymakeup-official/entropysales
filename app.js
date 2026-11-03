@@ -1010,7 +1010,7 @@ function filterInv(){
       <td class="inv-hide-mobile" style="font-size:11px">${v.order_date||'-'}</td>
       <td style="text-align:right;font-weight:600">${fmt(rev)}</td>
       <td style="text-align:right;color:var(--red);font-size:11px;white-space:nowrap">${focAmt>0?fmt(focAmt):'-'}${focQty>0?` <span style="font-size:10px;color:var(--text3)">${fmtN(focQty)}개</span>`:''}</td>
-      <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;${rev>0?'cursor:pointer':''}" ${rev>0?`onclick="openInvoiceStatusRequest('${v.id}')"`:''}>
+      <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;cursor:pointer" title="주문 상태 변경(입금완료·취소 등)" onclick="openInvoiceStatusRequest('${v.id}')">
         ${invoicePaymentMarkup(v,rev)}
       </td>
       <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select>${v.ship_status==='출고완료'?verificationMarkup(v.ship_verified_by,v.ship_verified_at):''}</td>
@@ -1101,8 +1101,10 @@ async function updTracking(id,val){
 
 const _invoiceStatusPending=new Set();
 function invoicePaymentMarkup(inv,rev){
-  if(rev<=0)return '<span style="color:var(--text3)">-</span>';
   if(_invoiceStatusPending.has(inv.id))return '<span class="badge bg-gray">저장 중…</span>';
+  if(inv.status==='Cancelled')return '<span class="badge bg-red">취소</span>';
+  // 0원(샘플 등) 주문도 칸을 눌러 취소 요청을 할 수 있게 표시만 비워 둔다.
+  if(rev<=0)return '<span style="color:var(--text3)">-</span>';
   return inv.status==='Paid'
     ?`<span class="badge bg-green">입금완료</span> <span style="font-size:9px;color:var(--text3)">${esc(inv.pay_date||'')}</span>${verificationMarkup(inv.pay_verified_by,inv.pay_verified_at)}`
     :'<span class="badge bg-amber">미입금</span>';
