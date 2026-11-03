@@ -1013,7 +1013,7 @@ function filterInv(){
       <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;cursor:pointer" title="주문 상태 변경(입금완료·취소 등)" onclick="openInvoiceStatusRequest('${v.id}')">
         ${invoicePaymentMarkup(v,rev)}
       </td>
-      <td><select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select>${v.ship_status==='출고완료'?verificationMarkup(v.ship_verified_by,v.ship_verified_at):''}</td>
+      <td>${v.status==='Cancelled'?`<span id="inv-ship-${v.id}" class="badge bg-red" style="cursor:pointer" title="취소된 주문은 출고하지 않습니다" onclick="openInvoiceStatusRequest('${v.id}')">취소</span>`:`<select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select>${v.ship_status==='출고완료'?verificationMarkup(v.ship_verified_by,v.ship_verified_at):''}`}</td>
       <td class="inv-hide-mobile" onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
         style="border:none;background:transparent;font-size:11px;width:120px;color:var(--text);outline:none;border-bottom:1px solid var(--border);padding:2px 4px"
         onchange="updTracking('${v.id}',this.value)"/></td>
@@ -1124,7 +1124,8 @@ function refreshInvoiceStatusControls(id){
   const pay=document.getElementById('inv-pay-'+id);
   if(pay){pay.innerHTML=invoicePaymentMarkup(inv,itemsRev(getInvItems(id)));pay.setAttribute('aria-busy',String(pending));}
   const ship=document.getElementById('inv-ship-'+id);
-  if(ship){ship.value=inv.ship_status||'준비중';ship.className='ss s'+ship.value.replace(/\s/g,'');ship.disabled=pending;}
+  // 취소 주문은 출고 칸이 선택 상자가 아니라 '취소' 표시다.
+  if(ship&&ship.tagName==='SELECT'){ship.value=inv.ship_status||'준비중';ship.className='ss s'+ship.value.replace(/\s/g,'');ship.disabled=pending;}
 }
 function refreshInvoiceStatusList(){
   if(!document.getElementById('nav-invoices')?.classList.contains('active'))return;
