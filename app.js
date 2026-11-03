@@ -136,6 +136,19 @@ function stBadge(s){const n=(s==='GWP'||s==='Sample')?'FOC':s;const m={Paid:'bg-
 // RAW 입력의 비고는 주문 단위 기존 invoices.note에 저장합니다(인보이스 상세·거래명세서 비고와 같은 값).
 function rawNoteRow(value){return `<div class="frow c1" style="margin-bottom:10px"><div class="fg"><label for="rm-note">비고 (메모)</label><input id="rm-note" maxlength="2000" value="${esc(value||'')}" placeholder="주문 단위 메모 — 인보이스 상세·거래명세서 비고에 표시됩니다" onpaste="event.stopPropagation()" onkeydown="event.stopPropagation()"/></div></div>`;}
 function rawNoteValue(){return (document.getElementById('rm-note')?.value||'').trim();}
+// 새 주문 요청에 함께 보낼 Drive 증빙 입력 줄. prefix로 RAW 발주 입력(rm)과 인보이스 등록 창(inv)을 구분한다.
+function newDocsBlock(prefix){return `<div class="new-docs" id="${prefix}-docs"><div class="new-docs-hd"><label>Drive 증빙 (선택 · 발주서는 '기타')</label><button type="button" class="btn btn-sm" onclick="addNewDocRow('${prefix}')"><i class="ti ti-plus"></i> 증빙 추가</button></div><div class="new-docs-rows"></div><p class="new-docs-help">주문과 같은 요청으로 승인됩니다. 입금완료·출고완료는 승인 후 인보이스 목록에서 요청합니다.</p></div>`;}
+function addNewDocRow(prefix){
+  const box=document.querySelector(`#${prefix}-docs .new-docs-rows`);if(!box)return;
+  const row=document.createElement('div');row.className='new-docs-row';
+  row.innerHTML=`<select aria-label="증빙 종류">${DriveDocuments.types.map(t=>`<option>${esc(t)}</option>`).join('')}</select><input aria-label="서류명" maxlength="250" placeholder="서류명 (비우면 종류명)"/><input aria-label="Google Drive 링크" placeholder="https://drive.google.com/file/d/..."/><button type="button" class="btn btn-sm" aria-label="증빙 줄 삭제" onclick="this.parentElement.remove()"><i class="ti ti-x"></i></button>`;
+  // 발주 입력 표의 붙여넣기·Del 처리가 증빙 칸 입력을 가로채지 않게 한다.
+  row.querySelectorAll('input').forEach(input=>['paste','keydown'].forEach(type=>input.addEventListener(type,e=>e.stopPropagation())));
+  box.appendChild(row);
+}
+function readNewDocs(prefix){
+  return DriveDocuments.prepareNew([...document.querySelectorAll(`#${prefix}-docs .new-docs-row`)].map(row=>{const [name,url]=row.querySelectorAll('input');return {type:row.querySelector('select').value,name:name.value,url:url.value};}));
+}
 function shipModeBadge(m){return m==='Air'?'<span class="badge bg-blue">항공</span>':m==='Sea'?'<span class="badge bg-teal">해상</span>':'<span style="color:var(--text3)">-</span>';}
 function shipModeOptions(selected){return `<option value=""${selected?'':' selected'}>미지정</option>`+InvoiceAmounts.SHIP_MODES.map(m=>`<option value="${m}"${selected===m?' selected':''}>${InvoiceAmounts.shipModeLabel(m)}</option>`).join('');}
 // kl: 공백·_·- 를 지운 소문자 헤더. '운송장(번호)'은 운송 방식이 아니다.
@@ -1173,6 +1186,7 @@ function openNewInv(){
   document.getElementById('inv-foc').value='0';
   document.getElementById('inv-items').innerHTML='';
   addInvItem();calcInvTotal();
+  document.getElementById('inv-docs-wrap').innerHTML=newDocsBlock('inv');
   document.getElementById('m-inv-title').textContent='인보이스 등록';
   document.getElementById('inv-save-btn').textContent='변경 요청 제출';
   om('m-inv');
@@ -1196,6 +1210,8 @@ function editInv(id){
   const tbody=document.getElementById('inv-items');tbody.innerHTML='';
   getInvItems(id).forEach(it=>addInvItem(it));
   calcInvTotal();
+  // 기존 주문의 증빙은 상세 화면의 'Drive 증빙 연결'로 요청한다.
+  document.getElementById('inv-docs-wrap').innerHTML='';
   document.getElementById('m-inv-title').textContent='인보이스 수정';
   document.getElementById('inv-save-btn').textContent='변경 요청 제출';
   om('m-inv');
@@ -1363,13 +1379,17 @@ async function saveInv(){
   if(isNew&&(['Paid','Closed'].includes(payload.status)||payload.ship_status==='출고완료')){alert('새 주문은 미입금·준비중으로 등록한 뒤, 인보이스 목록의 입금·출고 칸에서 증빙과 함께 요청해 주세요.');return;}
   const settle=isNew||!globalThis.RequestEditor?[]:RequestEditor.settlementNeeds({operations:[{action:'invoice',id:editId,before:{invoice:_editInv},invoice:payload}]}).filter(n=>!hasDriveEvidence(n.invoiceId,n.type));
   if(settle.length){alert(`${settle.map(n=>n.label).join('·')}는 인보이스 목록의 입금·출고 칸에서 ${settle.map(n=>n.type).join('·')} 링크와 함께 요청해 주세요.`);return;}
+  let documents=[];
+  if(isNew){try{documents=readNewDocs('inv');}catch(error){alert(error.message);return;}}
   const btn=document.getElementById('inv-save-btn');
   const oldLabel=btn?.textContent;
   _savingInv=true;
   if(btn){btn.disabled=true;btn.textContent='요청 중...';}
   let saved=null;
   try{
-    saved=await changeRequests.submit([await invoiceChange(editId,payload,InvoiceAmounts.preserveBlankBarcodes(items,isNew?[]:_editInvBefore?.items||getInvItems(editId)),_editInvBefore)]);
+    const operation=await invoiceChange(editId,payload,InvoiceAmounts.preserveBlankBarcodes(items,isNew?[]:_editInvBefore?.items||getInvItems(editId)),_editInvBefore);
+    if(documents.length)operation.documents=documents;
+    saved=await changeRequests.submit([operation]);
   }catch(error){
     const reason=typeof error?.message==='string'?error.message:'통신 오류';
     alert('저장 실패 또는 결과 확인 불가: '+reason+'\n입력 내용은 유지했습니다. 재시도 전에 목록을 새로 불러와 저장 여부를 확인해 주세요.');
@@ -1616,6 +1636,7 @@ function openRawManual(){
         <div class="fg"><label>출고일</label><input id="rm-sdate" type="date"/></div>
       </div>
       ${rawNoteRow('')}
+      ${newDocsBlock('rm')}
       <div class="xg-wrap">
         <table class="xg" id="xg-table">
           <thead><tr>
@@ -2070,15 +2091,19 @@ async function saveRawManual(){
     const ym=odate.replace(/-/g,'');
     let invNo=`${code}_${ym}`;
     if(_invoices.find(i=>i.no===invNo)){let n=2;while(_invoices.find(i=>i.no===`${invNo}_${n}`))n++;invNo=`${invNo}_${n}`;}
-    window._pendingRaw={cust,c,invNo,odate,pdate,sdate,note,items};
+    let documents;
+    try{documents=readNewDocs('rm');}catch(error){toast(error.message);return;}
+    window._pendingRaw={cust,c,invNo,odate,pdate,sdate,note,items,documents};
     _showRawConfirmModal();
   }
 }
 
 function _showRawConfirmModal(){
-  const {cust,invNo,odate,note,items}=window._pendingRaw;
+  const {cust,invNo,odate,note,items,documents=[]}=window._pendingRaw;
   const noteEl=document.getElementById('raw-confirm-note');
   if(noteEl){noteEl.textContent=note?'비고: '+note:'';noteEl.hidden=!note;}
+  const docsEl=document.getElementById('raw-confirm-docs');
+  if(docsEl){docsEl.textContent=documents.length?`Drive 증빙 ${documents.length}개: `+documents.map(d=>`${d.type} · ${d.name}`).join(', '):'';docsEl.hidden=!documents.length;}
   const amounts=InvoiceAmounts.previewAmounts(items.map(it=>({...it,sales_type:it.salesType,ship_mode:it.shipMode??null})),window._editRawInvId?window._editRawBefore?.items||[]:[]);
   const paidAmt=items.reduce((total,it,index)=>total+(it.salesType==='Paid'?amounts[index]:0),0);
   const focItems=items.filter(i=>i.salesType!=='Paid');
@@ -2103,13 +2128,13 @@ function _showRawConfirmModal(){
 
 async function confirmRawSave(){
   if(_savingRaw||_savingRawUpload)return;
-  const {cust,c,invNo,odate,pdate,sdate,note,items}=window._pendingRaw||{};
+  const {cust,c,invNo,odate,pdate,sdate,note,items,documents}=window._pendingRaw||{};
   if(!invNo)return;
   const saved=await persistRawInvoice(null,{
     no:invNo,customer:cust,mgr:c?.mgr||'',
     order_date:odate,pay_date:pdate,ship_date:sdate,
     status:'Ordered',ship_status:'준비중',foc:0,note:note||''
-  },items);
+  },items,{documents});
   if(!saved)return;
   cm('m-raw-confirm');
   window._pendingRaw=null;
@@ -2135,7 +2160,10 @@ async function persistRawInvoice(id,invoice,items,options={}){
     const replacements=items.map(it=>({name:it.name||it.barcode,barcode:it.barcode,sales_type:it.salesType,qty:it.qty,price:it.price,ship_mode:it.shipMode??null}));
     const operation=await invoiceChange(id,payload,InvoiceAmounts.preserveBlankBarcodes(replacements,id===null?[]:window._editRawBefore?.items||getInvItems(id)),id===null?null:window._editRawBefore);
     if(id===null)operation.auto_number=true;
-    return await changeRequests.submit([operation],options);
+    // 새 주문의 증빙은 같은 작업에 실어 보내고, 서버가 승인 때 확정된 주문에 연결한다.
+    const {documents,...submitOptions}=options;
+    if(id===null&&documents?.length)operation.documents=documents;
+    return await changeRequests.submit([operation],submitOptions);
   }catch(error){
     if(options.onFailure)options.onFailure(error,/^[0-9A-Z]{5}$/.test(error.code||''));
     else toast('요청 실패 또는 접수 확인 필요: '+(error?.message||String(error))+' — 입력은 유지했습니다. 변경 요청 목록을 확인해 주세요.');

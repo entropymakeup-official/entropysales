@@ -65,12 +65,18 @@
     for(const {item} of restBefore)changes.push({kind:'삭제',item,detail:itemFacts(item,fields)});
     return changes;
   }
+  // 새 주문과 함께 승인될 Drive 증빙. 승인자가 원본을 열어 볼 수 있게 링크를 붙인다.
+  function documentRows(documents){
+    if(!Array.isArray(documents)||!documents.length)return '';
+    const link=d=>/^[A-Za-z0-9_-]{10,200}$/.test(d?.drive_file_id||'')?'https://drive.google.com/file/d/'+d.drive_file_id+'/view'+(/^[A-Za-z0-9_-]{1,200}$/.test(d.resource_key||'')?'?resourcekey='+d.resource_key:''):'';
+    return `<h5>함께 연결할 Drive 증빙 ${documents.length}개</h5><table class="cs-table"><thead><tr><th scope="col">종류</th><th scope="col">서류명</th></tr></thead><tbody>${documents.map(d=>`<tr><td>${escape(d?.type||'')}</td><td>${link(d)?`<a href="${escape(link(d))}" target="_blank" rel="noopener noreferrer">${escape(d?.name||'')}</a>`:escape(d?.name||'')}</td></tr>`).join('')}</tbody></table>`;
+  }
   function invoiceSection(op,ctx){
     const items=Array.isArray(op.items)?op.items:[];
     if(op.id===null||op.id===undefined||op.id===''){
       const header=HEADER.filter(k=>op.invoice&&Object.prototype.hasOwnProperty.call(op.invoice,k)&&!same(op.invoice[k],null)).map(k=>[k,op.invoice[k]]);
       const no=op.invoice?.no||'';
-      return `<section class="cs-op"><h4>신규 인보이스${no?' · '+escape(no):''}</h4>${op.auto_number?'<p class="cs-note">인보이스 번호는 승인 시 확정됩니다.</p>':''}${valueTable(header,ctx)}<h5>품목 ${items.length}개</h5>${itemRows(items)}</section>`;
+      return `<section class="cs-op"><h4>신규 인보이스${no?' · '+escape(no):''}</h4>${op.auto_number?'<p class="cs-note">인보이스 번호는 승인 시 확정됩니다.</p>':''}${valueTable(header,ctx)}<h5>품목 ${items.length}개</h5>${itemRows(items)}${documentRows(op.documents)}</section>`;
     }
     const before=op.before?.invoice||{},beforeItems=Array.isArray(op.before?.items)?op.before.items:[];
     const header=Object.keys(op.invoice||{}).filter(k=>!same(before[k],op.invoice[k])).map(k=>changeRow(k,before[k],op.invoice[k],ctx));
