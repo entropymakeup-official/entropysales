@@ -1103,8 +1103,12 @@ const _invoiceStatusPending=new Set();
 function invoicePaymentMarkup(inv,rev){
   if(_invoiceStatusPending.has(inv.id))return '<span class="badge bg-gray">저장 중…</span>';
   if(inv.status==='Cancelled')return '<span class="badge bg-red">취소</span>';
-  // 0원(샘플 등) 주문도 칸을 눌러 취소 요청을 할 수 있게 표시만 비워 둔다.
-  if(rev<=0)return '<span style="color:var(--text3)">-</span>';
+  // 유상 금액이 없는 주문(FOC·샘플만 나간 건)은 입금 대상이 아니므로 품목 유형으로 표시한다.
+  if(rev<=0){
+    const names={FOC:'FOC',Sample:'샘플',GWP:'GWP',Replacement:'교체품',Lost:'분실'};
+    const types=SALES_TYPES.filter(t=>t!=='Paid'&&getInvItems(inv.id).some(i=>i.sales_type===t)).map(t=>names[t]);
+    return types.length?`<span class="badge bg-gray" title="유상 품목이 없어 입금 대상이 아닙니다">${types.join('·')}</span>`:'<span style="color:var(--text3)">-</span>';
+  }
   return inv.status==='Paid'
     ?`<span class="badge bg-green">입금완료</span> <span style="font-size:9px;color:var(--text3)">${esc(inv.pay_date||'')}</span>${verificationMarkup(inv.pay_verified_by,inv.pay_verified_at)}`
     :'<span class="badge bg-amber">미입금</span>';
