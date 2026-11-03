@@ -41,15 +41,39 @@ function settlementNeeds(draft){
  return needs;
 }
 const isEvidenceFor=need=>op=>op.table==='invoice_drive_documents'&&op.action==='insert'&&op.values?.invoice_id===need.invoiceId&&op.values?.type===need.type;
-function attachEvidence(draft,links,hasExisting,prepare){
- const next=clone(draft),added=[];
+const isInvoiceOp=op=>op.action==='invoice'||(op.table==='invoices'&&op.action==='update');
+function attachEvidence(draft,links,hasExisting,prepare,hasFile=()=>false){
+ const next=clone(draft),added=[],used=new Set();
+ const filled=kind=>String(links?.[kind]?.url||'').trim()!=='';
+ const targets=next.operations.filter(isInvoiceOp);
+ const only=targets.length===1?targets[0]:null;
+ // 선적서류 링크를 넣으면 출고완료 요청으로 본다. 상태를 준비중으로 두면 링크가 말없이 빠지던 문제를 막는다.
+ if(filled('ship')&&only){
+  const values=only.action==='invoice'?only.invoice:only.values,current={...(only.action==='invoice'?{}:only.before),...values};
+  if(current.ship_status!=='출고완료'){
+   if(!current.ship_date)throw Error('선적서류를 넣으면 출고완료로 요청됩니다. 출고일을 입력해 주세요.');
+   values.ship_status='출고완료';if(!values.ship_date)values.ship_date=current.ship_date;
+  }
+ }
+ const attach=(invoiceId,kind)=>{
+  const type=settlementKinds[kind].type,link=links[kind];
+  next.operations=next.operations.filter(op=>!isEvidenceFor({invoiceId,type})(op));
+  const values=prepare({invoice_id:invoiceId,type,name:String(link.name||'').trim()||type,url:link.url});
+  // 이미 이 주문에 붙은 파일을 다시 넣으면 서버가 중복으로 거절하므로 연결을 건너뛴다.
+  if(hasFile(invoiceId,values.drive_file_id))return;
+  added.push({table:'invoice_drive_documents',action:'insert',key:{},before:null,values});
+ };
  for(const need of settlementNeeds(next)){
-  const link=links?.[need.kind]||{};
-  if(String(link.url||'').trim()){
-   next.operations=next.operations.filter(op=>!isEvidenceFor(need)(op));
-   added.push({table:'invoice_drive_documents',action:'insert',key:{},before:null,values:prepare({invoice_id:need.invoiceId,type:need.type,name:String(link.name||'').trim()||need.type,url:link.url})});
-  }else if(!next.operations.some(isEvidenceFor(need))&&!hasExisting(need.invoiceId,need.type))
+  if(filled(need.kind)){used.add(need.kind);attach(need.invoiceId,need.kind);}
+  if(!added.some(isEvidenceFor(need))&&!next.operations.some(isEvidenceFor(need))&&!hasExisting(need.invoiceId,need.type))
    throw Error(`${need.label}에는 ${need.type} Google Drive 링크가 필요합니다.`);
+ }
+ // 상태 변경과 무관하게 넣은 링크도 버리지 않고 증빙으로 연결한다.
+ for(const kind of Object.keys(settlementKinds)){
+  if(!filled(kind)||used.has(kind))continue;
+  const invoiceId=only?(only.action==='invoice'?only.id:only.key?.id):null;
+  if(!invoiceId)throw Error(`${settlementKinds[kind].type} 링크를 연결할 주문을 하나만 선택해 주세요.`);
+  attach(invoiceId,kind);
  }
  // 서버는 주문 상태를 바꾸는 순간 증빙을 확인하므로 증빙 연결이 먼저 와야 한다.
  next.operations=[...added,...next.operations];
@@ -94,7 +118,7 @@ function input(field,index,label){
  return `<label>${esc(label||labels[field.key]||field.key)}${control}</label>`;
 }
 function evidenceInputs(links){
- return `<fieldset class="request-evidence"><legend>증빙 (Google Drive 링크)</legend><p>입금완료로 바꾸면 입금증빙, 출고완료로 바꾸면 선적서류 링크가 필요합니다. 이미 연결된 증빙이 있으면 비워 둘 수 있습니다. 요청자 본인이 승인할 때는 검토 메모에 확인한 증빙을 적어야 합니다.</p>${Object.entries(settlementKinds).map(([k,v])=>`<label>${esc(v.type)} 서류명<input data-evidence-name="${k}" maxlength="250" value="${esc(links[k].name)}" placeholder="예: ${k==='pay'?'10월 입금 거래내역':'B/L'}"></label><label>${esc(v.type)} 링크<input data-evidence-url="${k}" type="url" value="${esc(links[k].url)}" placeholder="https://drive.google.com/file/d/…/view"></label>`).join('')}</fieldset>`;
+ return `<fieldset class="request-evidence"><legend>증빙 (Google Drive 링크)</legend><p>입금완료로 바꾸면 입금증빙, 출고완료로 바꾸면 선적서류 링크가 필요합니다. 선적서류 링크를 넣으면 출고완료로 요청됩니다(출고일 필요). 이미 연결된 증빙이 있으면 비워 둘 수 있습니다. 요청자 본인이 승인할 때는 검토 메모에 확인한 증빙을 적어야 합니다.</p>${Object.entries(settlementKinds).map(([k,v])=>`<label>${esc(v.type)} 서류명<input data-evidence-name="${k}" maxlength="250" value="${esc(links[k].name)}" placeholder="예: ${k==='pay'?'10월 입금 거래내역':'B/L'}"></label><label>${esc(v.type)} 링크<input data-evidence-url="${k}" type="url" value="${esc(links[k].url)}" placeholder="https://drive.google.com/file/d/…/view"></label>`).join('')}</fieldset>`;
 }
 async function open({document,request,client,submit,onSaved=()=>{},label,evidence}){
  if(activeDialog){activeDialog.focus?.();return activeDialog;}
@@ -121,7 +145,7 @@ async function open({document,request,client,submit,onSaved=()=>{},label,evidenc
    const error=dialog.querySelector('[data-error]');error.textContent='';
    try{
     sync();if(!draft.reason)throw Error('변경 사유를 입력해 주세요.');
-    const operations=evidence?attachEvidence(draft,links,evidence.hasExisting,evidence.prepare).operations:draft.operations;
+    const operations=evidence?attachEvidence(draft,links,evidence.hasExisting,evidence.prepare,evidence.hasFile).operations:draft.operations;
     busy=true;for(const el of dialog.querySelectorAll('input,textarea,select,button'))el.disabled=true;
     let result;
     if(draft.id){const {data,error:rpcError}=await client.rpc('revise_change_request',{p_id:draft.id,p_revision:draft.revision,p_operations:operations,p_reason:draft.reason});if(rpcError)throw rpcError;result=data;if(result?.revision!==draft.revision+1)throw Error('수정 결과를 확인하지 못했습니다. 요청 목록을 새로고침해 주세요.');}

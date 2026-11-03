@@ -4733,7 +4733,7 @@ async function confirmRspUpload(){
 async function delStock(id){if(confirm('입고 예정 삭제를 요청할까요?'))await requestRow('stocks','delete',{id},null,_stocks.find(r=>r.id===id));}
 
 function hasDriveEvidence(id,type){return _driveRows.some(d=>d.invoice_id===id&&d.type===type);}
-const settlementEvidence={hasExisting:hasDriveEvidence,prepare:form=>DriveDocuments.prepare(form,_invoices)};
+const settlementEvidence={hasExisting:hasDriveEvidence,hasFile:(id,file)=>_driveRows.some(d=>d.invoice_id===id&&d.drive_file_id===file),prepare:form=>DriveDocuments.prepare(form,_invoices)};
 // Reuse the author's proposed values, preserving an existing request and item edits.
 async function openInvoiceStatusRequest(id,select){
  const inv=_invoices.find(i=>i.id===id);if(!inv)return;
