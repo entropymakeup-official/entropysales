@@ -185,7 +185,7 @@
       <div class="fg"><label>국가</label><input id="c-country"/></div>
       <div class="fg"><label>영세/과세</label><select id="c-tax"><option>영세</option><option>과세</option></select></div>
       <div class="fg"><label>공급률 (%)</label><input id="c-supply-rate" type="number" placeholder="예: 30" min="0" max="100"/></div>
-      <div class="fg"><label>거래 상태</label><select id="c-status"><option>거래중</option><option>협의중</option><option>계약종료</option></select></div>
+      <div class="fg"><label>거래 상태</label><select id="c-status"><option>거래중</option><option>협의중</option><option>계약종료</option><option>보류</option></select></div>
     </div>
     <div class="frow"><div class="fg"><label>사업자번호</label><input id="c-biz" placeholder="000-00-00000"/></div><div class="fg"><label>업태</label><input id="c-biz-type" placeholder="도매 및 소매업"/></div></div>
     <div class="frow c1"><div class="fg"><label>주소</label><input id="c-addr"/></div></div>
@@ -672,7 +672,7 @@
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=8fb85cda5764"></script>
+  <script src="app.js?v=1a677674bece"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 </body>
