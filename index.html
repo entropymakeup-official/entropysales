@@ -152,8 +152,9 @@
     <div class="frow c3">
       <div class="fg"><label>Status</label><select id="inv-status"><option>Ordered</option><option>Paid</option><option>Closed</option><option>Cancelled</option></select></div>
       <div class="fg"><label>FOC 금액</label><input id="inv-foc" type="number" value="0"/></div>
-      <div class="fg"><label>메모</label><input id="inv-note"/></div>
+      <div class="fg"><label id="inv-note-label" for="inv-note">메모</label><input id="inv-note"/></div>
     </div>
+    <div id="inv-note-old" class="note-history" hidden style="white-space:pre-wrap;max-height:120px;overflow:auto;font-size:11px;color:var(--text2);background:var(--bg2,#f6f6f6);border-radius:6px;padding:6px 8px;margin:-4px 0 10px" title="기존 메모 — 지우거나 고칠 수 없습니다"></div>
     <div class="sdiv">품목</div>
     <p id="inv-proof-warning" class="invoice-proof-warning" hidden></p>
     <table class="it"><thead><tr><th style="min-width:140px">제품명</th><th>Barcode</th><th>Sales Type</th><th>수량</th><th>단가(₩)</th><th>금액</th><th>운송</th><th></th></tr></thead>
@@ -671,7 +672,7 @@
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=47d3fa1b03b5"></script>
+  <script src="app.js?v=8fb85cda5764"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 </body>

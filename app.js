@@ -134,7 +134,11 @@ function shipBadge(s){return s==='출고완료'?`<span class="badge bg-green">�
 function stBadge(s){const n=(s==='GWP'||s==='Sample')?'FOC':s;const m={Paid:'bg-green',FOC:'bg-red',Replacement:'bg-amber',Lost:'bg-coral'};return '<span class="badge '+(m[n]||'bg-gray')+'">'+n+'</span>';}
 // 품목별 운송 방식 (Air/Sea/미지정). 같은 품목을 항공·해상으로 나눈 주문을 구분한다.
 // RAW 입력의 비고는 주문 단위 기존 invoices.note에 저장합니다(인보이스 상세·거래명세서 비고와 같은 값).
-function rawNoteRow(value){return `<div class="frow c1" style="margin-bottom:10px"><div class="fg"><label for="rm-note">비고 (메모)</label><input id="rm-note" maxlength="2000" value="${esc(value||'')}" placeholder="주문 단위 메모 — 인보이스 상세·거래명세서 비고에 표시됩니다" onpaste="event.stopPropagation()" onkeydown="event.stopPropagation()"/></div></div>`;}
+// 기존 메모는 지우거나 고칠 수 없다(서버도 NOTE_APPEND_ONLY로 거절). 수정 화면의 입력칸은 '메모 추가'이고, 저장 때 날짜와 함께 기존 메모 뒤에 붙인다.
+function appendNote(old,add){old=String(old||'').replace(/\s+$/,'');add=String(add||'').trim();if(!add)return old;return old?`${old}\n[${today()}] ${add}`:add;}
+function noteHistoryMarkup(value){return value?`<div class="note-history" style="white-space:pre-wrap;max-height:120px;overflow:auto;font-size:11px;color:var(--text2);background:var(--bg2,#f6f6f6);border-radius:6px;padding:6px 8px;margin-bottom:6px" title="기존 메모 — 지우거나 고칠 수 없습니다">${esc(value)}</div>`:'';}
+function rawNoteRow(value){return `<div class="frow c1" style="margin-bottom:10px"><div class="fg"><label for="rm-note">${value?'메모 추가 (기존 메모는 그대로 두고 뒤에 붙습니다)':'비고 (메모)'}</label>${noteHistoryMarkup(value)}<input id="rm-note" maxlength="2000" value="" placeholder="${value?'추가할 내용 — 저장 시 날짜와 함께 기존 메모 뒤에 붙습니다':'주문 단위 메모 — 인보이스 상세·거래명세서 비고에 표시됩니다'}" onpaste="event.stopPropagation()" onkeydown="event.stopPropagation()"/></div></div>`;}
+function showInvNoteHistory(value){const box=document.getElementById('inv-note-old'),label=document.getElementById('inv-note-label'),input=document.getElementById('inv-note');if(box){box.textContent=value;box.hidden=!value;}if(label)label.textContent=value?'메모 추가':'메모';if(input)input.placeholder=value?'기존 메모 뒤에 날짜와 함께 붙습니다':'';}
 function rawNoteValue(){return (document.getElementById('rm-note')?.value||'').trim();}
 // 새 주문 요청에 함께 보낼 Drive 증빙 입력 줄. prefix로 RAW 발주 입력(rm)과 인보이스 등록 창(inv)을 구분한다.
 function newDocsBlock(prefix){return `<div class="new-docs" id="${prefix}-docs"><div class="new-docs-hd"><label>Drive 증빙 (선택 · 발주서는 '기타')</label><button type="button" class="btn btn-sm" onclick="addNewDocRow('${prefix}')"><i class="ti ti-plus"></i> 증빙 추가</button></div><div class="new-docs-rows"></div><p class="new-docs-help">주문과 같은 요청으로 승인됩니다. 입금완료·출고완료는 승인 후 인보이스 목록에서 요청합니다.</p></div>`;}
@@ -1190,6 +1194,7 @@ function openNewInv(){
   document.getElementById('inv-status').value='Ordered';
   document.getElementById('inv-ship').value='준비중';
   document.getElementById('inv-note').value='';
+  showInvNoteHistory('');
   document.getElementById('inv-foc').value='0';
   document.getElementById('inv-items').innerHTML='';
   addInvItem();calcInvTotal();
@@ -1212,7 +1217,8 @@ function editInv(id){
   document.getElementById('inv-sdate').value=v.ship_date||'';
   document.getElementById('inv-status').value=v.status;
   document.getElementById('inv-ship').value=v.ship_status||'준비중';
-  document.getElementById('inv-note').value=v.note||'';
+  document.getElementById('inv-note').value='';
+  showInvNoteHistory(v.note||'');
   document.getElementById('inv-foc').value=v.foc||0;
   const tbody=document.getElementById('inv-items');tbody.innerHTML='';
   getInvItems(id).forEach(it=>addInvItem(it));
@@ -1379,7 +1385,7 @@ async function saveInv(){
   const c=custByName(customer);
   // 수정 시에는 열어 둔 인보이스의 담당자를 유지하고, 신규 등록일 때만 거래처 마스터 담당자를 쓴다.
   const mgr=_editInv?document.getElementById('inv-mgr').value.trim():(c?.mgr||'');
-  const payload={no,customer,mgr,order_date:document.getElementById('inv-odate').value||null,pay_date:document.getElementById('inv-pdate').value||null,ship_date:document.getElementById('inv-sdate').value||null,status:document.getElementById('inv-status').value,ship_status:document.getElementById('inv-ship').value,foc:parseFloat(document.getElementById('inv-foc').value)||0,note:document.getElementById('inv-note').value};
+  const payload={no,customer,mgr,order_date:document.getElementById('inv-odate').value||null,pay_date:document.getElementById('inv-pdate').value||null,ship_date:document.getElementById('inv-sdate').value||null,status:document.getElementById('inv-status').value,ship_status:document.getElementById('inv-ship').value,foc:parseFloat(document.getElementById('inv-foc').value)||0,note:_editInv?appendNote(_editInv.note,document.getElementById('inv-note').value):document.getElementById('inv-note').value};
   const editId=_editInv?.id??null;
   const isNew=editId===null;
   // 입금완료·출고완료는 증빙 링크를 받는 목록의 상태 요청으로만 접수한다(서버도 증빙 없이 거절).
@@ -2085,7 +2091,7 @@ async function saveRawManual(){
     const inv=_invoices.find(i=>i.id===editId);
     const c=custByName(cust);
     if(!inv){toast('수정할 주문을 찾을 수 없습니다. 목록을 다시 불러와 주세요.');return;}
-    const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:cust===inv.customer?inv.mgr:(c?.mgr||''),order_date:odate,pay_date:pdate,ship_date:sdate,note},items);
+    const saved=await persistRawInvoice(editId,{...inv,customer:cust,mgr:cust===inv.customer?inv.mgr:(c?.mgr||''),order_date:odate,pay_date:pdate,ship_date:sdate,note:appendNote(inv.note,note)},items);
     if(!saved)return;
     window._editRawInvId=null;
     toast(ChangeRequests.message(saved));
