@@ -2956,7 +2956,7 @@ function renderCustomers(){
   <div class="fb">
     <input id="fc-q" placeholder="업체명 / 코드..." oninput="filterCust()" style="width:170px"/>
     <select id="fc-m" onchange="filterCust()"><option value="">담당자 전체</option>${MGRS.map(m=>'<option>'+m+'</option>').join('')}</select>
-    <select id="fc-status" onchange="filterCust()"><option value="">상태 전체</option><option>거래중</option><option>협의중</option><option>계약종료</option></select>
+    <select id="fc-status" onchange="filterCust()"><option value="">상태 전체</option><option>거래중</option><option>협의중</option><option>계약종료</option><option>보류</option></select>
   </div>
   <div class="card"><div class="tw"><table>
     <thead><tr>
@@ -2974,8 +2974,20 @@ function renderCustomers(){
       <th>작업</th>
     </tr></thead>
     <tbody id="cust-tbody"></tbody>
-  </table></div></div>`;
+  </table></div></div>
+  <div class="card" id="cust-hold-card" style="margin-top:14px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i class="ti ti-player-pause" style="color:var(--text3)"></i><strong style="font-size:13px">보류 거래처</strong><span class="badge bg-gray" id="cust-hold-count">0</span><span style="font-size:11px;color:var(--text3)">삭제하지 않고 따로 모아 둔 거래처입니다. 기존 주문·자료는 그대로 유지됩니다.</span></div>
+    <div class="tw"><table><thead><tr><th>코드</th><th>업체명</th><th>담당자</th><th>대표자</th><th>거래 담당자</th><th>연락처</th><th>국가</th><th>구분</th><th>공급률</th><th>인보이스</th><th>매출</th><th>주소</th><th>상태</th><th>작업</th></tr></thead>
+    <tbody id="cust-hold-tbody"></tbody></table></div>
+  </div>`;
   filterCust();
+}
+async function setCustHold(id,hold){
+  const c=_customers.find(x=>x.id===id);if(!c)return;
+  const next=hold?'보류':'거래중';
+  if(!confirm(hold?`'${c.name}'을(를) 보류 거래처로 옮길까요?
+(삭제되지 않으며 승인 후 아래 보류 목록으로 이동합니다)`:`'${c.name}'의 보류를 해제하고 '거래중'으로 되돌릴까요?`))return;
+  if(await requestRow('customers','update',{id},{status:next},c))filterCust();
 }
 function filterCust(){
   const q=(document.getElementById('fc-q')||{value:''}).value.toLowerCase();
@@ -2991,14 +3003,16 @@ function filterCust(){
     else{va=(a[_custSort.col]||'').toString().toLowerCase();vb=(b[_custSort.col]||'').toString().toLowerCase();}
     if(va<vb)return _custSort.dir==='asc'?-1:1;if(va>vb)return _custSort.dir==='asc'?1:-1;return 0;
   });
-  if(!list.length){tbody.innerHTML='<tr><td colspan="13"><div class="est"><i class="ti ti-building-store"></i>거래처 없음</div></td></tr>';return;}
-  tbody.innerHTML=list.map(c=>{
+  const isHold=c=>c.status==='보류';
+  const active=list.filter(c=>!isHold(c)),held=list.filter(isHold);
+  const row=c=>{
     const invs=_invoices.filter(i=>i.customer===c.name);
     const rev=invs.reduce((a,v)=>a+itemsRev(getInvItems(v.id)),0);
     const cst=c.status||'거래중';
-    const ended=cst==='계약종료';
-    const sBadge=cst==='거래중'?'bg-green':cst==='협의중'?'bg-amber':'bg-red';
-    return '<tr'+(ended?' style="opacity:0.4"':'')+'>'
+    const hold=isHold(c);
+    const dim=cst==='계약종료'||hold;
+    const sBadge=cst==='거래중'?'bg-green':cst==='협의중'?'bg-amber':hold?'bg-gray':'bg-red';
+    return '<tr'+(dim?' style="opacity:'+(hold?'0.65':'0.4')+'"':'')+'>'
       +'<td><span class="badge bg-purple">'+(c.code||'-')+'</span></td>'
       +'<td><strong style="font-weight:600">'+c.name+'</strong></td>'
       +'<td>'+(c.mgr||'-')+'</td>'
@@ -3012,8 +3026,14 @@ function filterCust(){
       +'<td style="font-size:11px">'+fmt(rev)+'</td>'
       +'<td style="font-size:10px;color:var(--text3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(c.addr||'')+'">'+(c.addr?'<span title="'+c.addr+'">📍</span>':'-')+'</td>'
       +'<td><span class="badge '+sBadge+'">'+cst+'</span></td>'
-      +'<td><span class="alink" onclick="editCust(\''+c.id+'\')">수정</span> · <span class="alink" onclick="openCustomerContracts(\''+c.id+'\')">계약서</span></td></tr>';
-  }).join('');
+      +'<td style="white-space:nowrap"><span class="alink" onclick="editCust(\''+c.id+'\')">수정</span> · <span class="alink" onclick="openCustomerContracts(\''+c.id+'\')">계약서</span> · '
+      +(hold?'<span class="alink" onclick="setCustHold(\''+c.id+'\',false)">보류 해제</span>':'<span class="alink" onclick="setCustHold(\''+c.id+'\',true)">보류</span>')+'</td></tr>';
+  };
+  tbody.innerHTML=active.length?active.map(row).join(''):'<tr><td colspan="14"><div class="est"><i class="ti ti-building-store"></i>거래처 없음</div></td></tr>';
+  const htb=document.getElementById('cust-hold-tbody'),hcard=document.getElementById('cust-hold-card'),hcnt=document.getElementById('cust-hold-count');
+  if(htb){htb.innerHTML=held.length?held.map(row).join(''):'<tr><td colspan="14"><div class="est" style="padding:14px">보류 거래처 없음</div></td></tr>';}
+  if(hcnt)hcnt.textContent=held.length;
+  if(hcard)hcard.style.display=(st&&st!=='보류')?'none':'';
 }
 function exportCust(){
   if(!_customers.length){toast('데이터가 없습니다.');return;}
