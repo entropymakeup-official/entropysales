@@ -25,15 +25,16 @@
     const seen=new Set();
     return rows.map(row=>{
       if(!row||typeof row.customer_id!=='string'||!row.customer_id||!validDate(row.month)||!row.month.endsWith('-01'))throw new Error('정산 월·거래처를 확인해야 합니다.');
-      const key=row.customer_id+'|'+row.month;
-      if(seen.has(key))throw new Error('같은 거래처·월의 정산 자료가 중복되었습니다.');
+      const line=typeof row.line==='string'&&row.line.trim()?row.line.trim():'기본';
+      const key=row.customer_id+'|'+row.month+'|'+line;
+      if(seen.has(key))throw new Error('같은 거래처·월·라인의 정산 자료가 중복되었습니다.');
       seen.add(key);
       const hasDeposit=row.deposited_amount!==null&&row.deposited_amount!==undefined;
       if(hasDeposit!==(row.deposited_date!==null&&row.deposited_date!==undefined)||(hasDeposit&&!validDate(row.deposited_date)))throw new Error('실입금 금액과 날짜를 확인해야 합니다.');
       if(!Number.isSafeInteger(Number(row.ending_stock_qty))||Number(row.ending_stock_qty)<0)throw new Error('월말 재고 수량을 확인해야 합니다.');
       const verifiedBy=row.verified_by??null,verifiedAt=row.verified_at??null;
       if((verifiedBy===null)!==(verifiedAt===null))throw new Error('검증자와 검증일을 확인해야 합니다.');
-      return {...row,stocked:amount(row.stocked_supply),sold:amount(row.sold_supply),deposited:hasDeposit?amount(row.deposited_amount):null,
+      return {...row,line,stocked:amount(row.stocked_supply),sold:amount(row.sold_supply),deposited:hasDeposit?amount(row.deposited_amount):null,
         stockQty:Number(row.ending_stock_qty),stock:amount(row.ending_stock_supply,{nonNegative:true}),
         openingQty:optionalCount(row.opening_stock_qty),inQty:optionalCount(row.in_qty),returnQty:optionalCount(row.return_qty),
         soldQty:optionalCount(row.sold_qty,{nonNegative:false}),verifiedBy,verifiedAt};
@@ -43,8 +44,8 @@
   function checkRows(checked){
     const prev=new Map(),byStore=new Map();
     [...checked].sort((a,b)=>a.month.localeCompare(b.month)).forEach(r=>{
-      const list=byStore.get(r.customer_id)||[];
-      prev.set(r,list[list.length-1]||null);list.push(r);byStore.set(r.customer_id,list);
+      const k=r.customer_id+'|'+r.line,list=byStore.get(k)||[];
+      prev.set(r,list[list.length-1]||null);list.push(r);byStore.set(k,list);
     });
     return checked.map(r=>{
       const hasNote=typeof r.note==='string'&&r.note.trim()!=='';
@@ -81,18 +82,29 @@
     const checked=checkRows(validate(rows)),byId=new Map(customers.map(c=>[c.id,c]));
     const first=period.start.slice(0,7)+'-01',last=period.end.slice(0,7)+'-01';
     const selected=checked.filter(r=>r.month>=first&&r.month<=last&&(!period.customer||byId.get(r.customer_id)?.name===period.customer))
-      .map(r=>({...r,customer_name:byId.get(r.customer_id)?.name||'거래처 연결 확인 필요'}))
-      .sort((a,b)=>b.month.localeCompare(a.month)||a.customer_name.localeCompare(b.customer_name,'ko'));
-    const result={rows:selected,totalRegistered:checked.length,stocked:0,sold:0,deposited:0,missingDeposits:0,stock:0,stockQty:0,stockMonths:[],issues:0,failures:0};
+      .map(r=>{const customer_name=byId.get(r.customer_id)?.name||'거래처 연결 확인 필요';return {...r,customer_name,label:customer_name+(r.line!=='기본'?' '+r.line:'')};})
+      .sort((a,b)=>b.month.localeCompare(a.month)||a.customer_name.localeCompare(b.customer_name,'ko')||(a.line==='기본'?-1:b.line==='기본'?1:a.line.localeCompare(b.line,'ko')));
+    const result={rows:selected,totalRegistered:checked.length,stocked:0,sold:0,deposited:0,missingDeposits:0,stock:0,stockQty:0,stockMonths:[],issues:0,failures:0,lines:[]};
     const latest=new Map();
     for(const r of selected){
       result.stocked+=r.stocked;result.sold+=r.sold;
       if(r.deposited===null)result.missingDeposits++;else result.deposited+=r.deposited;
       if(r.status!=='ok')result.issues++;
       if(r.status==='fail')result.failures++;
-      if(!latest.has(r.customer_id))latest.set(r.customer_id,r); // rows are newest first
+      const lk=r.customer_id+'|'+r.line;
+      if(!latest.has(lk))latest.set(lk,r); // rows are newest first
     }
-    for(const r of latest.values()){result.stock+=r.stock;result.stockQty+=r.stockQty;result.stockMonths.push(r.customer_name+' '+r.month.slice(0,7));}
+    for(const r of latest.values()){result.stock+=r.stock;result.stockQty+=r.stockQty;result.stockMonths.push(r.label+' '+r.month.slice(0,7));}
+    // 라인별 누적: 시작 기초 + 누적 입고 − 반품 − 판매 = 마지막 기말 (수량), 누적 입고·판매·입금 (금액)
+    for(const [lk,last] of latest){
+      const list=selected.filter(r=>r.customer_id+'|'+r.line===lk).sort((a,b)=>a.month.localeCompare(b.month));
+      const first=list[0],complete=list.every(r=>[r.openingQty,r.inQty,r.returnQty,r.soldQty].every(v=>v!==null));
+      const c={label:last.label,from:first.month.slice(0,7),to:last.month.slice(0,7),months:list.length,stocked:0,sold:0,deposited:0,pending:0,inQty:0,returnQty:0,soldQty:0,
+        startQty:complete?first.openingQty:null,endQty:last.stockQty,endAmt:last.stock};
+      for(const r of list){c.stocked+=r.stocked;c.sold+=r.sold;if(r.deposited===null)c.pending++;else c.deposited+=r.deposited;if(complete){c.inQty+=r.inQty;c.returnQty+=r.returnQty;c.soldQty+=r.soldQty;}}
+      c.flowOk=complete?c.startQty+c.inQty-c.returnQty-c.soldQty===c.endQty:null;
+      result.lines.push(c);
+    }
     for(const key of ['stocked','sold','deposited','stock'])amount(result[key]);
     return result;
   }
@@ -180,13 +192,13 @@
     const wrap=body=>`<section id="consign-page" class="card consign-panel consign-compact" aria-label="면세점 정산 검증"><div class="consign-body">${body}<details class="consign-basis"><summary>금액 기준·점검 표시 설명</summary>${basisNote}<p class="consign-note">줄을 누르면 재고 흐름·입금 계좌·메모 등 상세가 펼쳐집니다. 점검 ✓ 맞음 · ⓘ 메모로 설명 · … 확인 전 · － 미등록 · ! 불일치 · · 해당 없음. 대시보드 주문 금액은 VAT 포함·별도가 섞여 있어 상세에 참고로만 보여 줍니다.</p></details></div></section>`;
     if(!state||state.status==='idle'||state.status==='loading')return wrap('<p role="status">정산 자료를 불러오는 중입니다.</p>');
     if(state.status!=='ready')return wrap(errorBody(retry,'정산 자료를 불러오지 못했습니다. 연결·로그인·접근 권한을 확인해 주세요.'));
-    const year=filter.year,period={start:year+'-01-01',end:year+'-12-31',customer:filter.customer||''};
+    const year=filter.year,period=year==='all'?{start:'2000-01-01',end:'2099-12-31',customer:filter.customer||''}:{start:year+'-01-01',end:year+'-12-31',customer:filter.customer||''};
     let s;
     try{s=summarize(state.rows,period,customers);}catch{return wrap(errorBody(retry,'정산 자료가 일치하지 않아 표시하지 않았습니다. 자료를 다시 확인해 주세요.'));}
-    const years=[...new Set([year,...state.rows.map(r=>String(r.month).slice(0,4))])].sort().reverse();
+    const years=[...new Set([...(year==='all'?[]:[year]),...state.rows.map(r=>String(r.month).slice(0,4))])].sort().reverse();
     const allStores=[...new Set(state.rows.map(r=>customers.find(c=>c.id===r.customer_id)?.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
     const controls=`<form class="consign-filters" onsubmit="event.preventDefault()">
-      <label>연도<select onchange="setConsignFilter({year:this.value})">${years.map(y=>`<option ${y===year?'selected':''}>${escape(y)}</option>`).join('')}</select></label>
+      <label>연도<select onchange="setConsignFilter({year:this.value})"><option value="all" ${year==='all'?'selected':''}>전체 기간</option>${years.map(y=>`<option ${y===year?'selected':''}>${escape(y)}</option>`).join('')}</select></label>
       <label>매장<select onchange="setConsignFilter({customer:this.value})"><option value="">전체</option>${allStores.map(n=>`<option value="${escape(n)}" ${n===filter.customer?'selected':''}>${escape(n)}</option>`).join('')}</select></label>
       <label class="consign-check"><input type="checkbox" ${filter.issuesOnly?'checked':''} onchange="setConsignFilter({issuesOnly:this.checked})"> 확인 필요만</label>
       ${retry}</form>`;
@@ -199,7 +211,7 @@
       const links=[evidenceLink(r.evidence?.closing_url,'마감'),evidenceLink(r.evidence?.tax_invoice_url,'계산서'),evidenceLink(r.evidence?.reconciliation_url,'대조')].filter(Boolean).join(' ');
       const deposit=r.deposited===null?'<span class="consign-muted">미확인</span>':`${money(r.deposited)} <span class="consign-muted">${escape(String(r.deposited_date).slice(5).replace('-','/'))}</span>`;
       const badges=r.checks.filter(c=>c.key!=='closing'||c.status!=='ok').map(c=>`<span class="consign-chip consign-${c.status}" title="${escape(c.label)}">${SHORT[c.key]}${ICON[c.status]}</span>`).join('');
-      const ord=orders?.get(r.customer_name+'|'+r.month);
+      const ord=r.line==='기본'?orders?.get(r.customer_name+'|'+r.month):undefined;
       const detail=[
         r.openingQty===null?'':`재고 흐름: 기초 ${qty(r.openingQty)} + 입고 ${qty(r.inQty)} − 반품 ${qty(r.returnQty)} − 판매 ${qty(r.soldQty)} = 기말 ${qty(r.stockQty)}개`,
         r.deposited===null?'':`입금: ${escape(r.deposited_date)}${r.evidence?.deposit_account?' · '+escape(r.evidence.deposit_account):''}`,
@@ -209,7 +221,7 @@
       ].filter(Boolean).map(t=>`<div>${t}</div>`).join('');
       const verified=r.verifiedBy?`<span title="${escape(String(r.verifiedAt))}">${escape(r.verifiedBy)} ${escape(String(r.verifiedAt).slice(5,10).replace('-','/'))}</span>`:'<span class="consign-muted">—</span>';
       return `<tr class="consign-row consign-row-${r.status}" onclick="const d=this.nextElementSibling;d.hidden=!d.hidden" title="눌러서 상세 보기">
-        <td>${escape(r.month.slice(2,7).replace('-','.'))}</td><td>${escape(r.customer_name.replace(/^PLMK\s*/,''))}</td>
+        <td>${escape(r.month.slice(2,7).replace('-','.'))}</td><td>${escape(r.label.replace(/^PLMK\s*/,''))}</td>
         <td class="consign-money">${money(r.stocked)}</td><td class="consign-money">${money(r.sold)}</td><td class="consign-money">${deposit}</td>
         <td class="consign-money">${money(r.stock)} <span class="consign-muted">${qty(r.stockQty)}개</span></td>
         <td class="consign-checks">${badges}</td>
@@ -217,7 +229,10 @@
         <tr class="consign-detail" hidden><td colspan="9">${detail}</td></tr>`;
     }).join('');
     const empty=rows.length?'':`<p>${filter.issuesOnly?'확인이 필요한 줄이 없습니다.':'이 조건에 등록된 정산 자료가 없습니다.'}</p>`;
-    return wrap(`<div class="consign-head">${controls}<div class="consign-totals consign-totals-5">${metrics}</div></div>${empty}<table class="consign-table"><thead><tr><th>월</th><th>매장</th><th>입고 공급가</th><th>판매 정산액</th><th>실입금</th><th>월말 재고</th><th>점검</th><th>근거</th><th>검증</th></tr></thead><tbody>${tableRows}</tbody></table>`);
+    const cumulative=s.lines.length?`<table class="consign-table consign-cumulative"><thead><tr><th>누적 (${escape(year==='all'?'전체 기간':year+'년')})</th><th>기간</th><th>입고 공급가</th><th>판매 정산액</th><th>실입금</th><th>재고 수량 흐름</th><th>현재 재고</th></tr></thead><tbody>${s.lines.map(c=>{
+      const flow=c.flowOk===null?'<span class="consign-muted">수량 미입력 달 있음</span>':`<span class="consign-chip consign-${c.flowOk?'ok':'fail'}">${c.flowOk?'✓':'!'} ${qty(c.startQty)} +${qty(c.inQty)} −${qty(c.returnQty)} −${qty(c.soldQty)} = ${qty(c.startQty+c.inQty-c.returnQty-c.soldQty)}</span>`;
+      return `<tr><td>${escape(c.label.replace(/^PLMK\s*/,''))}</td><td>${escape(c.from)}~${escape(c.to)} <span class="consign-muted">${c.months}개월</span></td><td class="consign-money">${money(c.stocked)}</td><td class="consign-money">${money(c.sold)}</td><td class="consign-money">${money(c.deposited)}${c.pending?` <span class="consign-muted">미확인 ${c.pending}</span>`:''}</td><td>${flow}</td><td class="consign-money">${money(c.endAmt)} <span class="consign-muted">${qty(c.endQty)}개</span></td></tr>`;}).join('')}</tbody></table>`:'';
+    return wrap(`<div class="consign-head">${controls}<div class="consign-totals consign-totals-5">${metrics}</div></div>${cumulative}${empty}<table class="consign-table"><thead><tr><th>월</th><th>매장</th><th>입고 공급가</th><th>판매 정산액</th><th>실입금</th><th>월말 재고</th><th>점검</th><th>근거</th><th>검증</th></tr></thead><tbody>${tableRows}</tbody></table>`);
   }
   const api={load,summarize,checkRows:rows=>checkRows(validate(rows)),orderTotals,render,renderPage};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.ConsignmentSettlement=api;

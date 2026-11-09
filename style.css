@@ -435,6 +435,7 @@ tr:hover td{background:var(--bg3)}
 .consign-head .consign-totals em{display:inline;font-size:10px}
 .consign-body .consign-table th,.consign-body .consign-table td{padding:3px 6px;line-height:1.35}
 .consign-basis{margin-top:6px}.consign-basis summary{font-size:11px;font-weight:400;color:var(--text2);padding:2px 0}
+.consign-cumulative{margin-bottom:8px;background:rgba(0,0,0,.015)}.consign-cumulative th{font-weight:600}
 tr.consign-detail td{white-space:normal;font-size:11px;line-height:1.6;color:var(--text2);background:rgba(0,0,0,.02);padding:6px 10px 8px}
 tr.consign-row-fail td{background:rgba(192,57,43,.06)}tr.consign-row-needs td:first-child{box-shadow:inset 3px 0 0 #e0a800}
 @media(max-width:768px){.consign-totals{grid-template-columns:repeat(2,minmax(0,1fr))}}

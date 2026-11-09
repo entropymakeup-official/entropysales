@@ -7,6 +7,11 @@
 - 메인 대시보드 '면세점 월별 정산' 카드: 입고 공급가, 실입금, 미정산 잔액, 검증 상태(확인 필요 건수)만 요약한다. '검증 화면 열기'로 메뉴로 이동한다.
 - '면세점 정산' 메뉴: 연도·매장·'확인 필요만' 필터, 마감 월별 표, 줄마다 점검 결과·근거 링크·메모·검증 기록.
 
+## 라인과 전체 기간
+
+- 같은 거래처·마감 월에 따로 정산·입금되는 줄은 '라인'으로 나눈다: 기본(화장품), 코코렌즈(롯데, 2024-08~2026-01), 부산점(신세계, 2024-10~2025-01). 기본키는 거래처·마감 월·라인 (`sql/consignment-settlement-lines.sql`).
+- 위탁 정산은 처음부터 누적해야 검증되므로, 화면 연도에 '전체 기간'이 있고 표 위에 라인별 누적(입고·판매·입금 합계, 시작 기초 + 누적 입고 − 반품 − 판매 = 현재 재고)을 보여 준다. 롯데는 2024-01, 신세계는 2024-07부터.
+
 ## 금액 기준
 
 - **입고 공급가**: 세금계산서 발행 공급가액(VAT 별도) = 대시보드 주문 매출과 같은 기준.
@@ -40,7 +45,7 @@
 
 ## 배포
 
-1. `sql/consignment-settlements.sql` → `sql/consignment-settlement-checks.sql` 순서로 실행(이미 설치됐으면 중단).
+1. `sql/consignment-settlements.sql` → `sql/consignment-settlement-checks.sql` → `sql/consignment-settlement-lines.sql` 순서로 실행(이미 설치됐으면 중단).
 2. `consignment-settlement.js`, `dashboard-ui.js`, `app.js`, `index.html`, `style.css`를 배포한다. index.html의 버전 쿼리와 app.js 콘텐츠 해시를 함께 반영한다.
 
 테스트에는 가상 거래처·금액만 사용한다.
