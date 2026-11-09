@@ -38,6 +38,26 @@ async function refreshDashboardConsignment(){
   if(document.getElementById('dash-consignment')&&_consignmentState.status!=='idle')renderDash();
 }
 function dashboardConsignmentPanel(){return ConsignmentSettlement.render(_consignmentState,dashboardPeriod(),_customers);}
+let _consignFilter=null;
+function consignFilter(){
+  if(!_consignFilter)_consignFilter={year:today().slice(0,4),customer:'',issuesOnly:false};
+  return _consignFilter;
+}
+function renderConsignPage(){
+  const content=document.getElementById('content');
+  if(_consignmentState.status==='idle'){
+    loadDashboardConsignment().then(()=>{if(document.getElementById('consign-page'))renderConsignPage();});
+  }
+  const orders=ConsignmentSettlement.orderTotals(_invoices,_items,i=>InvoiceAmounts.amount(i));
+  content.innerHTML=ConsignmentSettlement.renderPage(_consignmentState,consignFilter(),_customers,orders);
+}
+function setConsignFilter(change){_consignFilter={...consignFilter(),...change};renderConsignPage();}
+async function refreshConsignPage(){
+  const pending=loadDashboardConsignment();
+  if(document.getElementById('consign-page'))renderConsignPage();
+  await pending;
+  if(document.getElementById('consign-page'))renderConsignPage();
+}
 function dashboardDateRows(){
   return [..._invoices,...(_taxLedgerState.status==='ready'?_taxLedgerState.rows.map(r=>({order_date:r.written_date})):[])];
 }
