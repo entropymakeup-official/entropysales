@@ -253,6 +253,7 @@ function go(page){
   if(page!=='contacts'){globalThis.contactImporter?.close();globalThis.contactRegister?.hide();}
   if(page!=='contracts')globalThis.contractRegister?.hide();
   if(page!=='tasks')globalThis.teamTasks?.hide();
+  if(page!=='dutyfree')globalThis.dutyfree?.hide();
   globalThis.invoiceSheetStatus?.show(page);
   if(page==='inventory'){
     globalThis.inventoryHistory?.hide();
@@ -267,6 +268,7 @@ function go(page){
   document.getElementById('page-title').textContent=page==='productmaster'?'제품 마스터':titles[page]||page;
   if(page==='productmaster'){globalThis.productMaster?.show();return;}
   if(page==='tasks'){document.getElementById('page-title').textContent='업무 목록';globalThis.teamTasks?.show();return;}
+  if(page==='dutyfree'){document.getElementById('page-title').textContent='면세점 판매';globalThis.dutyfree?.show();return;}
   ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,consign:renderConsignPage,customers:renderCustomers,contacts:()=>globalThis.contactRegister?.show(),contracts:renderContracts,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
 let _contractCustomer='';
