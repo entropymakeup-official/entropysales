@@ -8,7 +8,7 @@ function fixture(){
   {id:'2',invoice_id:'inv-a',name:'Free item',sales_type:'FOC',qty:5,price:10},
   {id:'3',invoice_id:'inv-a',name:'Gift item',sales_type:'GWP',qty:2,price:7},
   {id:'4',invoice_id:'inv-b',name:'Only paid',sales_type:'Paid',qty:1,price:100}];
- h.load('fmt','fmtN','itemsByType');h.ctx.itemsRev=items=>items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+A.amount(i),0);return h;
+ h.load('fmt','fmtExact','fmtN','itemsByType');h.ctx.itemsRev=items=>items.filter(i=>i.sales_type==='Paid').reduce((a,i)=>a+A.amount(i),0);return h;
 }
 test('invoice list keeps Paid revenue, shows FOC qty and filters invoices with FOC',()=>{
  const h=fixture();h.load('filterInv');h.ctx.filterInv();

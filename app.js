@@ -109,7 +109,9 @@ let _editInv=null, _editCust=null, _editProd=null;
 let _uploadData=null;
 
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
-function fmt(n){if(!n&&n!==0)return'-';const v=parseFloat(n);if(!Number.isFinite(v))return'-';return'₩'+(v===0?0:v).toLocaleString('ko-KR',{maximumFractionDigits:2});}
+// 원화 금액 표시: 합계·집계는 1원 단위(반올림), 품목 한 줄의 단가·금액은 증빙 대조를 위해 fmtExact로 소수 둘째 자리까지 표시한다.
+function fmt(n){if(!n&&n!==0)return'-';let v=parseFloat(n);if(!Number.isFinite(v))return'-';v=Math.round(v*100)/100;v=Math.sign(v)*Math.round(Math.abs(v));return'₩'+(v===0?0:v).toLocaleString('ko-KR');}
+function fmtExact(n){if(!n&&n!==0)return'-';const v=parseFloat(n);if(!Number.isFinite(v))return'-';return'₩'+(v===0?0:v).toLocaleString('ko-KR',{maximumFractionDigits:2});}
 function fmtN(n){return Math.round(parseFloat(n)||0).toLocaleString('ko-KR');}
 function today(){const d=new Date();d.setHours(d.getHours()+9);return d.toISOString().split('T')[0];}
 function om(id){document.getElementById(id).classList.add('open');}
@@ -783,9 +785,9 @@ function downloadMeongse(inv){
       <td>${it.barcode||''}</td>
       <td style="text-align:left">${it.name||''}</td>
       <td>${fmtN2(qty)}</td>
-      <td>${fmt(price)}</td>
-      <td>${fmt(amt)}</td>
-      <td style="${isPaid?'':'color:#999'}">${isPaid?fmt(amt):'-'}</td>
+      <td>${fmtExact(price)}</td>
+      <td>${fmtExact(amt)}</td>
+      <td style="${isPaid?'':'color:#999'}">${isPaid?fmtExact(amt):'-'}</td>
       <td colspan="2" style="text-align:center;font-weight:700;font-size:10px;color:${tColor}">${sType}</td>
     </tr>`;
   }).join('');
@@ -1251,7 +1253,7 @@ function calcInvTotal(){
   const warning=document.getElementById('inv-proof-warning');
   if(warning){warning.textContent=InvoiceAmounts.editorWarning(before);warning.hidden=!warning.textContent;}
   let total=0;
-  rows.forEach((tr,index)=>{if(items[index].sales_type==='Paid')total+=amounts[index];const td=tr.querySelectorAll('td')[5];if(td)td.textContent=fmt(amounts[index]);});
+  rows.forEach((tr,index)=>{if(items[index].sales_type==='Paid')total+=amounts[index];const td=tr.querySelectorAll('td')[5];if(td)td.textContent=fmtExact(amounts[index]);});
   document.getElementById('inv-total').textContent=fmt(total);
 }
 
@@ -1342,8 +1344,8 @@ function viewInv(id){
         <td>${it.sales_type==='GWP'||it.sales_type==='Sample'?`<span class="badge bg-red">${it.sales_type}</span>`:stBadge(it.sales_type)}</td>
         <td>${shipModeBadge(it.ship_mode)}</td>
         <td style="text-align:right">${fmtN(it.qty)}</td>
-        <td style="text-align:right">${fmt(it.price)}</td>
-        <td style="text-align:right;font-weight:600">${fmt(InvoiceAmounts.amount(it))}</td>
+        <td style="text-align:right">${fmtExact(it.price)}</td>
+        <td style="text-align:right;font-weight:600">${fmtExact(InvoiceAmounts.amount(it))}</td>
       </tr>`;
     // Paid / FOC / 기타 무상 구역으로 나눠 소계 표시 (한 종류뿐이면 구역 없이 표시)
     const groups=[
@@ -1535,8 +1537,8 @@ function filterRaw(page){
       <td>${stBadge(r.st)}</td>
       <td>${shipModeBadge(r.shipMode)}</td>
       <td style="text-align:right">${fmtN(r.qty)}</td>
-      <td style="text-align:right">${fmt(r.price)}</td>
-      <td style="text-align:right;font-weight:600">${fmt(r.amount)}</td>
+      <td style="text-align:right">${fmtExact(r.price)}</td>
+      <td style="text-align:right;font-weight:600">${fmtExact(r.amount)}</td>
     </tr>`;
   }).join('');
   // 페이지네이션
@@ -1895,13 +1897,13 @@ function xgCalcAmt(tr){
     const rows=Array.from(document.querySelectorAll('#xg-body tr'));
     const items=rows.map(row=>({name:row.querySelector('[data-col="1"] input')?.value||'',barcode:row.querySelector('[data-col="0"] input')?.value||'',sales_type:row.querySelector('[data-col="3"] select')?.value||'Paid',qty:parseFloat(row.querySelector('[data-col="4"] input')?.value)||0,price:parseFloat(row.querySelector('[data-col="5"] input')?.value)||0,ship_mode:row.querySelector('[data-col="7"] select')?.value||null}));
     const amounts=InvoiceAmounts.previewAmounts(items,window._editRawBefore.items||[]);
-    rows.forEach((row,index)=>{const cell=row.querySelector('[data-col="6"]');if(cell)cell.textContent=fmt(amounts[index]);});
+    rows.forEach((row,index)=>{const cell=row.querySelector('[data-col="6"]');if(cell)cell.textContent=fmtExact(amounts[index]);});
     return;
   }
   const qty=parseFloat(tr.querySelector('[data-col="4"] input')?.value)||0;
   const price=parseFloat(tr.querySelector('[data-col="5"] input')?.value)||0;
   const amtEl=tr.querySelector('[data-col="6"]');
-  if(amtEl)amtEl.textContent=qty&&price?fmt(qty*price):'-';
+  if(amtEl)amtEl.textContent=qty&&price?fmtExact(qty*price):'-';
 }
 
 // 붙여넣은 값이 선택지에 없으면 기존 선택을 유지한다.
@@ -2921,8 +2923,8 @@ function filterTax(){
     <div class="kpi"><div class="lbl">직접입금 · 세금계산서 미처리</div><div class="val">${count('직접입금')}건</div></div>
     <div class="kpi"><div class="lbl">직수출 · 세금계산서 발급 제외</div><div class="val">${count('직수출')}건</div></div>`;
   const reconciliation=document.getElementById('tax-reconciliation');
-  const cents=value=>Math.round(Number(Number(value).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:2}))*100);
-  const adjustment=(cents(sum('amt'))-cents(sum('supplyAmt'))-cents(sum('pendingAmt')))/100;
+  const won=value=>{const v=Math.round(Number(value)*100)/100;return Math.sign(v)*Math.round(Math.abs(v));};
+  const adjustment=won(sum('amt'))-won(sum('supplyAmt'))-won(sum('pendingAmt'))||0;
   if(reconciliation)reconciliation.textContent=`현재 필터 기준 · 등록금액 ${fmt(sum('amt'))} = 공급가액 집계분 ${fmt(sum('supplyAmt'))} + 확인 필요 ${fmt(sum('pendingAmt'))}${adjustment?' + 표시 반올림 차이 '+fmt(adjustment):''}. 거래처 미연결 ${rows.filter(r=>!r.custId).length}건도 등록금액에 포함합니다. 상태 건수는 거래처·월 단위입니다.`;
   document.getElementById('tax-content').innerHTML=months.map(m=>{
     const monthRows=rows.filter(r=>r.month===m);

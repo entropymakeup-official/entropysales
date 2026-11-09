@@ -1,7 +1,8 @@
 (function(root){
   'use strict';
   const amounts=typeof module==='object'&&module.exports?require('./invoice-amounts.js'):root.InvoiceAmounts;
-  const displayCents=value=>Math.round(Number(Number(value).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:2}))*100);
+  // 화면 합계는 1원 단위로 표시하므로 반올림 차이도 원 단위로 계산한다.
+  const displayWon=value=>{const v=Math.round(Number(value)*100)/100;const w=Math.sign(v)*Math.round(Math.abs(v));return w===0?0:w;};
   function validDate(value){
     return typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
       !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value;
@@ -47,8 +48,8 @@
       if(metric==='revenue'&&r.tax?.pending)return false;
       return r.lines.some(i=>types[metric].includes(i.sales_type))||(metric==='foc'&&Number(r.invoice.foc));
     });
-    const rowCents=rows.reduce((sum,r)=>sum+displayCents(r[metric]),0),totalCents=displayCents(summary[metric]);
-    return {rows,roundedRows:rowCents/100,displayTotal:totalCents/100,adjustment:(totalCents-rowCents)/100};
+    const rowWon=rows.reduce((sum,r)=>sum+displayWon(r[metric]),0),totalWon=displayWon(summary[metric]);
+    return {rows,roundedRows:rowWon,displayTotal:totalWon,adjustment:totalWon-rowWon};
   }
   function summarizeSupply(invoices,items,period,customers){
     const original=summarize(invoices,items,period);
@@ -76,7 +77,7 @@
       result.byManager[m]=(result.byManager[m]||0)+r.revenue;
     });
     result.pendingCount=evidence(result,'pendingRevenue').rows.length;
-    result.displayAdjustment=(displayCents(result.recordedRevenue)-displayCents(result.revenue)-displayCents(result.pendingRevenue))/100;
+    result.displayAdjustment=displayWon(result.recordedRevenue)-displayWon(result.revenue)-displayWon(result.pendingRevenue);
     return result;
   }
   function summarizeTax(invoices,items,period,customers,records){
