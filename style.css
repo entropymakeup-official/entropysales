@@ -413,7 +413,18 @@ tr:hover td{background:var(--bg3)}
 .consign-body table{min-width:820px}.consign-body td{vertical-align:top}.consign-body td span{font-size:11px;color:var(--text2)}
 .consign-money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .consign-body td a{white-space:nowrap}.consign-refresh{margin-top:12px}.consign-note{margin-top:12px}
+.consign-panel .card-hd .btn{font-size:12px}
+.consign-totals-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.consign-fail-text{color:var(--red,#c0392b)!important}
+.consign-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
+.consign-filters label{display:flex;flex-direction:column;font-size:11px;color:var(--text2);gap:4px}
+.consign-filters label.consign-check{flex-direction:row;align-items:center;font-size:12px;color:var(--text)}
+.consign-table{min-width:1100px}.consign-checks{min-width:210px}
+.consign-chip{display:block;font-size:11px;line-height:1.5;white-space:nowrap}
+.consign-ok{color:#1e7e34}.consign-explained{color:#1f5fa8}.consign-pending,.consign-missing{color:var(--text2)}.consign-fail{color:#c0392b;font-weight:600}.consign-na{color:var(--text3,#999)}
+tr.consign-row-fail td{background:rgba(192,57,43,.06)}tr.consign-row-needs td:first-child{box-shadow:inset 3px 0 0 #e0a800}
 @media(max-width:768px){.consign-totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:768px){.consign-totals-5{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.tax-ledger-totals{gap:12px;grid-template-columns:1fr}.tax-ledger-totals>div{display:flex;align-items:center;justify-content:space-between}.tax-ledger-totals strong{font-size:19px}}
 /* 인보이스 상세: Paid / FOC / 기타 무상 구역 소계 행 */
 #view-inv-items tr.inv-group-row td{background:var(--bg3);font-size:11px;font-weight:600;color:var(--text2)}
