@@ -25,7 +25,7 @@
 |---|---|---|
 | 재고 | 기초+입고−반품−판매=기말, 기초=지난달 기말 | 수량 미입력이면 '－' |
 | 입금 | 실입금 = 판매액, 또는 판매액×1.1(VAT 포함, 단수 차이 0.01% 이내) | 다르면 메모가 있으면 'ⓘ 메모 참고', 없으면 '! 불일치' |
-| 계산서 근거 | 입고가 있는 달에 세금계산서 결재 링크 등록 | 입고 없으면 해당 없음 |
+| 계산서 근거 | 입고가 있는 달에 세금계산서 결재 링크 또는 홈택스 승인번호 등록 | 입고 없으면 해당 없음 |
 | 마감자료 | 마감자료 링크 등록 | |
 | 검증 기록 | verified_by·verified_at 기록 | 원본(마감자료·계산서·통장)을 대조한 사람·시각 |
 
@@ -33,7 +33,7 @@
 
 ## 데이터
 
-`public.consignment_settlements` (`sql/consignment-settlements.sql`, 검증 칸은 `sql/consignment-settlement-checks.sql`). 거래처 ID와 마감 월(매월 1일)이 기본키다. 회사 계정은 읽기만 하고, 입력·정정은 원본을 확인한 뒤 관리자 승인을 받아 별도로 실행한다. evidence 키: `closing_url`(마감자료), `tax_invoice_url`(세금계산서 결재), `reconciliation_url`(입금 대조), `deposit_account`(입금 계좌). 링크는 HTTPS의 Google Drive 파일(`/file/d/`), Google Sheets, flex.team 결재만 표시한다.
+`public.consignment_settlements` (`sql/consignment-settlements.sql`, 검증 칸은 `sql/consignment-settlement-checks.sql`). 거래처 ID와 마감 월(매월 1일)이 기본키다. 회사 계정은 읽기만 하고, 입력·정정은 원본을 확인한 뒤 관리자 승인을 받아 별도로 실행한다. evidence 키: `closing_url`(마감자료), `tax_invoice_url`(세금계산서 결재), `reconciliation_url`(입금 대조), `deposit_account`(입금 계좌), `hometax_approval`(홈택스 전자세금계산서 승인번호, 반입·반송 등 여러 건은 쉼표로 구분). 링크는 HTTPS의 Google Drive 파일(`/file/d/`), Google Sheets, flex.team 결재만 표시한다.
 
 조회는 `select('*')`로 검증 칸 설치 전후 모두 읽는다. 전체 건수를 대조하며 끝까지 읽은 경우만 표시하고, 실패·불일치·중복이면 부분 합계를 표시하지 않는다.
 
