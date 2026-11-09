@@ -67,6 +67,13 @@ test('checks: stock flow and continuity, deposit with or without VAT, evidence a
  assert.deepEqual(pick([ok({deposited_amount:null,deposited_date:null})],'deposit'),['pending']);
  assert.deepEqual(pick([ok({evidence:{closing_url:'https://drive.google.com/file/d/a/view'}})],'invoice'),['missing']);
  assert.deepEqual(pick([ok({stocked_supply:0,evidence:{closing_url:'https://drive.google.com/file/d/a/view'}})],'invoice'),['na']);
+ const cl='https://drive.google.com/file/d/a/view';
+ assert.deepEqual(pick([ok({evidence:{closing_url:cl,hometax_approval:'20250630-41000033-22678607, 20250630-41000033-22678608'}})],'invoice'),['ok']);
+ assert.deepEqual(pick([ok({evidence:{closing_url:cl,hometax_approval:'20241130-41000208-ap100646'}})],'invoice'),['ok']);
+ for(const bad of ['','확인중','20241130-41000208-ap100646, 메모',123])
+  assert.deepEqual(pick([ok({evidence:{closing_url:cl,hometax_approval:bad}})],'invoice'),['missing']);
+ const apPage=consign.renderPage({status:'ready',rows:[ok({evidence:{closing_url:cl,hometax_approval:'20241130-41000208-ap100646'}})]},{year:'2026',customer:'',issuesOnly:false},customers);
+ assert.match(apPage,/승인번호/);assert.match(apPage,/20241130-41000208-ap100646/);
  assert.deepEqual(pick([ok({verified_by:null,verified_at:null})],'verified'),['missing']);
  assert.throws(()=>consign.summarize([ok({verified_at:null})],period,customers));
  assert.throws(()=>consign.summarize([ok({in_qty:-1})],period,customers));

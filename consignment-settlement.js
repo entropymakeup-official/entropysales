@@ -69,7 +69,11 @@
       }
       // 3. 근거 등록: 입고가 있으면 세금계산서 근거, 마감자료는 항상
       if(r.stocked===0)checks.push({key:'invoice',status:'na',label:'입고 없음 (계산서 없음)'});
-      else checks.push({key:'invoice',status:r.evidence?.tax_invoice_url?'ok':'missing',label:r.evidence?.tax_invoice_url?'계산서 근거 있음':'계산서 근거 미등록'});
+      else{
+        const aps=approvals(r.evidence?.hometax_approval);
+        const label=r.evidence?.tax_invoice_url?'계산서 근거 있음':aps.length?`홈택스 승인번호 ${aps.length}건`:'계산서 근거 미등록';
+        checks.push({key:'invoice',status:r.evidence?.tax_invoice_url||aps.length?'ok':'missing',label});
+      }
       checks.push({key:'closing',status:r.evidence?.closing_url?'ok':'missing',label:r.evidence?.closing_url?'마감자료 있음':'마감자료 미등록'});
       // 4. 검증 기록
       checks.push({key:'verified',status:r.verifiedBy?'ok':'missing',label:r.verifiedBy?`검증 ${r.verifiedBy}`:'검증 기록 없음'});
@@ -152,6 +156,12 @@
     catch{return {status:'error',rows:[]};}
     finally{active=false;clearTimeout(timer);}
   }
+  // 홈택스 전자세금계산서 승인번호(작성일자 8자리-8자리-8자리), 쉼표로 여러 건. 형식이 하나라도 틀리면 근거로 보지 않는다.
+  function approvals(value){
+    if(typeof value!=='string'||!value.trim())return [];
+    const list=value.split(',').map(v=>v.trim());
+    return list.every(v=>/^\d{8}-\d{8}-[0-9a-z]{8}$/i.test(v))?list:[];
+  }
   function evidenceLink(value,label){
     if(typeof value!=='string')return '';
     try{
@@ -208,7 +218,10 @@
     const rows=s.rows.filter(r=>!filter.issuesOnly||r.status!=='ok');
     const SHORT={stock:'재고',deposit:'입금',invoice:'계산서',closing:'마감',verified:'검증'};
     const tableRows=rows.map((r,i)=>{
-      const links=[evidenceLink(r.evidence?.closing_url,'마감'),evidenceLink(r.evidence?.tax_invoice_url,'계산서'),evidenceLink(r.evidence?.reconciliation_url,'대조')].filter(Boolean).join(' ');
+      const aps=approvals(r.evidence?.hometax_approval);
+      const links=[evidenceLink(r.evidence?.closing_url,'마감'),evidenceLink(r.evidence?.tax_invoice_url,'계산서'),
+        !r.evidence?.tax_invoice_url&&aps.length?`<span class="consign-memo" title="홈택스 승인번호: ${escape(aps.join(', '))}">승인번호</span>`:'',
+        evidenceLink(r.evidence?.reconciliation_url,'대조')].filter(Boolean).join(' ');
       const deposit=r.deposited===null?'<span class="consign-muted">미확인</span>':`${money(r.deposited)} <span class="consign-muted">${escape(String(r.deposited_date).slice(5).replace('-','/'))}</span>`;
       const badges=r.checks.filter(c=>c.key!=='closing'||c.status!=='ok').map(c=>`<span class="consign-chip consign-${c.status}" title="${escape(c.label)}">${SHORT[c.key]}${ICON[c.status]}</span>`).join('');
       const ord=r.line==='기본'?orders?.get(r.customer_name+'|'+r.month):undefined;
@@ -216,6 +229,7 @@
         r.openingQty===null?'':`재고 흐름: 기초 ${qty(r.openingQty)} + 입고 ${qty(r.inQty)} − 반품 ${qty(r.returnQty)} − 판매 ${qty(r.soldQty)} = 기말 ${qty(r.stockQty)}개`,
         r.deposited===null?'':`입금: ${escape(r.deposited_date)}${r.evidence?.deposit_account?' · '+escape(r.evidence.deposit_account):''}`,
         ord===undefined?'':`대시보드 주문(발주월, 참고): ${money(ord)}`,
+        aps.length?`홈택스 승인번호: ${escape(aps.join(', '))}`:'',
         r.checks.map(c=>`${SHORT[c.key]} ${escape(c.label)}`).join(' · '),
         r.note?`메모: ${escape(r.note)}`:''
       ].filter(Boolean).map(t=>`<div>${t}</div>`).join('');
