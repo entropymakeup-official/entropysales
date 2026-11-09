@@ -79,3 +79,24 @@ test('order reference totals use Paid items by order month and skip cancelled or
  assert.equal(t.get('가상 면세 A|2026-04-01'),200);assert.equal(t.get('가상 면세 A|2026-05-01'),50);
  assert.equal(JSON.stringify([invoices,items]),before);
 });
+test('lines: same store and month can hold separate lines, continuity and cumulative flow are per line',()=>{
+ const base=(x={})=>row({opening_stock_qty:5,in_qty:4,return_qty:1,sold_qty:1,ending_stock_qty:7,sold_supply:300,deposited_amount:300,...x});
+ const rows=[base({month:'2026-03-01',opening_stock_qty:0,in_qty:6,return_qty:0,sold_qty:1,ending_stock_qty:5}),base(),
+  base({line:'코코렌즈',month:'2026-03-01',opening_stock_qty:0,in_qty:10,return_qty:0,sold_qty:2,ending_stock_qty:8,ending_stock_supply:80}),
+  base({line:'코코렌즈',opening_stock_qty:8,in_qty:0,return_qty:8,sold_qty:0,ending_stock_qty:0,ending_stock_supply:0})];
+ const checked=consign.checkRows(rows);
+ assert.deepEqual(checked.map(r=>r.checks.find(c=>c.key==='stock').status),['ok','ok','ok','ok']);
+ assert.throws(()=>consign.summarize([base(),base()],period,customers),/중복/);
+ assert.doesNotThrow(()=>consign.summarize([base(),base({line:'코코렌즈'})],period,customers));
+ const all={start:'2000-01-01',end:'2099-12-31'};
+ const s=consign.summarize(rows,all,customers);
+ assert.equal(s.lines.length,2);
+ const main=s.lines.find(l=>!/코코렌즈/.test(l.label)),lens=s.lines.find(l=>/코코렌즈/.test(l.label));
+ assert.equal(main.flowOk,true);assert.equal(main.startQty,0);assert.equal(main.endQty,7);
+ assert.equal(lens.flowOk,true);assert.equal(lens.endQty,0);
+ assert.equal(s.stockQty,7);
+ const page=consign.renderPage({status:'ready',rows},{year:'all',customer:'',issuesOnly:false},customers);
+ assert.match(page,/전체 기간/);assert.match(page,/consign-cumulative/);assert.match(page,/코코렌즈/);
+ const broken=consign.summarize([rows[0],{...rows[1],ending_stock_qty:9}],all,customers);
+ assert.equal(broken.lines[0].flowOk,false);
+});
