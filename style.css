@@ -410,7 +410,7 @@ tr:hover td{background:var(--bg3)}
 .consign-totals em{display:block;font-style:normal;font-size:11px;color:var(--text2);margin-top:4px}
 .consign-totals>div:last-child strong{color:var(--purple-dark)}
 .consign-body summary{cursor:pointer;font-size:12px;font-weight:600;padding:8px 0}
-.consign-body table{min-width:820px}.consign-body td{vertical-align:top}.consign-body td span{font-size:11px;color:var(--text2)}
+.consign-body table{min-width:0}.consign-body td{vertical-align:top}.consign-body td span{font-size:11px;color:var(--text2)}
 .consign-money{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .consign-body td a{white-space:nowrap}.consign-refresh{margin-top:12px}.consign-note{margin-top:12px}
 .consign-panel .card-hd .btn{font-size:12px}
@@ -419,9 +419,23 @@ tr:hover td{background:var(--bg3)}
 .consign-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:12px}
 .consign-filters label{display:flex;flex-direction:column;font-size:11px;color:var(--text2);gap:4px}
 .consign-filters label.consign-check{flex-direction:row;align-items:center;font-size:12px;color:var(--text)}
-.consign-table{min-width:1100px}.consign-checks{min-width:210px}
-.consign-chip{display:block;font-size:11px;line-height:1.5;white-space:nowrap}
-.consign-ok{color:#1e7e34}.consign-explained{color:#1f5fa8}.consign-pending,.consign-missing{color:var(--text2)}.consign-fail{color:#c0392b;font-weight:600}.consign-na{color:var(--text3,#999)}
+.consign-table{width:100%;table-layout:auto;font-size:12px;border-collapse:collapse}
+.consign-body .consign-table th,.consign-body .consign-table td{padding:5px 6px;white-space:nowrap;vertical-align:middle}
+.consign-table tr.consign-row{cursor:pointer}.consign-table tr.consign-row:hover td{background:rgba(0,0,0,.03)}
+.consign-checks{white-space:nowrap}
+.consign-chip{display:inline-block;font-size:11px;line-height:1.4;margin-right:5px;white-space:nowrap}
+.consign-muted{color:var(--text2);font-size:11px}
+.consign-links a{margin-right:4px}.consign-memo{font-size:11px;color:#1f5fa8;border-bottom:1px dotted #1f5fa8;cursor:help}
+.consign-compact .consign-body{padding:10px 12px}
+.consign-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 24px;margin-bottom:8px}
+.consign-head .consign-filters{margin-bottom:0}
+.consign-head .consign-totals{flex:1;margin:0;gap:12px;min-width:520px}
+.consign-head .consign-totals span{margin-bottom:2px}
+.consign-head .consign-totals strong{font-size:15px}
+.consign-head .consign-totals em{display:inline;font-size:10px}
+.consign-body .consign-table th,.consign-body .consign-table td{padding:3px 6px;line-height:1.35}
+.consign-basis{margin-top:6px}.consign-basis summary{font-size:11px;font-weight:400;color:var(--text2);padding:2px 0}
+tr.consign-detail td{white-space:normal;font-size:11px;line-height:1.6;color:var(--text2);background:rgba(0,0,0,.02);padding:6px 10px 8px}
 tr.consign-row-fail td{background:rgba(192,57,43,.06)}tr.consign-row-needs td:first-child{box-shadow:inset 3px 0 0 #e0a800}
 @media(max-width:768px){.consign-totals{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:768px){.consign-totals-5{grid-template-columns:repeat(2,minmax(0,1fr))}}

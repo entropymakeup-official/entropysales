@@ -177,7 +177,7 @@
   // '면세점 정산' 메뉴: 월별 표 + 줄별 점검 + 근거 + 검증 기록
   function renderPage(state,filter,customers,orders){
     const retry='<button type="button" class="btn" onclick="refreshConsignPage()">다시 불러오기</button>';
-    const wrap=body=>`<section id="consign-page" class="card consign-panel" aria-label="면세점 정산 검증"><div class="consign-body">${body}${basisNote}</div></section>`;
+    const wrap=body=>`<section id="consign-page" class="card consign-panel consign-compact" aria-label="면세점 정산 검증"><div class="consign-body">${body}<details class="consign-basis"><summary>금액 기준·점검 표시 설명</summary>${basisNote}<p class="consign-note">줄을 누르면 재고 흐름·입금 계좌·메모 등 상세가 펼쳐집니다. 점검 ✓ 맞음 · ⓘ 메모로 설명 · … 확인 전 · － 미등록 · ! 불일치 · · 해당 없음. 대시보드 주문 금액은 VAT 포함·별도가 섞여 있어 상세에 참고로만 보여 줍니다.</p></details></div></section>`;
     if(!state||state.status==='idle'||state.status==='loading')return wrap('<p role="status">정산 자료를 불러오는 중입니다.</p>');
     if(state.status!=='ready')return wrap(errorBody(retry,'정산 자료를 불러오지 못했습니다. 연결·로그인·접근 권한을 확인해 주세요.'));
     const year=filter.year,period={start:year+'-01-01',end:year+'-12-31',customer:filter.customer||''};
@@ -194,22 +194,30 @@
       ['미정산 잔액',money(s.stock)+` <em>${qty(s.stockQty)}개</em>`],['검증',s.issues?`확인 필요 ${s.issues}건`:'모두 확인']]
       .map(([l,v])=>`<div><span>${l}</span><strong>${v}</strong></div>`).join('');
     const rows=s.rows.filter(r=>!filter.issuesOnly||r.status!=='ok');
-    const tableRows=rows.map(r=>{
-      const links=[evidenceLink(r.evidence?.closing_url,'마감자료'),evidenceLink(r.evidence?.tax_invoice_url,'세금계산서'),evidenceLink(r.evidence?.reconciliation_url,'입금 대조')].filter(Boolean).join(' · ');
-      const deposit=r.deposited===null?'미확인':`${money(r.deposited)}<br><span>${escape(r.deposited_date)}${r.evidence?.deposit_account?' · '+escape(r.evidence.deposit_account):''}</span>`;
-      const flow=r.openingQty===null?'':`<br><span>기초 ${qty(r.openingQty)} +입고 ${qty(r.inQty)} −반품 ${qty(r.returnQty)} −판매 ${qty(r.soldQty)}</span>`;
+    const SHORT={stock:'재고',deposit:'입금',invoice:'계산서',closing:'마감',verified:'검증'};
+    const tableRows=rows.map((r,i)=>{
+      const links=[evidenceLink(r.evidence?.closing_url,'마감'),evidenceLink(r.evidence?.tax_invoice_url,'계산서'),evidenceLink(r.evidence?.reconciliation_url,'대조')].filter(Boolean).join(' ');
+      const deposit=r.deposited===null?'<span class="consign-muted">미확인</span>':`${money(r.deposited)} <span class="consign-muted">${escape(String(r.deposited_date).slice(5).replace('-','/'))}</span>`;
+      const badges=r.checks.filter(c=>c.key!=='closing'||c.status!=='ok').map(c=>`<span class="consign-chip consign-${c.status}" title="${escape(c.label)}">${SHORT[c.key]}${ICON[c.status]}</span>`).join('');
       const ord=orders?.get(r.customer_name+'|'+r.month);
-      const orderRef=ord===undefined?'':`<br><span title="주문 금액은 VAT 포함·별도가 섞여 있어 참고로만 표시합니다">대시보드 주문(발주월) ${money(ord)}</span>`;
-      const verified=r.verifiedBy?`${escape(r.verifiedBy)}<br><span>${escape(String(r.verifiedAt).slice(0,10))}</span>`:'—';
-      return `<tr class="consign-row-${r.status}"><td>${escape(r.month.slice(0,7))}</td><td>${escape(r.customer_name)}</td>
-        <td class="consign-money">${money(r.stocked)}${orderRef}</td><td class="consign-money">${money(r.sold)}</td><td class="consign-money">${deposit}</td>
-        <td class="consign-money">${money(r.stock)}<br><span>${qty(r.stockQty)}개</span>${flow}</td>
-        <td class="consign-checks">${r.checks.map(chip).join('')}</td>
-        <td>${links||'근거 링크 미등록'}${r.note?`<br><span>${escape(r.note)}</span>`:''}</td><td>${verified}</td></tr>`;
+      const detail=[
+        r.openingQty===null?'':`재고 흐름: 기초 ${qty(r.openingQty)} + 입고 ${qty(r.inQty)} − 반품 ${qty(r.returnQty)} − 판매 ${qty(r.soldQty)} = 기말 ${qty(r.stockQty)}개`,
+        r.deposited===null?'':`입금: ${escape(r.deposited_date)}${r.evidence?.deposit_account?' · '+escape(r.evidence.deposit_account):''}`,
+        ord===undefined?'':`대시보드 주문(발주월, 참고): ${money(ord)}`,
+        r.checks.map(c=>`${SHORT[c.key]} ${escape(c.label)}`).join(' · '),
+        r.note?`메모: ${escape(r.note)}`:''
+      ].filter(Boolean).map(t=>`<div>${t}</div>`).join('');
+      const verified=r.verifiedBy?`<span title="${escape(String(r.verifiedAt))}">${escape(r.verifiedBy)} ${escape(String(r.verifiedAt).slice(5,10).replace('-','/'))}</span>`:'<span class="consign-muted">—</span>';
+      return `<tr class="consign-row consign-row-${r.status}" onclick="const d=this.nextElementSibling;d.hidden=!d.hidden" title="눌러서 상세 보기">
+        <td>${escape(r.month.slice(2,7).replace('-','.'))}</td><td>${escape(r.customer_name.replace(/^PLMK\s*/,''))}</td>
+        <td class="consign-money">${money(r.stocked)}</td><td class="consign-money">${money(r.sold)}</td><td class="consign-money">${deposit}</td>
+        <td class="consign-money">${money(r.stock)} <span class="consign-muted">${qty(r.stockQty)}개</span></td>
+        <td class="consign-checks">${badges}</td>
+        <td class="consign-links" onclick="event.stopPropagation()">${links||'<span class="consign-muted">없음</span>'}${r.note?` <span class="consign-memo" title="${escape(r.note)}">메모</span>`:''}</td><td>${verified}</td></tr>
+        <tr class="consign-detail" hidden><td colspan="9">${detail}</td></tr>`;
     }).join('');
     const empty=rows.length?'':`<p>${filter.issuesOnly?'확인이 필요한 줄이 없습니다.':'이 조건에 등록된 정산 자료가 없습니다.'}</p>`;
-    return wrap(`${controls}<div class="consign-totals consign-totals-5">${metrics}</div>${empty}<div class="dash-table-scroll"><table class="consign-table"><thead><tr><th>마감 월</th><th>매장</th><th>입고 공급가</th><th>판매 정산액</th><th>실입금</th><th>월말 재고</th><th>점검</th><th>근거·메모</th><th>검증</th></tr></thead><tbody>${tableRows}</tbody></table></div>
-      <p class="consign-note">점검: ✓ 맞음 · ⓘ 차이를 메모로 설명 · … 확인 전 · － 근거 미등록 · ! 불일치. '대시보드 주문(발주월)'은 주문 금액에 VAT 포함·별도가 섞여 있어 판정하지 않고 참고로만 보여 줍니다.</p>`);
+    return wrap(`<div class="consign-head">${controls}<div class="consign-totals consign-totals-5">${metrics}</div></div>${empty}<table class="consign-table"><thead><tr><th>월</th><th>매장</th><th>입고 공급가</th><th>판매 정산액</th><th>실입금</th><th>월말 재고</th><th>점검</th><th>근거</th><th>검증</th></tr></thead><tbody>${tableRows}</tbody></table>`);
   }
   const api={load,summarize,checkRows:rows=>checkRows(validate(rows)),orderTotals,render,renderPage};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.ConsignmentSettlement=api;
