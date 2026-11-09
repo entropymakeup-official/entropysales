@@ -42,8 +42,8 @@ test('summary card shows totals and issue count; page shows safe links only, esc
  assert.match(card,/id="dash-consignment"/);assert.match(card,/₩1,000/);assert.match(card,/₩700/);assert.match(card,/확인 필요 1건/);assert.match(card,/go\('consign'\)/);
  const filter={year:'2026',customer:'',issuesOnly:false};
  const page=consign.renderPage({status:'ready',rows:[row({evidence:{closing_url:'javascript:alert(1)',reconciliation_url:'https://docs.google.com/spreadsheets/d/x/edit',tax_invoice_url:'https://flex.team/workflow/archive/my?task-key=x'},note:'<b>메모</b>'})]},filter,customers,new Map([['가상 면세 A|2026-04-01',1100]]));
- assert.match(page,/id="consign-page"/);assert.match(page,/입금 대조/);assert.match(page,/세금계산서/);assert.doesNotMatch(page,/javascript:/);assert.doesNotMatch(page,/<b>메모/);
- assert.match(page,/대시보드 주문\(발주월\) ₩1,100/);
+ assert.match(page,/id="consign-page"/);assert.match(page,/>대조</);assert.match(page,/>계산서</);assert.doesNotMatch(page,/javascript:/);assert.doesNotMatch(page,/<b>메모/);
+ assert.match(page,/대시보드 주문\(발주월, 참고\): ₩1,100/);
  assert.doesNotMatch(consign.render({status:'error',rows:[]},period,customers),/₩/);
  assert.doesNotMatch(consign.render({status:'ready',rows:[row(),row()]},period,customers),/₩/);
  assert.doesNotMatch(consign.renderPage({status:'ready',rows:[row(),row()]},filter,customers),/₩/);
