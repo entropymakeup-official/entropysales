@@ -93,7 +93,7 @@ test('invoice upload, RAW upload and the invoice form all submit ship_mode on ev
 });
 
 test('invoice detail, list and RAW table show the line ship mode',()=>{
- const h=harness();h.load('viewInv','filterInv','renderRaw','filterRaw','fmt','fmtN','stBadge','itemsByType','statusBadge','shipBadge');
+ const h=harness();h.load('viewInv','filterInv','renderRaw','filterRaw','fmt','fmtExact','fmtN','stBadge','itemsByType','statusBadge','shipBadge');
  Object.assign(h.ctx,{loadInvDocs(){},renderDriveDocs(){},loadDriveDocs(){},_invFileCache:{},_invoiceStatusPending:new Set(),invoicePaymentMarkup:()=>'',MGRS:[],SALES_TYPES:['Paid'],invoiceAmounts:{open(){}},updateInvFileIcon(){},loadInvFileIcons(){}});h.ctx.invoiceSheetStatus={refresh(){}};h.ctx._rawPage=1;
  h.ctx._items=[{id:'1',invoice_id:'inv-a',name:'Twin',qty:1,price:2,sales_type:'Paid',ship_mode:'Air'},{id:'2',invoice_id:'inv-a',name:'Twin',qty:1,price:2,sales_type:'Paid',ship_mode:'Sea'},{id:'3',invoice_id:'inv-a',name:'Other',qty:1,price:2,sales_type:'Paid',ship_mode:null}];
  h.ctx.viewInv('inv-a');
@@ -134,7 +134,7 @@ test('approval diff labels ship mode and marks a changed line',()=>{
 });
 
 test('RAW table keeps a minimum width covering its fixed columns so narrow screens scroll instead of collapsing the product name',()=>{
- const h=harness();h.load('renderRaw','filterRaw','fmt','fmtN','stBadge');
+ const h=harness();h.load('renderRaw','filterRaw','fmt','fmtExact','fmtN','stBadge');
  Object.assign(h.ctx,{MGRS:[],SALES_TYPES:['Paid'],_rawPage:1});h.ctx.invoiceSheetStatus={refresh(){}};
  h.ctx.renderRaw();
  const html=h.element('content').innerHTML,table=html.match(/<table style="([^"]*)">\s*<thead>[\s\S]*?<\/thead>/);

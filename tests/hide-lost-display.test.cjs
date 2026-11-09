@@ -7,7 +7,7 @@ function fixture(){
  const h=harness();h.ctx.invoiceSheetStatus.refresh=()=>{};Object.assign(h.ctx,{InvoiceAmounts:A,SALES_TYPES:['Paid','FOC','Lost'],MGRS:['Tester'],stBadge:s=>s,statusBadge:s=>s,shipBadge:s=>s,shipModeBadge:()=>'',_invFileCache:{},loadInvDocs(){},renderDriveDocs(){},loadDriveDocs(){},setTimeout(){},_caSelected:'Demo',_caChart:null});
  h.ctx._invoices[0].order_date='2026-01-02';h.ctx._items=[{id:'item-a',invoice_id:'inv-a',barcode:'SYNTHETIC',name:'Synthetic item',sales_type:'Paid',qty:3,price:40},{...lostLine}];
  const printed=[];h.ctx.window.open=()=>({document:{write:html=>printed.push(html),close(){}},focus(){},print(){}});
- h.load('fmt','fmtN','itemsRev','itemsByType');return {...h,printed};
+ h.load('fmt','fmtExact','fmtN','itemsRev','itemsByType');return {...h,printed};
 }
 test('invoice detail hides Lost lines but keeps Paid revenue and notes the hidden count',()=>{
  const h=fixture();h.load('viewInv');h.ctx.viewInv('inv-a');
