@@ -978,7 +978,7 @@ function renderInvoices(){
   document.getElementById('content').innerHTML=`
   <div class="fb">
     <input id="fi-q" placeholder="인보이스번호 / 거래처..." oninput="filterInv()" style="width:190px"/>
-    <select id="fi-pay" onchange="filterInv()"><option value="">입금 전체</option><option>미입금</option><option>입금완료</option></select>
+    <select id="fi-pay" onchange="filterInv()"><option value="">입금 전체</option><option>미입금</option><option>입금완료</option><option>무상 종결</option></select>
     <select id="fi-sh" onchange="filterInv()"><option value="">출고 전체</option><option>준비중</option><option>출고완료</option></select>
     <select id="fi-mg" onchange="filterInv()"><option value="">담당자 전체</option>${MGRS.map(m=>`<option>${m}</option>`).join('')}</select>
     <select id="fi-foc" onchange="filterInv()"><option value="">FOC 전체</option><option>FOC 있음</option><option>FOC 없음</option></select>
@@ -1001,7 +1001,7 @@ function filterInv(){
   // FOC = 수기 FOC 금액 + 품목 sales_type FOC (매출 합계에는 포함하지 않음)
   const focOf=v=>{const items=getInvItems(v.id);return{amt:(parseFloat(v.foc)||0)+itemsByType(items,'FOC'),qty:itemsQtyByType(items,'FOC')};};
   const hasFoc=v=>{const f=focOf(v);return f.amt>0||f.qty>0;};
-  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||(pay==='입금완료'?v.status==='Paid':v.status!=='Paid'))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg)&&(!focF||(focF==='FOC 있음'?hasFoc(v):!hasFoc(v))));
+  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||payFilterMatch(v,pay))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg)&&(!focF||(focF==='FOC 있음'?hasFoc(v):!hasFoc(v))));
   window._inv_filtered=list;
   const count=document.getElementById('inv-count');
   if(count){const foc=list.reduce((a,v)=>{const f=focOf(v);return{amt:a.amt+f.amt,qty:a.qty+f.qty,n:a.n+(f.amt>0||f.qty>0?1:0)};},{amt:0,qty:0,n:0});
@@ -1109,9 +1109,13 @@ async function updTracking(id,val){
 }
 
 const _invoiceStatusPending=new Set();
+// 입금 상태 이름. Closed는 받을 돈이 없는 무상 주문을 닫은 상태(무상 종결)로, 입금완료와 구분한다.
+function payStatusLabel(status){return status==='Paid'?'입금완료':status==='Closed'?'무상 종결':status==='Cancelled'?'취소':'미입금';}
+function payFilterMatch(v,pay){return pay==='입금완료'?v.status==='Paid':pay==='무상 종결'?v.status==='Closed':!['Paid','Closed'].includes(v.status);}
 function invoicePaymentMarkup(inv,rev){
   if(_invoiceStatusPending.has(inv.id))return '<span class="badge bg-gray">저장 중…</span>';
   if(inv.status==='Cancelled')return '<span class="badge bg-red">취소</span>';
+  if(inv.status==='Closed')return `<span class="badge bg-gray" title="유상 금액이 없어 정산 대상이 아닌 주문(무상 종결)">무상 종결</span>${verificationMarkup(inv.pay_verified_by,inv.pay_verified_at)}`;
   // 유상 금액이 없는 주문(FOC·샘플만 나간 건)은 입금 대상이 아니므로 품목 유형으로 표시한다.
   if(rev<=0){
     const names={FOC:'FOC',Sample:'샘플',GWP:'GWP',Replacement:'교체품',Lost:'분실'};
@@ -1155,6 +1159,7 @@ async function togglePayStatus(id){
   if(_invoiceStatusPending.has(id)){toast('이 주문의 상태를 저장 중입니다.');return;}
   const inv=_invoices.find(i=>i.id===id);
   if(!inv){toast('주문을 확인할 수 없습니다. 목록을 새로고침해주세요.');return;}
+  if(inv.status==='Closed'){toast('무상 종결 주문입니다. 상태를 바꾸려면 변경 요청 화면에서 미입금으로 되돌려 주세요.');return;}
   if(inv.status==='Paid'){
     if(!confirm('입금 완료를 취소하시겠습니까?'))return;
     return saveInvoiceStatus(id,{status:'Ordered',pay_date:null},'미입금 상태');
@@ -1174,7 +1179,7 @@ async function toggleShipStatus(id,currentDate,currentStatus){
 async function updInvSt(id,val,el){
   const inv=_invoices.find(i=>i.id===id);if(!inv)return;
   try{const ops=[await rowChange('invoices','update',{id},{status:val},inv)];
-    const c=custByName(inv.customer);if((val==='Paid'||val==='Closed')&&c&&!c.tax_status)ops.push(await rowChange('customers','update',{id:c.id},{tax_status:'발행예정'},c));
+    const c=custByName(inv.customer);if(val==='Paid'&&c&&!c.tax_status)ops.push(await rowChange('customers','update',{id:c.id},{tax_status:'발행예정'},c));
     await queueChanges(ops);
   }catch(error){toast('요청 실패: '+error.message);}finally{if(el){el.value=inv.status;el.className='ss s'+inv.status;}}
 }
@@ -4131,7 +4136,7 @@ function buildCustAnalysis(cust){
           <td style="font-size:11px">${v.manager||'-'}</td>
           <td style="text-align:right;font-size:11px">${vi.some(i=>i.sales_type==='Paid')?fmt(vp):'-'}</td>
           <td style="text-align:right;font-size:11px;color:var(--red)">${vf>0?fmt(vf):'-'}</td>
-          <td><span class="badge ${v.status==='Paid'?'bg-green':'bg-amber'}">${v.status==='Paid'?'입금완료':'미입금'}</span></td>
+          <td><span class="badge ${v.status==='Paid'?'bg-green':v.status==='Closed'?'bg-gray':'bg-amber'}">${v.status==='Paid'?'입금완료':v.status==='Closed'?'무상 종결':'미입금'}</span></td>
           <td><span class="badge ${v.ship_status==='출고완료'?'bg-green':'bg-amber'}">${v.ship_status||'미출고'}</span></td>
         </tr>`;
       }).join('')}</tbody>
@@ -4350,7 +4355,7 @@ function printCustReport(){
             <td>${v.manager||'-'}</td>
             <td class="num">${vi.some(i=>i.sales_type==='Paid')?fmt(vp):'-'}</td>
             <td class="num" style="color:#DC2626">${vf>0?fmt(vf):'-'}</td>
-            <td><span class="badge ${v.status==='Paid'?'b-blue':'b-gray'}">${v.status==='Paid'?'입금완료':'미입금'}</span></td>
+            <td><span class="badge ${v.status==='Paid'?'b-blue':'b-gray'}">${v.status==='Paid'?'입금완료':v.status==='Closed'?'무상 종결':'미입금'}</span></td>
             <td><span class="badge ${v.ship_status==='출고완료'?'b-blue':'b-gray'}">${v.ship_status||'미출고'}</span></td>
           </tr>`;
         }).join('')}

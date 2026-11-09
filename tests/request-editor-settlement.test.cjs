@@ -11,7 +11,7 @@ test('settlement needs are detected only when a status becomes paid or shipped',
  assert.deepEqual(E.settlementNeeds(draft).map(n=>n.type),['입금증빙','선적서류']);
  const paid=E.prepareInvoice({...inv,status:'Paid',ship_status:'출고완료'},[]);
  paid.operations[0].values.status='Closed';
- assert.deepEqual(E.settlementNeeds(paid),[],'paid to closed and unchanged shipment need nothing');
+ assert.deepEqual(E.settlementNeeds(paid).map(n=>n.type),['선적서류'],'paid to closed (free close) needs shipping documents');
 });
 
 test('evidence links are required and placed before the status change',()=>{

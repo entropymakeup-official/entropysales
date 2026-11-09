@@ -27,16 +27,17 @@ function prepareInvoice(inv,requests,items){
  return {reason:'',operations:[{table:'invoices',action:'update',key:{id:inv.id},before:clone(inv),values:Object.fromEntries(statusKeys.map(k=>[k,inv[k]??(k==='ship_status'?'준비중':null)]))}]};
 }
 // 입금완료·출고완료로 바뀌는 주문은 같은 요청에 Drive 증빙을 붙여야 한다(서버도 같은 기준으로 거절한다).
+// 무상 종결(Closed)은 입금증빙 대신 선적서류가 있어야 한다(sql/free-order-closed.sql).
 const settlementKinds={pay:{type:'입금증빙',label:'입금완료'},ship:{type:'선적서류',label:'출고완료'}};
-const isPaid=s=>s==='Paid'||s==='Closed';
 function settlementNeeds(draft){
  const needs=[];
  for(const op of draft.operations){
   if(!(op.action==='invoice'||(op.table==='invoices'&&op.action==='update')))continue;
   const next=op.action==='invoice'?op.invoice:op.values,prev=op.action==='invoice'?op.before?.invoice:op.before,id=op.action==='invoice'?op.id:op.key?.id;
   if(!id||!next)continue;
-  if(isPaid(next.status)&&!isPaid(prev?.status))needs.push({invoiceId:id,kind:'pay',...settlementKinds.pay});
-  if(next.ship_status==='출고완료'&&prev?.ship_status!=='출고완료')needs.push({invoiceId:id,kind:'ship',...settlementKinds.ship});
+  if(next.status==='Paid'&&prev?.status!=='Paid')needs.push({invoiceId:id,kind:'pay',...settlementKinds.pay});
+  const closing=next.status==='Closed'&&prev?.status!=='Closed';
+  if(closing||(next.ship_status==='출고완료'&&prev?.ship_status!=='출고완료'))needs.push({invoiceId:id,kind:'ship',...settlementKinds.ship,...(closing?{label:'무상 종결'}:{})});
  }
  return needs;
 }
