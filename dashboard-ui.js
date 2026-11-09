@@ -18,6 +18,26 @@ async function refreshDashboardTaxLedger(){
   await pending;
   if(document.getElementById('dash-tax-ledger')&&_taxLedgerState.status!=='idle')renderDash();
 }
+let _consignmentState={status:'idle',rows:[]},_consignmentGeneration=0;
+function resetDashboardConsignment(){
+  _consignmentGeneration++;
+  _consignmentState={status:'idle',rows:[]};
+  const panel=document.getElementById('dash-consignment');
+  if(panel)panel.innerHTML='';
+}
+async function loadDashboardConsignment(){
+  const generation=++_consignmentGeneration;
+  _consignmentState={status:'loading',rows:[]};
+  const state=await ConsignmentSettlement.load(sb);
+  if(generation===_consignmentGeneration)_consignmentState=state;
+}
+async function refreshDashboardConsignment(){
+  const pending=loadDashboardConsignment();
+  if(document.getElementById('dash-consignment'))renderDash();
+  await pending;
+  if(document.getElementById('dash-consignment')&&_consignmentState.status!=='idle')renderDash();
+}
+function dashboardConsignmentPanel(){return ConsignmentSettlement.render(_consignmentState,dashboardPeriod(),_customers);}
 function dashboardDateRows(){
   return [..._invoices,...(_taxLedgerState.status==='ready'?_taxLedgerState.rows.map(r=>({order_date:r.written_date})):[])];
 }

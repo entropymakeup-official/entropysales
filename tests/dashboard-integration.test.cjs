@@ -9,7 +9,7 @@ function setup(){
  const c={_invoices:invoices,_items:items,_customers:[{name:'Zero',tax:'영세'},{name:'Tax',tax:'과세'}],_revenueGoal:5000000000,
  document:{getElementById:id=>nodes[id]},window:{},setTimeout:()=>{},today:()=> '2026-09-09',fmt:n=>'₩'+Math.round(n),esc:s=>String(s||''),
  getInvItems:id=>items.filter(i=>i.invoice_id===id),itemsRev:xs=>xs.reduce((a,x)=>a+x.qty*x.price,0),itemsByType:()=>0};
- vm.createContext(c);for(const f of ['invoice-amounts.js','dashboard-model.js','tax-ledger.js','dashboard-ui.js'])vm.runInContext(fs.readFileSync(path.join(root,f),'utf8'),c);
+ vm.createContext(c);for(const f of ['invoice-amounts.js','dashboard-model.js','tax-ledger.js','consignment-settlement.js','dashboard-ui.js'])vm.runInContext(fs.readFileSync(path.join(root,f),'utf8'),c);
  const app=fs.readFileSync(path.join(root,'app.js'),'utf8'),start=app.indexOf('function renderDash(){'),end=app.indexOf('\nfunction ',start+1);
  vm.runInContext(app.slice(start,end),c);return {c,nodes};
 }
@@ -17,7 +17,7 @@ test('dashboard render and customer filter share supply totals and preserve sour
  const {c,nodes}=setup(),before=JSON.stringify([c._invoices,c._items]);c.renderDash();
  const state=()=>JSON.parse(vm.runInContext('JSON.stringify(_dashSnapshot)',c));
  assert.equal(state().revenue,100);assert.equal(state().pendingRevenue,200);assert.equal(state().rows.length,2);
- assert.match(nodes.content.innerHTML,/id="dash-start"/);assert.match(nodes.content.innerHTML,/공급가액 집계분/);
+ assert.match(nodes.content.innerHTML,/id="dash-start"/);assert.match(nodes.content.innerHTML,/id="dash-consignment"/);assert.match(nodes.content.innerHTML,/공급가액 집계분/);
  nodes['dash-start'].value='2026-01-01';nodes['dash-end'].value='2026-12-31';nodes['dash-customer'].value='Tax';c.applyDashboardPeriod();
  assert.equal(state().revenue,0);assert.equal(state().pendingRevenue,200);assert.equal(state().rows.length,1);
  assert.equal(JSON.stringify([c._invoices,c._items]),before);
@@ -62,6 +62,7 @@ test('normal application data load reads the tax ledger through the real reader'
  vm.runInContext(app.slice(start,end),c);await c._loadAllInner();c.renderDash();
  assert.match(nodes.content.innerHTML,/id="dash-tax-ledger"/);assert.match(nodes.content.innerHTML,/₩700/);
  assert.equal(vm.runInContext('_taxLedgerState.status',c),'ready');
+ assert.equal(vm.runInContext('_consignmentState.status',c),'ready');
 });
 
 test('logout during a load clears visible data and a new login loads independently',async()=>{
@@ -73,6 +74,7 @@ test('logout during a load clears visible data and a new login loads independent
   then(resolve,reject){return Promise.resolve({data:table==='customers'?[{id:owner,name:owner,tax:'영세'}]:[]}).then(resolve,reject);}
  };}};
  c.TaxLedger.load=()=>new Promise(resolve=>pending.push(resolve));
+ c.ConsignmentSettlement.load=async()=>({status:'ready',rows:[]});
  const app=fs.readFileSync(path.join(root,'app.js'),'utf8'),start=app.indexOf('let _loadAllPromise'),end=app.indexOf('\nasync function preloadAllInvFiles',start);
  vm.runInContext(app.slice(start,end),c);
  nodes.content.innerHTML='<strong>Previous account amount</strong>';

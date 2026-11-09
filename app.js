@@ -173,6 +173,7 @@ function resetApplicationData(){
   _loadAllGeneration++;
   _loadAllPromise=null;
   resetDashboardTaxLedger();
+  resetDashboardConsignment();
   _customers=[];_products=[];_invoices=[];_items=[];_stocks=[];_docs=[];_schedules=[];_taxRecords=[];
   _dashSnapshot=null;_dashPeriod=null;
   const content=document.getElementById('content');
@@ -193,7 +194,7 @@ async function loadAll(){
 }
 
 async function _loadAllInner(generation=_loadAllGeneration){
-  // 모든 쿼리 동시에 병렬 실행 (세금계산서 확인금액 원장은 별도 상태로 읽고 주문 매출에 합산하지 않음)
+  // 모든 쿼리 동시에 병렬 실행 (세금계산서 확인금액 원장·면세점 정산 원장은 별도 상태로 읽고 주문 매출에 합산하지 않음)
   const [c,p,inv,s,d,sch,goal,tr]=await Promise.all([
     sb.from('customers').select('*').order('name'),
     sb.from('products').select('*').order('name'),
@@ -203,7 +204,8 @@ async function _loadAllInner(generation=_loadAllGeneration){
     sb.from('schedules').select('*').order('date'),
     sb.from('app_settings').select('value').eq('key','revenue_goal').maybeSingle(),
     sb.from('tax_records').select('*'),
-    loadDashboardTaxLedger()
+    loadDashboardTaxLedger(),
+    loadDashboardConsignment()
   ]);
   if(generation!==_loadAllGeneration)return false;
   // invoice_items 전체 로드 - 1000행씩 끝까지 페이지네이션 (상한 없음). 세션이 바뀌면 이전 조회를 캐시에 반영하지 않음.
@@ -293,6 +295,7 @@ function renderDash(){
   </div>
   </section>
   ${dashboardTaxLedgerPanel()}
+  ${dashboardConsignmentPanel()}
   <section aria-label="공급가액 상세 분석">
   <h3 class="dash-section-title">공급가액 상세 분석</h3>
   <div class="kpi-grid dash-kpis">
