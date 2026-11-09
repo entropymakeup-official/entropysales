@@ -26,7 +26,7 @@ test('dashboard has no Lost card or wording and Lost never changes revenue total
  const invoices=[{id:'a',no:'A',customer:'Zero',order_date:'2026-02-01',status:'Ordered'}];
  const c={_invoices:invoices,_items:[],_customers:[{name:'Zero',tax:'영세'}],document:{getElementById:id=>nodes[id]},window:{},setTimeout:()=>{},today:()=>'2026-09-09',fmt:n=>'₩'+Math.round(n),esc:s=>String(s||''),
   getInvItems:id=>c._items.filter(i=>i.invoice_id===id),itemsRev:xs=>xs.reduce((a,x)=>a+x.qty*x.price,0),itemsByType:()=>0};
- vm.createContext(c);for(const f of ['invoice-amounts.js','dashboard-model.js','tax-ledger.js','dashboard-ui.js'])vm.runInContext(read(f),c);
+ vm.createContext(c);for(const f of ['invoice-amounts.js','dashboard-model.js','tax-ledger.js','consignment-settlement.js','dashboard-ui.js'])vm.runInContext(read(f),c);
  const app=read('app.js'),start=app.indexOf('function renderDash(){');vm.runInContext(app.slice(start,app.indexOf('\nfunction ',start+1)),c);
  const snap=()=>JSON.parse(vm.runInContext('JSON.stringify(_dashSnapshot)',c));
  c._items=[{invoice_id:'a',sales_type:'Paid',qty:1,price:100}];c.renderDash();const without=snap();
