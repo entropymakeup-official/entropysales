@@ -99,6 +99,7 @@
     <div class="ni" onclick="go('raw')" id="nav-raw"><i class="ti ti-table"></i>RAW 데이터</div>
     <div class="ns">분석</div>
     <div class="ni" onclick="go('monthly')" id="nav-monthly"><i class="ti ti-chart-bar"></i>월별 현황</div>
+    <div class="ni" onclick="go('dutyfree')" id="nav-dutyfree"><i class="ti ti-shopping-bag"></i>면세점 판매</div>
     <!-- Temporarily hidden; preserve functionality. See DEFERRED-MENUS.md. -->
     <div class="ni" hidden style="display:none" onclick="go('forecast')" id="nav-forecast"><i class="ti ti-trending-up"></i>재고 포캐스팅</div>
     <div class="ni" hidden style="display:none" onclick="go('inventory')" id="nav-inventory"><i class="ti ti-building-warehouse"></i>실시간 재고</div>
@@ -674,8 +675,11 @@
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=1aa66fdbb2a6"></script>
+<link rel="stylesheet" href="dutyfree.css?v=20261109-dutyfree-1">
+<script src="dutyfree.js?v=20261109-dutyfree-1"></script>
+  <script src="app.js?v=99b76eb3c06d"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
+<script>globalThis.dutyfree=DutyfreeDashboard.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 </body>
 </html>

@@ -1,0 +1,66 @@
+/* 면세점 판매 대시보드(dutyfree.js). 사이트 공통 토큰(style.css)만 사용한다. */
+.dfs{display:block}
+.dfs-filters .btn{align-self:end;padding:8px 12px}
+.dfs-msg{padding:24px;color:var(--text2);font-size:13px}
+.dfs-msg .btn{margin-top:10px}
+.dfs-card-body{padding:12px 13px}
+.dfs-card .card-hd small{font-weight:400;color:var(--text3);margin-left:6px}
+.dfs-card .tw{margin:-12px -13px}
+.dfs-chart{position:relative;width:100%}
+.dfs-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.dfs-grid2>.card{margin-bottom:12px}
+.dfs-inner{margin-top:14px}
+.dfs-inner h4{font-size:11px;font-weight:600;color:var(--text2);margin:0 0 6px}
+.dfs-inner .tw{margin:0;border:0.5px solid var(--border);border-radius:var(--radius)}
+.dfs-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-bottom:14px}
+.dfs-kpis .kpi .sub{line-height:1.45}
+.dfs-d{font-size:10px;font-weight:600;margin-left:4px;white-space:nowrap}
+.dfs-d.up,.dfs .up{color:var(--green)}
+.dfs-d.down,.dfs .down{color:var(--red)}
+.dfs-chan{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px;margin-bottom:12px}
+.dfs-chan-btn{display:grid;gap:4px;text-align:left;padding:11px 13px;border:0.5px solid var(--border);border-left:3px solid var(--cc);border-radius:var(--radius);background:var(--bg2);color:var(--text);cursor:pointer;font:inherit}
+.dfs-chan-btn:hover{background:var(--bg3)}
+.dfs-chan-btn[aria-pressed="true"]{background:var(--purple-light);border-color:var(--purple)}
+.dfs-chan-btn .n{font-size:11px;color:var(--text2)}
+.dfs-chan-btn .v{font-size:18px;font-weight:600}
+.dfs-chan-btn .p{display:flex;justify-content:space-between;font-size:10px;color:var(--text3)}
+.dfs-chan-btn .share{height:3px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.dfs-chan-btn .share i{display:block;height:100%;background:var(--cc)}
+.dfs-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;border-bottom:0.5px solid var(--border)}
+.dfs-tabs button{padding:8px 14px;border:0;border-bottom:2px solid transparent;background:none;color:var(--text2);font:inherit;font-size:12px;cursor:pointer}
+.dfs-tabs button[aria-selected="true"]{color:var(--purple);border-bottom-color:var(--purple);font-weight:600}
+.dfs-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px}
+.dfs-tile{display:grid;gap:6px;padding:11px 13px;border-radius:var(--radius);background:var(--bg3);border-top:3px solid var(--cc)}
+.dfs-tile.total{background:var(--purple-light)}
+.dfs-tile .t{display:flex;justify-content:space-between;gap:8px;font-size:11px}
+.dfs-tile .t span{color:var(--text3)}
+.dfs-tile .t span.late{color:var(--amber);font-weight:600}
+.dfs-tile .v{font-size:20px;font-weight:600;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.dfs-tile .v small{font-size:11px;font-weight:400;color:var(--text2)}
+.dfs-tile .r{display:flex;justify-content:space-between;align-items:end;gap:8px}
+.dfs-tile .m{font-size:10px;color:var(--text2);line-height:1.5}
+.dfs-spark{display:flex;align-items:end;gap:2px;height:26px}
+.dfs-spark i{display:block;width:6px;background:var(--border2);border-radius:1px}
+.dfs-spark i.last{background:var(--cc)}
+.dfs-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+.dfs-toolbar input,.dfs-toolbar select{padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font:inherit;font-size:12px}
+.dfs-toolbar input{min-width:200px}
+.dfs-count{font-size:11px;color:var(--text3);margin-left:auto}
+.dfs-card .dfs-toolbar+.tw{margin-top:0}
+.dfs-tw table td.r,.dfs-tw table th.r{text-align:right}
+.dfs-tw td{white-space:nowrap}
+.dfs-tw th[data-df-sort]{cursor:pointer}
+.dfs-tw th[aria-sort="ascending"]::after{content:' ▲'}
+.dfs-tw th[aria-sort="descending"]::after{content:' ▼'}
+.dfs-tw{max-height:60vh;overflow:auto}
+.dfs-tw thead th{position:sticky;top:0;z-index:1}
+.dfs-tot td{font-weight:600;background:var(--bg3)}
+.dfs-click{cursor:pointer}
+.dfs-sel td{background:var(--purple-light)!important}
+.dfs-bar{display:flex;align-items:center;gap:6px;min-width:130px}
+.dfs-bar i{display:block;height:8px;border-radius:2px;flex:none;max-width:70%}
+.dfs-bar b{font-weight:400;font-size:11px}
+.dfs-empty,.dfs-note{font-size:11px;color:var(--text2);line-height:1.6;margin:0}
+.dfs>.dfs-page>.dfs-note{margin:4px 2px 16px}
+@media(max-width:1024px){.dfs-grid2{grid-template-columns:1fr}}
+@media(max-width:600px){.dfs-toolbar input{min-width:0;flex:1}.dfs-count{margin-left:0;width:100%}.dfs-tile .v{font-size:18px}}
