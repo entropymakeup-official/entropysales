@@ -18,6 +18,46 @@ async function refreshDashboardTaxLedger(){
   await pending;
   if(document.getElementById('dash-tax-ledger')&&_taxLedgerState.status!=='idle')renderDash();
 }
+let _consignmentState={status:'idle',rows:[]},_consignmentGeneration=0;
+function resetDashboardConsignment(){
+  _consignmentGeneration++;
+  _consignmentState={status:'idle',rows:[]};
+  const panel=document.getElementById('dash-consignment');
+  if(panel)panel.innerHTML='';
+}
+async function loadDashboardConsignment(){
+  const generation=++_consignmentGeneration;
+  _consignmentState={status:'loading',rows:[]};
+  const state=await ConsignmentSettlement.load(sb);
+  if(generation===_consignmentGeneration)_consignmentState=state;
+}
+async function refreshDashboardConsignment(){
+  const pending=loadDashboardConsignment();
+  if(document.getElementById('dash-consignment'))renderDash();
+  await pending;
+  if(document.getElementById('dash-consignment')&&_consignmentState.status!=='idle')renderDash();
+}
+function dashboardConsignmentPanel(){return ConsignmentSettlement.render(_consignmentState,dashboardPeriod(),_customers);}
+let _consignFilter=null;
+function consignFilter(){
+  if(!_consignFilter)_consignFilter={year:today().slice(0,4),customer:'',issuesOnly:false};
+  return _consignFilter;
+}
+function renderConsignPage(){
+  const content=document.getElementById('content');
+  if(_consignmentState.status==='idle'){
+    loadDashboardConsignment().then(()=>{if(document.getElementById('consign-page'))renderConsignPage();});
+  }
+  const orders=ConsignmentSettlement.orderTotals(_invoices,_items,i=>InvoiceAmounts.amount(i));
+  content.innerHTML=ConsignmentSettlement.renderPage(_consignmentState,consignFilter(),_customers,orders);
+}
+function setConsignFilter(change){_consignFilter={...consignFilter(),...change};renderConsignPage();}
+async function refreshConsignPage(){
+  const pending=loadDashboardConsignment();
+  if(document.getElementById('consign-page'))renderConsignPage();
+  await pending;
+  if(document.getElementById('consign-page'))renderConsignPage();
+}
 function dashboardDateRows(){
   return [..._invoices,...(_taxLedgerState.status==='ready'?_taxLedgerState.rows.map(r=>({order_date:r.written_date})):[])];
 }

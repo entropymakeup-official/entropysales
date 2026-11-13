@@ -109,7 +109,9 @@ let _editInv=null, _editCust=null, _editProd=null;
 let _uploadData=null;
 
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
-function fmt(n){if(!n&&n!==0)return'-';const v=parseFloat(n);if(!Number.isFinite(v))return'-';return'₩'+(v===0?0:v).toLocaleString('ko-KR',{maximumFractionDigits:2});}
+// 원화 금액 표시: 합계·집계는 1원 단위(반올림), 품목 한 줄의 단가·금액은 증빙 대조를 위해 fmtExact로 소수 둘째 자리까지 표시한다.
+function fmt(n){if(!n&&n!==0)return'-';let v=parseFloat(n);if(!Number.isFinite(v))return'-';v=Math.round(v*100)/100;v=Math.sign(v)*Math.round(Math.abs(v));return'₩'+(v===0?0:v).toLocaleString('ko-KR');}
+function fmtExact(n){if(!n&&n!==0)return'-';const v=parseFloat(n);if(!Number.isFinite(v))return'-';return'₩'+(v===0?0:v).toLocaleString('ko-KR',{maximumFractionDigits:2});}
 function fmtN(n){return Math.round(parseFloat(n)||0).toLocaleString('ko-KR');}
 function today(){const d=new Date();d.setHours(d.getHours()+9);return d.toISOString().split('T')[0];}
 function om(id){document.getElementById(id).classList.add('open');}
@@ -173,8 +175,9 @@ function resetApplicationData(){
   _loadAllGeneration++;
   _loadAllPromise=null;
   resetDashboardTaxLedger();
+  resetDashboardConsignment();
   _customers=[];_products=[];_invoices=[];_items=[];_stocks=[];_docs=[];_schedules=[];_taxRecords=[];
-  _dashSnapshot=null;_dashPeriod=null;
+  _dashSnapshot=null;_dashPeriod=null;_consignFilter=null;
   const content=document.getElementById('content');
   if(content)content.innerHTML=loading();
   const actions=document.getElementById('topbar-actions');
@@ -193,7 +196,7 @@ async function loadAll(){
 }
 
 async function _loadAllInner(generation=_loadAllGeneration){
-  // 모든 쿼리 동시에 병렬 실행 (세금계산서 확인금액 원장은 별도 상태로 읽고 주문 매출에 합산하지 않음)
+  // 모든 쿼리 동시에 병렬 실행 (세금계산서 확인금액 원장·면세점 정산 원장은 별도 상태로 읽고 주문 매출에 합산하지 않음)
   const [c,p,inv,s,d,sch,goal,tr]=await Promise.all([
     sb.from('customers').select('*').order('name'),
     sb.from('products').select('*').order('name'),
@@ -203,7 +206,8 @@ async function _loadAllInner(generation=_loadAllGeneration){
     sb.from('schedules').select('*').order('date'),
     sb.from('app_settings').select('value').eq('key','revenue_goal').maybeSingle(),
     sb.from('tax_records').select('*'),
-    loadDashboardTaxLedger()
+    loadDashboardTaxLedger(),
+    loadDashboardConsignment()
   ]);
   if(generation!==_loadAllGeneration)return false;
   // invoice_items 전체 로드 - 1000행씩 끝까지 페이지네이션 (상한 없음). 세션이 바뀌면 이전 조회를 캐시에 반영하지 않음.
@@ -259,11 +263,11 @@ function go(page){
   }
   document.querySelectorAll('.ni').forEach(el=>el.classList.remove('active'));
   const n=document.getElementById('nav-'+page);if(n)n.classList.add('active');
-  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',inventory:'실시간 재고',tax:'세금계산서',customers:'거래처 마스터',contacts:'거래처 연락처',contracts:'계약서',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
+  const titles={dash:'대시보드',upload:'파일 업로드 → 인보이스 생성',invoices:'인보이스',raw:'RAW 데이터',monthly:'월별 현황',forecast:'재고 포캐스팅',inventory:'실시간 재고',tax:'세금계산서',consign:'면세점 정산',customers:'거래처 마스터',contacts:'거래처 연락처',contracts:'계약서',docs:'서류 관리',products:'제품 목록',calendar:'달력',custanalysis:'업체별 분석',productanalysis:'제품별 분석'};
   document.getElementById('page-title').textContent=page==='productmaster'?'제품 마스터':titles[page]||page;
   if(page==='productmaster'){globalThis.productMaster?.show();return;}
   if(page==='tasks'){document.getElementById('page-title').textContent='업무 목록';globalThis.teamTasks?.show();return;}
-  ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,customers:renderCustomers,contacts:()=>globalThis.contactRegister?.show(),contracts:renderContracts,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
+  ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,consign:renderConsignPage,customers:renderCustomers,contacts:()=>globalThis.contactRegister?.show(),contracts:renderContracts,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
 let _contractCustomer='';
 function renderContracts(){globalThis.contractRegister?.show(_contractCustomer);_contractCustomer='';}
@@ -293,6 +297,7 @@ function renderDash(){
   </div>
   </section>
   ${dashboardTaxLedgerPanel()}
+  ${dashboardConsignmentPanel()}
   <section aria-label="공급가액 상세 분석">
   <h3 class="dash-section-title">공급가액 상세 분석</h3>
   <div class="kpi-grid dash-kpis">
@@ -783,9 +788,9 @@ function downloadMeongse(inv){
       <td>${it.barcode||''}</td>
       <td style="text-align:left">${it.name||''}</td>
       <td>${fmtN2(qty)}</td>
-      <td>${fmt(price)}</td>
-      <td>${fmt(amt)}</td>
-      <td style="${isPaid?'':'color:#999'}">${isPaid?fmt(amt):'-'}</td>
+      <td>${fmtExact(price)}</td>
+      <td>${fmtExact(amt)}</td>
+      <td style="${isPaid?'':'color:#999'}">${isPaid?fmtExact(amt):'-'}</td>
       <td colspan="2" style="text-align:center;font-weight:700;font-size:10px;color:${tColor}">${sType}</td>
     </tr>`;
   }).join('');
@@ -973,7 +978,7 @@ function renderInvoices(){
   document.getElementById('content').innerHTML=`
   <div class="fb">
     <input id="fi-q" placeholder="인보이스번호 / 거래처..." oninput="filterInv()" style="width:190px"/>
-    <select id="fi-pay" onchange="filterInv()"><option value="">입금 전체</option><option>미입금</option><option>입금완료</option></select>
+    <select id="fi-pay" onchange="filterInv()"><option value="">입금 전체</option><option>미입금</option><option>입금완료</option><option>무상 종결</option></select>
     <select id="fi-sh" onchange="filterInv()"><option value="">출고 전체</option><option>준비중</option><option>출고완료</option></select>
     <select id="fi-mg" onchange="filterInv()"><option value="">담당자 전체</option>${MGRS.map(m=>`<option>${m}</option>`).join('')}</select>
     <select id="fi-foc" onchange="filterInv()"><option value="">FOC 전체</option><option>FOC 있음</option><option>FOC 없음</option></select>
@@ -996,7 +1001,7 @@ function filterInv(){
   // FOC = 수기 FOC 금액 + 품목 sales_type FOC (매출 합계에는 포함하지 않음)
   const focOf=v=>{const items=getInvItems(v.id);return{amt:(parseFloat(v.foc)||0)+itemsByType(items,'FOC'),qty:itemsQtyByType(items,'FOC')};};
   const hasFoc=v=>{const f=focOf(v);return f.amt>0||f.qty>0;};
-  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||(pay==='입금완료'?v.status==='Paid':v.status!=='Paid'))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg)&&(!focF||(focF==='FOC 있음'?hasFoc(v):!hasFoc(v))));
+  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||payFilterMatch(v,pay))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg)&&(!focF||(focF==='FOC 있음'?hasFoc(v):!hasFoc(v))));
   window._inv_filtered=list;
   const count=document.getElementById('inv-count');
   if(count){const foc=list.reduce((a,v)=>{const f=focOf(v);return{amt:a.amt+f.amt,qty:a.qty+f.qty,n:a.n+(f.amt>0||f.qty>0?1:0)};},{amt:0,qty:0,n:0});
@@ -1104,9 +1109,13 @@ async function updTracking(id,val){
 }
 
 const _invoiceStatusPending=new Set();
+// 입금 상태 이름. Closed는 받을 돈이 없는 무상 주문을 닫은 상태(무상 종결)로, 입금완료와 구분한다.
+function payStatusLabel(status){return status==='Paid'?'입금완료':status==='Closed'?'무상 종결':status==='Cancelled'?'취소':'미입금';}
+function payFilterMatch(v,pay){return pay==='입금완료'?v.status==='Paid':pay==='무상 종결'?v.status==='Closed':!['Paid','Closed'].includes(v.status);}
 function invoicePaymentMarkup(inv,rev){
   if(_invoiceStatusPending.has(inv.id))return '<span class="badge bg-gray">저장 중…</span>';
   if(inv.status==='Cancelled')return '<span class="badge bg-red">취소</span>';
+  if(inv.status==='Closed')return `<span class="badge bg-gray" title="유상 금액이 없어 정산 대상이 아닌 주문(무상 종결)">무상 종결</span>${verificationMarkup(inv.pay_verified_by,inv.pay_verified_at)}`;
   // 유상 금액이 없는 주문(FOC·샘플만 나간 건)은 입금 대상이 아니므로 품목 유형으로 표시한다.
   if(rev<=0){
     const names={FOC:'FOC',Sample:'샘플',GWP:'GWP',Replacement:'교체품',Lost:'분실'};
@@ -1150,6 +1159,7 @@ async function togglePayStatus(id){
   if(_invoiceStatusPending.has(id)){toast('이 주문의 상태를 저장 중입니다.');return;}
   const inv=_invoices.find(i=>i.id===id);
   if(!inv){toast('주문을 확인할 수 없습니다. 목록을 새로고침해주세요.');return;}
+  if(inv.status==='Closed'){toast('무상 종결 주문입니다. 상태를 바꾸려면 변경 요청 화면에서 미입금으로 되돌려 주세요.');return;}
   if(inv.status==='Paid'){
     if(!confirm('입금 완료를 취소하시겠습니까?'))return;
     return saveInvoiceStatus(id,{status:'Ordered',pay_date:null},'미입금 상태');
@@ -1169,7 +1179,7 @@ async function toggleShipStatus(id,currentDate,currentStatus){
 async function updInvSt(id,val,el){
   const inv=_invoices.find(i=>i.id===id);if(!inv)return;
   try{const ops=[await rowChange('invoices','update',{id},{status:val},inv)];
-    const c=custByName(inv.customer);if((val==='Paid'||val==='Closed')&&c&&!c.tax_status)ops.push(await rowChange('customers','update',{id:c.id},{tax_status:'발행예정'},c));
+    const c=custByName(inv.customer);if(val==='Paid'&&c&&!c.tax_status)ops.push(await rowChange('customers','update',{id:c.id},{tax_status:'발행예정'},c));
     await queueChanges(ops);
   }catch(error){toast('요청 실패: '+error.message);}finally{if(el){el.value=inv.status;el.className='ss s'+inv.status;}}
 }
@@ -1251,7 +1261,7 @@ function calcInvTotal(){
   const warning=document.getElementById('inv-proof-warning');
   if(warning){warning.textContent=InvoiceAmounts.editorWarning(before);warning.hidden=!warning.textContent;}
   let total=0;
-  rows.forEach((tr,index)=>{if(items[index].sales_type==='Paid')total+=amounts[index];const td=tr.querySelectorAll('td')[5];if(td)td.textContent=fmt(amounts[index]);});
+  rows.forEach((tr,index)=>{if(items[index].sales_type==='Paid')total+=amounts[index];const td=tr.querySelectorAll('td')[5];if(td)td.textContent=fmtExact(amounts[index]);});
   document.getElementById('inv-total').textContent=fmt(total);
 }
 
@@ -1342,8 +1352,8 @@ function viewInv(id){
         <td>${it.sales_type==='GWP'||it.sales_type==='Sample'?`<span class="badge bg-red">${it.sales_type}</span>`:stBadge(it.sales_type)}</td>
         <td>${shipModeBadge(it.ship_mode)}</td>
         <td style="text-align:right">${fmtN(it.qty)}</td>
-        <td style="text-align:right">${fmt(it.price)}</td>
-        <td style="text-align:right;font-weight:600">${fmt(InvoiceAmounts.amount(it))}</td>
+        <td style="text-align:right">${fmtExact(it.price)}</td>
+        <td style="text-align:right;font-weight:600">${fmtExact(InvoiceAmounts.amount(it))}</td>
       </tr>`;
     // Paid / FOC / 기타 무상 구역으로 나눠 소계 표시 (한 종류뿐이면 구역 없이 표시)
     const groups=[
@@ -1535,8 +1545,8 @@ function filterRaw(page){
       <td>${stBadge(r.st)}</td>
       <td>${shipModeBadge(r.shipMode)}</td>
       <td style="text-align:right">${fmtN(r.qty)}</td>
-      <td style="text-align:right">${fmt(r.price)}</td>
-      <td style="text-align:right;font-weight:600">${fmt(r.amount)}</td>
+      <td style="text-align:right">${fmtExact(r.price)}</td>
+      <td style="text-align:right;font-weight:600">${fmtExact(r.amount)}</td>
     </tr>`;
   }).join('');
   // 페이지네이션
@@ -1895,13 +1905,13 @@ function xgCalcAmt(tr){
     const rows=Array.from(document.querySelectorAll('#xg-body tr'));
     const items=rows.map(row=>({name:row.querySelector('[data-col="1"] input')?.value||'',barcode:row.querySelector('[data-col="0"] input')?.value||'',sales_type:row.querySelector('[data-col="3"] select')?.value||'Paid',qty:parseFloat(row.querySelector('[data-col="4"] input')?.value)||0,price:parseFloat(row.querySelector('[data-col="5"] input')?.value)||0,ship_mode:row.querySelector('[data-col="7"] select')?.value||null}));
     const amounts=InvoiceAmounts.previewAmounts(items,window._editRawBefore.items||[]);
-    rows.forEach((row,index)=>{const cell=row.querySelector('[data-col="6"]');if(cell)cell.textContent=fmt(amounts[index]);});
+    rows.forEach((row,index)=>{const cell=row.querySelector('[data-col="6"]');if(cell)cell.textContent=fmtExact(amounts[index]);});
     return;
   }
   const qty=parseFloat(tr.querySelector('[data-col="4"] input')?.value)||0;
   const price=parseFloat(tr.querySelector('[data-col="5"] input')?.value)||0;
   const amtEl=tr.querySelector('[data-col="6"]');
-  if(amtEl)amtEl.textContent=qty&&price?fmt(qty*price):'-';
+  if(amtEl)amtEl.textContent=qty&&price?fmtExact(qty*price):'-';
 }
 
 // 붙여넣은 값이 선택지에 없으면 기존 선택을 유지한다.
@@ -2935,8 +2945,8 @@ function filterTax(){
     <div class="kpi"><div class="lbl">직접입금 · 세금계산서 미처리</div><div class="val">${count('직접입금')}건</div></div>
     <div class="kpi"><div class="lbl">직수출 · 세금계산서 발급 제외</div><div class="val">${count('직수출')}건</div></div>`;
   const reconciliation=document.getElementById('tax-reconciliation');
-  const cents=value=>Math.round(Number(Number(value).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:2}))*100);
-  const adjustment=(cents(sum('amt'))-cents(sum('supplyAmt'))-cents(sum('pendingAmt')))/100;
+  const won=value=>{const v=Math.round(Number(value)*100)/100;return Math.sign(v)*Math.round(Math.abs(v));};
+  const adjustment=won(sum('amt'))-won(sum('supplyAmt'))-won(sum('pendingAmt'))||0;
   if(reconciliation)reconciliation.textContent=`현재 필터 기준 · 등록금액 ${fmt(sum('amt'))} = 공급가액 집계분 ${fmt(sum('supplyAmt'))} + 확인 필요 ${fmt(sum('pendingAmt'))}${adjustment?' + 표시 반올림 차이 '+fmt(adjustment):''}. 거래처 미연결 ${rows.filter(r=>!r.custId).length}건도 등록금액에 포함합니다. 상태 건수는 거래처·월 단위입니다.`;
   document.getElementById('tax-content').innerHTML=months.map(m=>{
     const monthRows=rows.filter(r=>r.month===m);
@@ -4140,7 +4150,7 @@ function buildCustAnalysis(cust){
           <td style="font-size:11px">${v.manager||'-'}</td>
           <td style="text-align:right;font-size:11px">${vi.some(i=>i.sales_type==='Paid')?fmt(vp):'-'}</td>
           <td style="text-align:right;font-size:11px;color:var(--red)">${vf>0?fmt(vf):'-'}</td>
-          <td><span class="badge ${v.status==='Paid'?'bg-green':'bg-amber'}">${v.status==='Paid'?'입금완료':'미입금'}</span></td>
+          <td><span class="badge ${v.status==='Paid'?'bg-green':v.status==='Closed'?'bg-gray':'bg-amber'}">${v.status==='Paid'?'입금완료':v.status==='Closed'?'무상 종결':'미입금'}</span></td>
           <td><span class="badge ${v.ship_status==='출고완료'?'bg-green':'bg-amber'}">${v.ship_status||'미출고'}</span></td>
         </tr>`;
       }).join('')}</tbody>
@@ -4359,7 +4369,7 @@ function printCustReport(){
             <td>${v.manager||'-'}</td>
             <td class="num">${vi.some(i=>i.sales_type==='Paid')?fmt(vp):'-'}</td>
             <td class="num" style="color:#DC2626">${vf>0?fmt(vf):'-'}</td>
-            <td><span class="badge ${v.status==='Paid'?'b-blue':'b-gray'}">${v.status==='Paid'?'입금완료':'미입금'}</span></td>
+            <td><span class="badge ${v.status==='Paid'?'b-blue':'b-gray'}">${v.status==='Paid'?'입금완료':v.status==='Closed'?'무상 종결':'미입금'}</span></td>
             <td><span class="badge ${v.ship_status==='출고완료'?'b-blue':'b-gray'}">${v.ship_status||'미출고'}</span></td>
           </tr>`;
         }).join('')}

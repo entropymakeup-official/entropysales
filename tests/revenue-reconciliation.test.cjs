@@ -21,7 +21,7 @@ test('monthly registered, supply and pending views reconcile and exclude cancell
  h.ctx._invoices=[{id:'z',customer:'Zero',order_date:'2026-03-01'},{id:'old',customer:'Old name',order_date:'2026-03-02'},{id:'cancel',customer:'Zero',order_date:'2026-03-03',status:'Cancelled'}];
  h.ctx._items=h.ctx._invoices.map((i,n)=>({invoice_id:i.id,sales_type:'Paid',qty:1,price:[100,20,999][n]}));
  h.ctx._customers=[{id:'z',name:'Zero',tax:'영세'}];
- h.load('fmt','buildMonthly');h.element('fm-y').value='2026';
+ h.load('fmt','fmtExact','buildMonthly');h.element('fm-y').value='2026';
  for(const [view,total]of [['revenue',120],['supply',100],['pending',20]]){
   h.element('fm-t').value=view;h.ctx.buildMonthly();
   const html=h.element('monthly-content').innerHTML;
@@ -33,20 +33,20 @@ test('tax UI displays unknown customer and reason safely; export uses the same v
  h.ctx._invoices=[{id:'a',customer:'Old <name>',order_date:'2026-01-01',no:'A'},{id:'b',customer:'Zero',order_date:'2025-01-01',no:'B'}];
  h.ctx._items=h.ctx._invoices.map(i=>({invoice_id:i.id,sales_type:'Paid',qty:1,price:25}));
  h.ctx._customers=[{id:'z',name:'Zero',tax:'영세'}];h.ctx.TAX_ST=['발행예정','발행완료'];
- h.load('esc','fmt','renderTax','filterTax','taxRowHtml','taxShipMonths','taxShipHtml','taxVisibleRows','exportTax');
+ h.load('esc','fmt','fmtExact','renderTax','filterTax','taxRowHtml','taxShipMonths','taxShipHtml','taxVisibleRows','exportTax');
  h.ctx.renderTax();assert.match(h.element('tax-content').innerHTML,/Old &lt;name&gt;/);assert.match(h.element('tax-content').innerHTML,/연결 확인 필요/);
  assert.doesNotMatch(h.element('tax-content').innerHTML,/<select|VAT|₩27.5/);
  let exported;h.ctx.XLSX={utils:{aoa_to_sheet:data=>{exported=data;return {};},book_new:()=>({}),book_append_sheet(){}}};h.ctx.xlsxDownload=()=>{};
  h.ctx.exportTax();assert.equal(exported.length,2);assert.equal(exported[1][0],'2026-01');assert.equal(exported[1][4],25);assert.equal(exported[1][5],0);assert.equal(exported[1][6],25);
 });
 test('filtered tax reconciliation discloses display rounding adjustment',()=>{
- const h=harness();h.load('fmt','taxVisibleRows','taxRowHtml','taxShipMonths','taxShipHtml','filterTax');h.ctx.TAX_ST=[];
+ const h=harness();h.load('fmt','fmtExact','taxVisibleRows','taxRowHtml','taxShipMonths','taxShipHtml','filterTax');h.ctx.TAX_ST=[];
  h.ctx.window._taxSummary={taxRows:[
-  {month:'2026-01',customer:'A',amt:.005,supplyAmt:.005,pendingAmt:0,reasons:[],invoices:[]},
-  {month:'2026-01',customer:'B',amt:.005,supplyAmt:0,pendingAmt:.005,reasons:[],invoices:[]},
+  {month:'2026-01',customer:'A',amt:.5,supplyAmt:.5,pendingAmt:0,reasons:[],invoices:[]},
+  {month:'2026-01',customer:'B',amt:.5,supplyAmt:0,pendingAmt:.5,reasons:[],invoices:[]},
   {month:'2025-01',customer:'C',amt:99,supplyAmt:99,pendingAmt:0,reasons:[],invoices:[]} ]};
  h.element('ft-y').value='2026';h.ctx.filterTax();
- assert.match(h.element('tax-reconciliation').textContent,/표시 반올림 차이 ₩-0.01/);
+ assert.match(h.element('tax-reconciliation').textContent,/등록금액 ₩1 = 공급가액 집계분 ₩1 \+ 확인 필요 ₩1 \+ 표시 반올림 차이 ₩-1/);
 });
 test('zero and signed adjustments survive tax rows, duplicate names stay unlinked and taxable amounts stay pending',()=>{
  const invoices=['Zero','Tax','Duplicate','Bad date'].map((customer,n)=>({id:String(n),customer,order_date:n===3?'2026-99-99':'2026-02-01'}));
