@@ -99,3 +99,13 @@ DB 소유자·서비스 관리자의 SQL 권한 자체를 제한하는 기능은
 - **서버**: `sql/ship-no-evidence.sql`이 `settlement_guard`의 새 주문 차단 조건에 새 상태를 더하고, `invoices.ship_status`를 세 값(`준비중`·`출고완료`·`출고완료(증빙없음)`)으로 제한합니다. 설치된 정의에서 표식을 정확히 1번 찾지 못하거나 이미 설치됐으면 중단합니다.
 
 설치 순서: `sql/ship-no-evidence.sql`을 먼저 실행한 뒤 `app.js`, `index.html`, `request-editor.js`, `style.css`를 배포합니다.
+
+## 홈택스 계산서 금액 거래처 연결 (2026-11-13)
+
+`tax_invoice_amounts`(홈택스 계산서 금액 표)는 직접 쓰기가 막혀 있고 변경 요청 대상도 아니어서, 계산서가 다른 거래처에 잘못 연결돼도 고칠 길이 없었습니다.
+
+- **허용 범위**: 이 표는 `update`로 `customer_id` 한 칸만 바꿀 수 있습니다. 승인번호·사업자번호·금액 등 홈택스 원본 값과 추가·삭제는 `TAX_INVOICE_AMOUNT_CUSTOMER_ONLY`로 거절합니다.
+- **사업자번호 확인**: 새 거래처의 사업자번호(숫자만)가 계산서 `buyer_business_number`와 같아야 합니다. 다르거나 거래처를 비우면 `TAX_INVOICE_AMOUNT_BUYER_MISMATCH`로 거절합니다.
+- **서버**: `sql/tax-invoice-amount-customer.sql`이 `apply_operations`의 허용 표 목록에 이 표를 더하고 위 검사를 넣습니다. 설치된 정의에서 표식을 정확히 1번 찾지 못하거나 이미 설치됐으면 중단합니다. 사업자번호는 양쪽 모두 숫자만 비교하고, 계산서 쪽 번호에 숫자가 없으면 거절합니다.
+- **되돌리기**: `sql/tax-invoice-amount-customer-rollback.sql`이 승인 함수를 설치 전 정의로 돌립니다. 이미 승인된 거래처 연결은 그대로 둡니다.
+- **화면**: 관리자 승인 화면·변경 요약에 표 이름 `홈택스 계산서 금액`이 나옵니다. 화면 버튼은 없고, 요청은 `submit_change_request`로 올립니다.
