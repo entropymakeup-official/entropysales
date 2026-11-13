@@ -2886,7 +2886,7 @@ function renderTax(){
   const year=period&&!period.allTime&&period.start.slice(0,4)===period.end.slice(0,4)?period.start.slice(0,4):today().slice(0,4);
   document.getElementById('content').innerHTML=`
   <div id="tax-kpis" class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:12px"></div>
-  <p class="dash-basis">발주일 기준 주문 집계 · 취소 주문 제외. 실제 발행 세금계산서 원장 합계가 아닙니다. 등록금액은 세금 기준 확인 필요 금액을 포함합니다. 부가세 포함·별도가 확인되지 않은 주문에 세액을 임의로 더하지 않습니다.</p>
+  <p class="dash-basis">발주일 기준 주문 집계 · 취소 주문 제외. 출고월이 발주월과 다르면 출고월 칸에 노란 표시로 보여 줍니다(세금계산서는 보통 출고월에 발행). 실제 발행 세금계산서 원장 합계가 아닙니다. 등록금액은 세금 기준 확인 필요 금액을 포함합니다. 부가세 포함·별도가 확인되지 않은 주문에 세액을 임의로 더하지 않습니다.</p>
   <p class="dash-basis">공급가액 집계분은 대시보드와 동일한 분류 기준이며 증빙 검토 완료 금액이 아닙니다. 직접입금은 세금계산서 미처리 정산 방식이며 입금 완료를 뜻하지 않습니다. 직수출은 해외 법인 직접 수출로 세금계산서 발급 대상이 아니며 상업송장·수출신고필증으로 증빙합니다.</p>
   ${summary.missingDates?`<p class="dash-tax-warning">발주일 누락·형식 오류 ${summary.missingDates}건은 기간 집계에서 제외됩니다.</p>`:''}
   <div class="fb">
@@ -2908,6 +2908,20 @@ function taxVisibleRows(){
   const year=value('ft-y'),month=value('ft-m'),status=value('ft-st'),tax=value('ft-tax');
   return (window._taxSummary?.taxRows||[]).filter(r=>(!year||r.month.slice(0,4)===year)&&(!month||r.month===month)&&(!status||r.taxStatus===status)&&(!tax||r.taxType===tax));
 }
+function taxShipMonths(r){
+  const ships=r.shipments||[];
+  return [...new Set(ships.map(s=>s.shipMonth||'출고일 없음'))].sort();
+}
+function taxShipHtml(r,m){
+  const ships=r.shipments||[];
+  if(!ships.length)return '-';
+  return taxShipMonths(r).map(month=>{
+    const nos=ships.filter(s=>(s.shipMonth||'출고일 없음')===month).map(s=>s.invoice);
+    const other=month!==m;
+    const label=month===m?esc(month):`<span class="badge bg-amber">${esc(month)}</span>`;
+    return other&&ships.length>1?`${label} <span style="color:var(--text2)">${nos.map(esc).join(', ')}</span>`:label;
+  }).join('<br>');
+}
 function taxRowHtml(r,m){
   const opts=TAX_ST.map(s=>`<option ${r.taxStatus===s?'selected':''}>${esc(s)}</option>`).join('');
   const status=r.custId
@@ -2916,7 +2930,7 @@ function taxRowHtml(r,m){
   return `<tr><td><strong>${esc(r.customer)}</strong></td><td>${esc(r.mgr)}</td><td>${esc(r.taxType)}</td>
   <td style="text-align:right">${fmt(r.amt)}</td><td style="text-align:right">${fmt(r.supplyAmt)}</td><td style="text-align:right">${fmt(r.pendingAmt)}</td>
   <td style="font-size:11px">${r.reasons.length?r.reasons.map(esc).join('<br>'):'영세 기본값 적용'}</td>
-  <td style="font-size:11px">${r.invoices.map(esc).join(', ')}</td><td>${status}</td></tr>`;
+  <td style="font-size:11px">${r.invoices.map(esc).join(', ')}</td><td style="font-size:11px">${taxShipHtml(r,m)}</td><td>${status}</td></tr>`;
 }
 function filterTax(){
   const rows=taxVisibleRows(),months=[...new Set(rows.map(r=>r.month))].sort().reverse();
@@ -2937,7 +2951,7 @@ function filterTax(){
   document.getElementById('tax-content').innerHTML=months.map(m=>{
     const monthRows=rows.filter(r=>r.month===m);
     return `<div class="card" style="margin-bottom:10px"><div class="card-hd"><h3>${m} · ${monthRows.length}개 업체</h3><span>등록금액 ${fmt(monthRows.reduce((a,r)=>a+r.amt,0))}</span></div>
-    <div class="tw"><table><thead><tr><th>거래처</th><th>담당자</th><th>현재 구분</th><th>등록금액</th><th>공급가액 집계분</th><th>확인 필요 금액</th><th>확인 사유</th><th>인보이스</th><th>상태</th></tr></thead><tbody>${monthRows.map(r=>taxRowHtml(r,m)).join('')}</tbody></table></div></div>`;
+    <div class="tw"><table><thead><tr><th>거래처</th><th>담당자</th><th>현재 구분</th><th>등록금액</th><th>공급가액 집계분</th><th>확인 필요 금액</th><th>확인 사유</th><th>인보이스</th><th>출고월</th><th>상태</th></tr></thead><tbody>${monthRows.map(r=>taxRowHtml(r,m)).join('')}</tbody></table></div></div>`;
   }).join('')||'<div class="est">데이터 없음</div>';
 }
 async function updTaxSt2(custId,name,month,val,el){
@@ -2947,8 +2961,8 @@ async function updTaxSt2(custId,name,month,val,el){
 }
 function exportTax(){
   const rows=taxVisibleRows();
-  const data=[['발주월','거래처','담당자','현재 구분','등록금액','공급가액 집계분','확인 필요 금액','확인 사유','상태'],
-    ...rows.map(r=>[r.month,r.customer,r.mgr,r.taxType,r.amt,r.supplyAmt,r.pendingAmt,r.reasons.join(' / '),r.taxStatus])];
+  const data=[['발주월','거래처','담당자','현재 구분','등록금액','공급가액 집계분','확인 필요 금액','확인 사유','상태','출고월'],
+    ...rows.map(r=>[r.month,r.customer,r.mgr,r.taxType,r.amt,r.supplyAmt,r.pendingAmt,r.reasons.join(' / '),r.taxStatus,taxShipMonths(r).join(', ')])];
   const ws=XLSX.utils.aoa_to_sheet(data),wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'주문기준_세금검토');
   xlsxDownload(wb,`Entropy_세금검토_${today().replace(/-/g,'')}.xlsx`);

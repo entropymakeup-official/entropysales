@@ -90,11 +90,12 @@
         const matches=customers.filter(c=>c.name===inv.customer),c=matches.length===1?matches[0]:null;
         groups.set(key,{month,customer:inv.customer||'거래처 미입력',custId:c?.id||null,mgr:c?.mgr||inv.mgr||'-',
           taxType:['영세','과세'].includes(c?.tax)?c.tax:'미확인',taxStatus:c?.id?(records.find(r=>r.customer_id===c.id&&r.month===month)?.status||'발행예정'):'연결 확인 필요',
-          amt:0,supplyAmt:0,pendingAmt:0,pendingCount:0,invoices:[],reasons:[]});
+          amt:0,supplyAmt:0,pendingAmt:0,pendingCount:0,invoices:[],reasons:[],shipments:[]});
       }
       const group=groups.get(key);
       group.amt+=row.recordedRevenue;group.supplyAmt+=row.revenue;group.pendingAmt+=row.pendingRevenue;
       group.invoices.push(inv.no||String(inv.id));
+      group.shipments.push({invoice:inv.no||String(inv.id),shipMonth:validDate(inv.ship_date)?inv.ship_date.slice(0,7):null});
       if(row.tax.pending){group.pendingCount++;if(!group.reasons.includes(row.tax.reason))group.reasons.push(row.tax.reason);}
     });
     return {...summary,taxRows:[...groups.values()]};
