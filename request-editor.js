@@ -112,7 +112,7 @@ function assign(draft,field,raw){
 }
 function input(field,index,label){
  const value=field.value??'',name=`data-field="${index}" aria-label="${esc(label||labels[field.key]||field.key)}"`,isInvoice=field.isInvoice;
- let options=field.key==='ship_status'?['준비중','출고완료']:field.key==='sales_type'?['Paid','FOC','GWP','Sample','Replacement','Lost']:field.key==='ship_mode'?['','Air','Sea']:field.key==='status'&&isInvoice?['Ordered','Paid','Closed','Cancelled']:field.type==='boolean'?['true','false']:null;
+ let options=field.key==='ship_status'?['준비중','출고완료','출고완료(증빙없음)']:field.key==='sales_type'?['Paid','FOC','GWP','Sample','Replacement','Lost']:field.key==='ship_mode'?['','Air','Sea']:field.key==='status'&&isInvoice?['Ordered','Paid','Closed','Cancelled']:field.type==='boolean'?['true','false']:null;
  if(options&&!options.includes(String(value)))options=[String(value),...options];
  const control=options?`<select ${name}>${options.map(v=>`<option value="${esc(v)}"${String(value)===v?' selected':''}>${esc(field.key==='ship_mode'?shipModeText[v]??v:v==='true'?'예':v==='false'?'아니요':v)}</option>`).join('')}</select>`:
  field.type==='text'?`<textarea ${name} rows="2">${esc(value)}</textarea>`:`<input ${name} type="${field.type}" step="any" value="${esc(value)}">`;

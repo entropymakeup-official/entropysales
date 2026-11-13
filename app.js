@@ -132,7 +132,11 @@ function genInvNo(code,date){
 }
 
 function statusBadge(s){const m={Ordered:'bg-amber',Paid:'bg-green',Closed:'bg-gray',Cancelled:'bg-red'};return`<span class="badge ${m[s]||'bg-gray'}">${s||'-'}</span>`;}
-function shipBadge(s){return s==='출고완료'?`<span class="badge bg-green">출고완료</span>`:`<span class="badge bg-amber">준비중</span>`;}
+// missing: 출고완료인데 선적서류가 없는 주문(shipMissingEvidence)도 '출고완료(증빙없음)'으로 보인다.
+function shipBadge(s,missing){
+  if(s==='출고완료(증빙없음)'||(s==='출고완료'&&missing))return `<span class="badge bg-gray" title="출고됐지만 선적서류가 없습니다">출고완료(증빙없음)</span>`;
+  return s==='출고완료'?`<span class="badge bg-green">출고완료</span>`:`<span class="badge bg-amber">준비중</span>`;
+}
 function stBadge(s){const n=(s==='GWP'||s==='Sample')?'FOC':s;const m={Paid:'bg-green',FOC:'bg-red',Replacement:'bg-amber',Lost:'bg-coral'};return '<span class="badge '+(m[n]||'bg-gray')+'">'+n+'</span>';}
 // 품목별 운송 방식 (Air/Sea/미지정). 같은 품목을 항공·해상으로 나눈 주문을 구분한다.
 // RAW 입력의 비고는 주문 단위 기존 invoices.note에 저장합니다(인보이스 상세·거래명세서 비고와 같은 값).
@@ -979,7 +983,7 @@ function renderInvoices(){
   <div class="fb">
     <input id="fi-q" placeholder="인보이스번호 / 거래처..." oninput="filterInv()" style="width:190px"/>
     <select id="fi-pay" onchange="filterInv()"><option value="">입금 전체</option><option>미입금</option><option>입금완료</option><option>무상 종결</option></select>
-    <select id="fi-sh" onchange="filterInv()"><option value="">출고 전체</option><option>준비중</option><option>출고완료</option></select>
+    <select id="fi-sh" onchange="filterInv()"><option value="">출고 전체</option><option>준비중</option><option>출고완료</option><option>출고완료(증빙없음)</option></select>
     <select id="fi-mg" onchange="filterInv()"><option value="">담당자 전체</option>${MGRS.map(m=>`<option>${m}</option>`).join('')}</select>
     <select id="fi-foc" onchange="filterInv()"><option value="">FOC 전체</option><option>FOC 있음</option><option>FOC 없음</option></select>
   </div>
@@ -1001,7 +1005,7 @@ function filterInv(){
   // FOC = 수기 FOC 금액 + 품목 sales_type FOC (매출 합계에는 포함하지 않음)
   const focOf=v=>{const items=getInvItems(v.id);return{amt:(parseFloat(v.foc)||0)+itemsByType(items,'FOC'),qty:itemsQtyByType(items,'FOC')};};
   const hasFoc=v=>{const f=focOf(v);return f.amt>0||f.qty>0;};
-  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||payFilterMatch(v,pay))&&(!sh||v.ship_status===sh)&&(!mg||v.mgr===mg)&&(!focF||(focF==='FOC 있음'?hasFoc(v):!hasFoc(v))));
+  const list=_invoices.filter(v=>(!qn||(v.no+v.customer).toLowerCase().replace(/\s/g,'').includes(qn))&&(!pay||payFilterMatch(v,pay))&&(!sh||(sh==='출고완료(증빙없음)'?shipMissingEvidence(v):v.ship_status===sh))&&(!mg||v.mgr===mg)&&(!focF||(focF==='FOC 있음'?hasFoc(v):!hasFoc(v))));
   window._inv_filtered=list;
   const count=document.getElementById('inv-count');
   if(count){const foc=list.reduce((a,v)=>{const f=focOf(v);return{amt:a.amt+f.amt,qty:a.qty+f.qty,n:a.n+(f.amt>0||f.qty>0?1:0)};},{amt:0,qty:0,n:0});
@@ -1022,7 +1026,7 @@ function filterInv(){
       <td id="inv-pay-${v.id}" aria-busy="${_invoiceStatusPending.has(v.id)}" style="white-space:nowrap;cursor:pointer" title="주문 상태 변경(입금완료·취소 등)" onclick="openInvoiceStatusRequest('${v.id}')">
         ${invoicePaymentMarkup(v,rev)}
       </td>
-      <td>${v.status==='Cancelled'?`<span id="inv-ship-${v.id}" class="badge bg-red" style="cursor:pointer" title="취소된 주문은 출고하지 않습니다" onclick="openInvoiceStatusRequest('${v.id}')">취소</span>`:`<select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="ss s${(v.ship_status||'준비중').replace(/\s/g,'')}" onchange="openInvoiceStatusRequest('${v.id}',this)"><option ${!v.ship_status||v.ship_status==='준비중'?'selected':''}>준비중</option><option ${v.ship_status==='출고완료'?'selected':''}>출고완료</option></select>${v.ship_status==='출고완료'?verificationMarkup(v.ship_verified_by,v.ship_verified_at):''}`}</td>
+      <td>${v.status==='Cancelled'?`<span id="inv-ship-${v.id}" class="badge bg-red" style="cursor:pointer" title="취소된 주문은 출고하지 않습니다" onclick="openInvoiceStatusRequest('${v.id}')">취소</span>`:`<select id="inv-ship-${v.id}" ${_invoiceStatusPending.has(v.id)?'disabled':''} class="${shipClass(v.ship_status)}" onchange="openInvoiceStatusRequest('${v.id}',this)">${shipStatuses().map(s=>`<option ${(v.ship_status||'준비중')===s?'selected':''}>${s}</option>`).join('')}</select><span id="inv-ship-ev-${v.id}">${shipEvidenceMarkup(v)}</span>${v.ship_status==='출고완료'?verificationMarkup(v.ship_verified_by,v.ship_verified_at):''}`}</td>
       <td class="inv-hide-mobile" onclick="event.stopPropagation()"><input data-invoice-tracking="${v.id}" type="text" placeholder="-" value="${v.tracking_num||''}"
         style="border:none;background:transparent;font-size:11px;width:120px;color:var(--text);outline:none;border-bottom:1px solid var(--border);padding:2px 4px"
         onchange="updTracking('${v.id}',this.value)"/></td>
@@ -1131,6 +1135,14 @@ function verificationMarkup(by,at){
   if(!by)return '';
   return `<div class="inv-verified" style="font-size:9px;color:var(--text3)" title="${esc(by)}">${esc(`검증 ${by.split('@')[0]} · ${String(at||'').slice(0,10)}`)}</div>`;
 }
+// 2026-11-13: 실제로 나갔지만 선적서류가 없는 주문을 '준비중'과 구분한다.
+// 저장된 '출고완료(증빙없음)' 상태와, 출고완료인데 선적서류가 연결되지 않은 주문을 같은 '증빙없음'으로 본다.
+function shipStatuses(){return ['준비중','출고완료','출고완료(증빙없음)'];}
+// Drive 증빙을 불러오기 전에는 출고완료 주문을 '증빙없음'으로 판단하지 않는다.
+function shipMissingEvidence(v){return v.ship_status==='출고완료(증빙없음)'||(v.ship_status==='출고완료'&&typeof _driveState!=='undefined'&&_driveState==='ready'&&!_driveRows.some(d=>d.invoice_id===v.id&&d.type==='선적서류'));}
+function shipClass(s){return 'ss s'+(s==='출고완료(증빙없음)'?'증빙없음':String(s||'준비중').replace(/\s/g,''));}
+// 출고완료인데 선적서류가 없는 주문 옆에 붙이는 표시(저장 상태가 이미 '증빙없음'이면 선택 상자에 보이므로 생략).
+function shipEvidenceMarkup(v){return v.ship_status==='출고완료'&&shipMissingEvidence(v)?' <span class="badge bg-gray" title="출고완료로 기록됐지만 선적서류가 연결되지 않았습니다">증빙없음</span>':'';}
 function refreshInvoiceStatusControls(id){
   const inv=_invoices.find(i=>i.id===id);if(!inv)return;
   const pending=_invoiceStatusPending.has(id);
@@ -1138,7 +1150,12 @@ function refreshInvoiceStatusControls(id){
   if(pay){pay.innerHTML=invoicePaymentMarkup(inv,itemsRev(getInvItems(id)));pay.setAttribute('aria-busy',String(pending));}
   const ship=document.getElementById('inv-ship-'+id);
   // 취소 주문은 출고 칸이 선택 상자가 아니라 '취소' 표시다.
-  if(ship&&ship.tagName==='SELECT'){ship.value=inv.ship_status||'준비중';ship.className='ss s'+ship.value.replace(/\s/g,'');ship.disabled=pending;}
+  if(ship&&ship.tagName==='SELECT'){ship.value=inv.ship_status||'준비중';ship.className=shipClass(ship.value);ship.disabled=pending;}
+  updateShipEvidence(id);
+}
+function updateShipEvidence(id){
+  const el=document.getElementById('inv-ship-ev-'+id),inv=_invoices.find(i=>i.id===id);
+  if(el&&inv)el.innerHTML=shipEvidenceMarkup(inv);
 }
 function refreshInvoiceStatusList(){
   if(!document.getElementById('nav-invoices')?.classList.contains('active'))return;
@@ -1185,7 +1202,7 @@ async function updInvSt(id,val,el){
 }
 async function updShipSt(id,val,el){
   refreshInvoiceStatusControls(id);
-  if(!['준비중','출고완료'].includes(val)){toast('출고 상태를 다시 선택해주세요.');return;}
+  if(!shipStatuses().includes(val)){toast('출고 상태를 다시 선택해주세요.');return;}
   const inv=_invoices.find(i=>i.id===id);
   if(inv&&(inv.ship_status||'준비중')===val)return;
   return saveInvoiceStatus(id,{ship_status:val},'출고: '+val);
@@ -1334,7 +1351,7 @@ function viewInv(id){
   const focSub=[focQty>0?`${fmtN(focQty)}개`:'',manualFoc?`수기 FOC ${fmt(manualFoc)} 포함`:'',otherFree>0?`GWP·Sample ${fmt(otherFree)} 별도`:''].filter(Boolean).join(' · ');
   document.getElementById('view-inv-no').textContent=v.no;
   document.getElementById('view-inv-status').innerHTML=statusBadge(v.status);
-  document.getElementById('view-inv-ship').innerHTML=shipBadge(v.ship_status||'준비중');
+  document.getElementById('view-inv-ship').innerHTML=shipBadge(v.ship_status||'준비중',shipMissingEvidence(v));
   document.getElementById('view-inv-meta').innerHTML=`
     <div class="kpi"><div class="lbl">거래처</div><div class="val" style="font-size:13px">${v.customer}</div></div>
     <div class="kpi"><div class="lbl">담당자</div><div class="val" style="font-size:13px">${v.mgr||'-'}</div></div>
@@ -1399,7 +1416,7 @@ async function saveInv(){
   const editId=_editInv?.id??null;
   const isNew=editId===null;
   // 입금완료·출고완료는 증빙 링크를 받는 목록의 상태 요청으로만 접수한다(서버도 증빙 없이 거절).
-  if(isNew&&(['Paid','Closed'].includes(payload.status)||payload.ship_status==='출고완료')){alert('새 주문은 미입금·준비중으로 등록한 뒤, 인보이스 목록의 입금·출고 칸에서 증빙과 함께 요청해 주세요.');return;}
+  if(isNew&&(['Paid','Closed'].includes(payload.status)||payload.ship_status!=='준비중')){alert('새 주문은 미입금·준비중으로 등록한 뒤, 인보이스 목록의 입금·출고 칸에서 증빙과 함께 요청해 주세요.');return;}
   const settle=isNew||!globalThis.RequestEditor?[]:RequestEditor.settlementNeeds({operations:[{action:'invoice',id:editId,before:{invoice:_editInv},invoice:payload}]}).filter(n=>!hasDriveEvidence(n.invoiceId,n.type));
   if(settle.length){alert(`${settle.map(n=>n.label).join('·')}는 인보이스 목록의 입금·출고 칸에서 ${settle.map(n=>n.type).join('·')} 링크와 함께 요청해 주세요.`);return;}
   let documents=[];
@@ -3299,7 +3316,9 @@ function renderDriveDocs(){
     const invoiceId=document.getElementById('m-inv-view')?.dataset.invoiceId;
     detail.innerHTML=driveNotice()+driveRowsHtml(_driveRows.filter(d=>d.invoice_id===invoiceId),false);
   }
-  _invoices.forEach(i=>updateInvFileIcon(i.id));
+  _invoices.forEach(i=>{updateInvFileIcon(i.id);updateShipEvidence(i.id);});
+  // 출고 필터가 '증빙없음'이면 Drive 증빙을 불러온 뒤 목록을 다시 거른다.
+  if(document.getElementById('fi-sh')?.value==='출고완료(증빙없음)')refreshInvoiceStatusList();
 }
 async function loadDriveDocs(){
   const ticket=++_driveReadSeq,epoch=_driveEpoch;
@@ -4151,7 +4170,7 @@ function buildCustAnalysis(cust){
           <td style="text-align:right;font-size:11px">${vi.some(i=>i.sales_type==='Paid')?fmt(vp):'-'}</td>
           <td style="text-align:right;font-size:11px;color:var(--red)">${vf>0?fmt(vf):'-'}</td>
           <td><span class="badge ${v.status==='Paid'?'bg-green':v.status==='Closed'?'bg-gray':'bg-amber'}">${v.status==='Paid'?'입금완료':v.status==='Closed'?'무상 종결':'미입금'}</span></td>
-          <td><span class="badge ${v.ship_status==='출고완료'?'bg-green':'bg-amber'}">${v.ship_status||'미출고'}</span></td>
+          <td><span class="badge ${v.ship_status==='출고완료'?'bg-green':v.ship_status==='출고완료(증빙없음)'?'bg-gray':'bg-amber'}">${v.ship_status||'미출고'}</span></td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>
@@ -4799,7 +4818,7 @@ async function openInvoiceStatusRequest(id,select){
  try{
   const {data,error}=await sb.rpc('find_my_invoice_requests',{p_invoice_id:id});if(error)throw error;
   const request=RequestEditor.prepareInvoice(inv,data||[]);
-  if(['준비중','출고완료'].includes(selectedShip)){
+  if(shipStatuses().includes(selectedShip)){
    const op=request.operations.find(op=>(op.action==='invoice'&&op.id===id)||(op.table==='invoices'&&op.key?.id===id));
    (op.action==='invoice'?op.invoice:op.values).ship_status=selectedShip;
   }

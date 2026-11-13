@@ -148,7 +148,7 @@
       <div class="fg"><label>발주일</label><input id="inv-odate" type="date"/></div>
       <div class="fg"><label>입금일</label><input id="inv-pdate" type="date"/></div>
       <div class="fg"><label>출고일</label><input id="inv-sdate" type="date"/></div>
-      <div class="fg"><label>출고 상태</label><select id="inv-ship"><option>준비중</option><option>출고완료</option></select></div>
+      <div class="fg"><label>출고 상태</label><select id="inv-ship"><option>준비중</option><option>출고완료</option><option>출고완료(증빙없음)</option></select></div>
     </div>
     <div class="frow c3">
       <div class="fg"><label>Status</label><select id="inv-status"><option>Ordered</option><option>Paid</option><option>Closed</option><option>Cancelled</option></select></div>
@@ -674,7 +674,7 @@
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=cf9a1273a14d"></script>
+  <script src="app.js?v=0f6701a49d42"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 </body>
