@@ -11,7 +11,7 @@
   const labels={no:'인보이스 번호',customer:'거래처',mgr:'담당자',order_date:'발주일',pay_date:'입금일',ship_date:'출고일',status:'상태',ship_status:'출고 상태',foc:'FOC',note:'비고(메모)',
     tracking_num:'운송장번호',ref_invoice_id:'참고 인보이스',ref_kind:'참고 유형',name:'제품명',barcode:'바코드',sales_type:'판매 유형',ship_mode:'운송',qty:'수량',price:'단가',
     amount_override:'증빙 금액',amount_reference:'증빙 근거',invoice_id:'주문',invoice_no:'주문번호',title:'제목',date:'날짜',month:'월',value:'설정값',key:'설정 항목'};
-  const tables={invoices:'인보이스',invoice_items:'인보이스 품목',customers:'거래처',products:'제품',stocks:'재고',documents:'서류',schedules:'일정',app_settings:'설정',tax_records:'세금계산서',product_details:'제품 상세',invoice_drive_documents:'Drive 증빙',contacts:'연락처',contracts:'계약서'};
+  const tables={invoices:'인보이스',invoice_items:'인보이스 품목',customers:'거래처',products:'제품',stocks:'재고',documents:'서류',schedules:'일정',app_settings:'설정',tax_records:'세금계산서',tax_invoice_amounts:'홈택스 계산서 금액',product_details:'제품 상세',invoice_drive_documents:'Drive 증빙',contacts:'연락처',contracts:'계약서'};
   const HEADER=['no','customer','mgr','order_date','pay_date','ship_date','status','ship_status','foc','note'];
   const ITEM=['name','barcode','sales_type','ship_mode','qty','price','amount_override','amount_reference'];
   const HIDDEN=new Set(['id','created_at','updated_at']);
