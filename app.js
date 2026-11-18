@@ -95,7 +95,7 @@ globalThis.liveInventory = globalThis.LiveInventory?.mount({
   }
 });
 
-const MGRS = ['liah','Grace','Raye','Chloe','Ethan'];
+const MGRS = ['이상윤','liah','Grace','Raye','Chloe','Ethan'];
 const SALES_TYPES = ['Paid','FOC','GWP','Sample','Replacement','Lost'];
 const INV_ST = ['Ordered','Paid','Closed','Cancelled'];
 const TAX_ST = ['발행예정','발행완료','직접입금','직수출','취소'];
