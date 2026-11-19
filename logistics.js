@@ -47,15 +47,20 @@ function createApi(client,{uuid}={}){
    }catch(e){try{await client.storage.from(BUCKET).remove([path]);}catch(_){} throw e;}
   },
   async removeFile(f){
-   await need(client.storage.from(BUCKET).remove([f.storage_path]));
-   await need(client.from('logistics_request_files').delete().eq('id',f.id));
+   const gone=await need(client.storage.from(BUCKET).remove([f.storage_path]));
+   if(!Array.isArray(gone)||gone.length!==1)throw new Error('UNCONFIRMED');
+   const rows=await need(client.from('logistics_request_files').delete().eq('id',f.id).select());
+   if(!Array.isArray(rows)||rows.length!==1)throw new Error('STALE');
   },
   async fileUrl(path){const d=await need(client.storage.from(BUCKET).createSignedUrl(path,300));return d?.signedUrl;},
   async addComment(requestId,body){
    const row=await need(client.from('logistics_request_comments').insert({request_id:requestId,body_text:body}).select().single());
    if(!row?.id)throw new Error('UNCONFIRMED');return row;
   },
-  async deleteComment(id){await need(client.from('logistics_request_comments').delete().eq('id',id));}
+  async deleteComment(id){
+   const rows=await need(client.from('logistics_request_comments').delete().eq('id',id).select());
+   if(!Array.isArray(rows)||rows.length!==1)throw new Error('STALE');
+  }
  };
 }
 
@@ -79,7 +84,7 @@ function renderDetail(r,ctx){
  const field=(label,val)=>`<div class="lg-f"><span>${esc(label)}</span><b>${esc(val||'-')}</b></div>`;
  return `<div class="lg-detail" data-id="${esc(r.id)}">
  <h2>[${esc(M.TYPES[r.type_code])}] ${esc(r.title_text)} <span class="lg-st st-${esc(r.status_code)}">${esc(M.STATUSES[r.status_code])}</span></h2>
- ${field('거래처·수신처',r.counterparty_text)}${field('요청',nameOf(r.requester_email,ctx.people)+' · '+M.TEAMS[r.team_code])}
+ ${field('거래처·수신처',r.counterparty_text)}${field('요청',nameOf(r.requester_email,ctx.people)+' · '+(M.TEAMS[r.team_code]||''))}
  ${field('희망 출고일',fmtDay(r.want_date))}${field('운송',M.SHIP_MODES[r.ship_mode_code])}${field('수량',r.qty_summary_text)}
  ${field('특이사항',r.note_text)}${field('연결 주문',inv?`${inv.no} ${inv.customer||''}`:'')}
  ${overseas?field('패킹리스트',M.PACKING[r.packing_code]||'')+field('ETD',r.etd_on)+field('포워더',r.forwarder_text):''}

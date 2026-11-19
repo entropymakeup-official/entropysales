@@ -44,7 +44,9 @@ test('상태 변경은 이전 상태 조건으로 하고, 0행이면 STALE',asyn
 test('첨부: 크기 제한, 경로 규칙, 행 저장 실패 시 올린 파일 정리, 지울 때는 파일 먼저',async()=>{
  let failRow=true;
  const {client,calls}=fakeClient(q=>{
+  if(q.table==='logistics_request_files'&&q.ops.some(o=>o[0]==='delete'))return {data:[{id:'f1'}],error:null};
   if(q.table==='logistics_request_files')return failRow?{data:null,error:{message:'LOGISTICS_FILE_LIMIT'}}:{data:{id:'f1'},error:null};
+  if(q.ops.some(o=>o[0]==='remove'))return {data:[{name:'x'}],error:null};
   return {data:{},error:null};});
  const api=P.createApi(client,{uuid:()=>'11111111-1111-1111-1111-111111111111'});
  const rid='22222222-2222-2222-2222-222222222222';
@@ -63,6 +65,20 @@ test('첨부: 크기 제한, 경로 규칙, 행 저장 실패 시 올린 파일 
  failRow=false;calls.length=0;
  await api.removeFile({id:'f1',storage_path:'p/x'});
  assert.deepEqual(calls.map(c=>c.table),['storage:logistics-docs','logistics_request_files']);
+});
+
+test('첨부 삭제: 파일 삭제 미확인이면 행을 지우지 않고, 행 삭제 0건이면 STALE',async()=>{
+ const f={id:'f1',storage_path:'p/x'};
+ const a=fakeClient(q=>q.table.startsWith('storage:')?{data:[],error:null}:{data:[{id:'f1'}],error:null});
+ await assert.rejects(()=>P.createApi(a.client).removeFile(f),/UNCONFIRMED/);
+ assert.ok(!a.calls.some(c=>c.table==='logistics_request_files'));
+ const b=fakeClient(q=>q.table.startsWith('storage:')?{data:[{name:'x'}],error:null}:{data:[],error:null});
+ await assert.rejects(()=>P.createApi(b.client).removeFile(f),/STALE/);
+});
+
+test('댓글 삭제: 0건이면 STALE, 1건이면 성공',async()=>{
+ await assert.rejects(()=>P.createApi(fakeClient(()=>({data:[],error:null})).client).deleteComment('c1'),/STALE/);
+ await P.createApi(fakeClient(()=>({data:[{id:'c1'}],error:null})).client).deleteComment('c1');
 });
 
 test('목록 렌더링: 이스케이프, 지연 표시, 알림 실패 표시',()=>{
