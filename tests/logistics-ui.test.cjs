@@ -162,3 +162,12 @@ test('mount: 세션이 있는데 불러오기가 실패하면 앱 화면을 유�
  assert.equal(d.els['lg-login'].hidden,true);
  assert.match(d.els['lg-message'].textContent,/boom/);
 });
+
+test('영업 대시보드 메뉴에 물류 요청 링크가 있고, 검사 스크립트가 새 파일을 포함한다',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const index=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
+ assert.match(index,/<a class="ni" href="logistics\.html" id="nav-logistics"/);
+ const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
+ assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js/);
+ assert.ok(fs.existsSync(path.join(__dirname,'../LOGISTICS.md')));
+});
