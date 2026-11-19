@@ -269,7 +269,8 @@ drop policy if exists logistics_files_insert on public.logistics_request_files;
 create policy logistics_files_insert on public.logistics_request_files for insert to authenticated with check ((select approval_private.is_company_member()));
 drop policy if exists logistics_files_delete on public.logistics_request_files;
 create policy logistics_files_delete on public.logistics_request_files for delete to authenticated
- using ((select approval_private.is_company_member()) and (created_by=(select approval_private.current_email()) or (select approval_private.logistics_is_handler())));
+ using ((select approval_private.is_company_member()) and ((select approval_private.logistics_is_handler()) or (created_by=(select approval_private.current_email())
+  and exists(select 1 from public.logistics_requests q where q.id=request_id and q.status_code not in ('shipped','canceled')))));
 drop policy if exists logistics_comments_read on public.logistics_request_comments;
 create policy logistics_comments_read on public.logistics_request_comments for select to authenticated using ((select approval_private.is_company_member()));
 drop policy if exists logistics_comments_insert on public.logistics_request_comments;

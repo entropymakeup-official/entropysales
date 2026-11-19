@@ -116,3 +116,25 @@ test('토큰이 없으면 아무것도 보내지 않고, 예약 작업은 하나
   await assert.rejects(()=>t.db.query('select approval_private.logistics_slack_flush()'),/permission denied/);
  }finally{await t.db.close();}
 });
+
+test('글을 만들다 오류가 나는 행이 있어도 다른 행은 계속 보낸다',async()=>{
+ const t=await setup();
+ try{
+  const bad=await t.create('오류 행');
+  const good=await t.create('정상 행');
+  await t.system();
+  await t.db.query(`update logistics_slack_outbox set payload=payload||'{"want_date":"not-a-date"}'::jsonb where request_id=$1`,[bad.id]);
+  await t.flush();
+  const cs=await t.calls();
+  assert.equal(cs.length,1);
+  assert.match(cs[0].body.text,/정상 행/);
+  const o=(await t.db.query(`select request_id,state_code,attempts,last_error_text from logistics_slack_outbox order by id`)).rows;
+  assert.deepEqual([o[0].state_code,o[0].attempts],['pending',1]);
+  assert.ok(o[0].last_error_text.length>0&&o[0].last_error_text.length<=300);
+  assert.equal(o[1].state_code,'sending');
+  for(let i=0;i<4;i++)await t.flush(); // 계속 실패하면 5번째에 실패로 표시
+  const f=(await t.db.query(`select state_code,attempts from logistics_slack_outbox where request_id=$1`,[bad.id])).rows[0];
+  assert.deepEqual([f.state_code,f.attempts],['failed',5]);
+  assert.equal((await t.db.query('select slack_state_code from logistics_requests where id=$1',[bad.id])).rows[0].slack_state_code,'failed');
+ }finally{await t.db.close();}
+});

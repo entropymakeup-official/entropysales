@@ -5,7 +5,7 @@
 ## 동작 기준
 
 - 회사 계정이면 누구나 요청을 올리고 볼 수 있습니다. 상태 변경과 결과 입력은 `logistics_handlers` 명단에 있는 사람만 할 수 있습니다.
-- 요청자는 자기 요청이 "요청" 상태일 때만 수정하거나 취소할 수 있습니다.
+- 요청자는 자기 요청이 "요청" 상태일 때만 수정하거나 취소할 수 있고(상세의 "요약 수정"), 담당자는 출고완료·취소 전까지 요약을 고칠 수 있습니다. 첨부 삭제도 요청자는 열린 요청에서만, 담당자는 언제든 할 수 있습니다.
 - 출고완료에는 송장·배차·BL과 출고일이, 보류와 출고완료 되돌리기에는 사유가 반드시 필요합니다. DB 트리거가 판정합니다.
 - 승인 절차(APPROVALS.md)는 쓰지 않고 바로 저장합니다. 영업 주문의 출고 상태는 바꾸지 않고 연결만 합니다.
 - 변경 이력(`logistics_request_history`)과 슬랙 대기열(`logistics_slack_outbox`)은 트리거만 씁니다.
@@ -22,6 +22,11 @@
 ```sql
 insert into public.logistics_handlers(email, display_name) values ('name@entropymakeup.com', '이름');
 insert into public.logistics_people(email, display_name, slack_user_id) values ('name@entropymakeup.com', '이름', 'U0123456789');
+```
+
+퇴사·담당 변경 시에만 실행:
+
+```sql
 update public.logistics_handlers set is_active = false where email = 'name@entropymakeup.com';
 ```
 

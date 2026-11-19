@@ -189,3 +189,27 @@ test('첨부 버킷: 열린 요청 경로에만 올리고, 수정은 막고, 올
   await assert.rejects(()=>db.query(`insert into storage.objects(bucket_id,name) values ('logistics-docs',$1)`,[`${r.id}/${id(10)}-x`]),/row-level security/);
  }finally{await db.close();}
 });
+
+test('첨부 롤백: 올린 사람은 행이 없는 자기 객체를 지울 수 있고, 닫힌 요청의 첨부는 담당자만 지운다',async()=>{
+ const {db,login,create}=await setup({storage:true});
+ try{
+  await login(1);const r=await create();
+  const orphan=`${r.id}/${id(20)}-orphan.xlsx`;
+  await db.query(`insert into storage.objects(bucket_id,name,owner_id) values ('logistics-docs',$1,auth.uid()::text)`,[orphan]);
+  await login(4); // 남이 올린 행 없는 객체는 못 지운다
+  assert.equal((await db.query(`delete from storage.objects where name=$1 returning id`,[orphan])).rows.length,0);
+  await login(1); // 행 저장이 실패해 롤백하는 경우
+  assert.equal((await db.query(`delete from storage.objects where name=$1 returning id`,[orphan])).rows.length,1);
+  const name=`${r.id}/${id(21)}-출고요청서.xlsx`;
+  await db.query(`insert into storage.objects(bucket_id,name,owner_id) values ('logistics-docs',$1,auth.uid()::text)`,[name]);
+  await db.query(`insert into logistics_request_files(request_id,kind_code,storage_path,name_text,size_bytes) values ($1,'request',$2,'출고요청서.xlsx',1)`,[r.id,name]);
+  await login(3);
+  await db.query(`update logistics_requests set status_code='shipped',result_text='BL 1',shipped_on='2026-11-24' where id=$1`,[r.id]);
+  await login(1);
+  assert.equal((await db.query(`delete from logistics_request_files where storage_path=$1 returning id`,[name])).rows.length,0);
+  assert.equal((await db.query(`delete from storage.objects where name=$1 returning id`,[name])).rows.length,0);
+  await login(3);
+  assert.equal((await db.query(`delete from storage.objects where name=$1 returning id`,[name])).rows.length,1);
+  assert.equal((await db.query(`delete from logistics_request_files where storage_path=$1 returning id`,[name])).rows.length,1);
+ }finally{await db.close();}
+});

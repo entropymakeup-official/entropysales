@@ -7,7 +7,7 @@ const NOW=Date.UTC(2026,10,20,1);
 function fakeClient(handler){
  const calls=[];
  const builder=(table)=>{const q={table,ops:[]};const chain={};
-  for(const m of ['select','insert','update','delete','eq','order','limit','in'])chain[m]=(...a)=>{q.ops.push([m,...a]);return chain;};
+  for(const m of ['select','insert','update','delete','eq','order','limit','in','gte'])chain[m]=(...a)=>{q.ops.push([m,...a]);return chain;};
   chain.single=()=>{q.ops.push(['single']);return chain;};
   chain.then=(res,rej)=>{calls.push(q);return Promise.resolve(handler(q)).then(res,rej);};
   return chain;};
@@ -107,6 +107,50 @@ test('상세 렌더링: 담당자에게만 상태 버튼, 요청자에게는 취
  assert.ok(!x.includes('data-to='));
 });
 
+test('상세 렌더링: 요약 수정 버튼은 요청자는 요청 상태에서만, 담당자는 닫히기 전까지',()=>{
+ const base={nowMs:NOW,files:[],people:[],invoices:[],comments:[],history:[]};
+ const mk=st=>({id:'a',type_code:'quick',title_text:'퀵',counterparty_text:'c',status_code:st,ship_mode_code:'quick',requester_email:'req@entropymakeup.com'});
+ const owner={...base,email:'req@entropymakeup.com',isHandler:false},handler={...base,email:'handler@entropymakeup.com',isHandler:true};
+ assert.ok(P.renderDetail(mk('requested'),owner).includes('data-act="edit-summary"'));
+ assert.ok(!P.renderDetail(mk('accepted'),owner).includes('data-act="edit-summary"'));
+ assert.ok(P.renderDetail(mk('accepted'),handler).includes('data-act="edit-summary"'));
+ assert.ok(!P.renderDetail(mk('shipped'),handler).includes('data-act="edit-summary"'));
+ assert.ok(!P.renderDetail(mk('canceled'),handler).includes('data-act="edit-summary"'));
+});
+
+test('수정 폼: 담당자가 아니면 해외 칸과 파일 칸이 없고, 제출 버튼은 submit 타입',()=>{
+ const d={type_code:'b2b',ship_mode_code:'air',title_text:'t'};
+ const n=P.renderForm(d,{invoices:[],mode:'edit',isHandler:false});
+ assert.ok(!n.includes('name="packing_code"')&&!n.includes('type="file"'));
+ assert.ok(n.includes('수정 저장')&&n.includes('type="submit"'));
+ assert.ok(P.renderForm(d,{invoices:[],mode:'edit',isHandler:true}).includes('name="packing_code"'));
+ assert.ok(P.renderForm(d,{invoices:[]}).includes('type="file"'));
+ assert.ok(P.renderForm(d,{invoices:[]}).includes('type="submit"'));
+});
+
+test('loadAll: 열린 요청과 최근 닫힌 요청을 합치고, 첨부는 요청 id 묶음으로 조회한다',async()=>{
+ const reqs=n=>Array.from({length:n},(_,i)=>({id:'r'+i,status_code:'requested'}));
+ const {client,calls}=fakeClient(q=>{
+  if(q.table==='logistics_requests'){
+   const inOp=q.ops.find(o=>o[0]==='in');
+   return inOp&&inOp[2].includes('shipped')?{data:[{id:'c1',status_code:'shipped'},{id:'r0',status_code:'requested'}],error:null}:{data:reqs(150),error:null};}
+  return {data:[],error:null};});
+ const data=await P.createApi(client,{now:()=>NOW}).loadAll();
+ assert.equal(data.requests.length,151); // r0..r149 + c1, r0 중복 없음
+ const rq=calls.filter(c=>c.table==='logistics_requests');
+ assert.equal(rq.length,2);
+ assert.ok(rq.every(c=>c.ops.some(o=>o[0]==='limit'&&o[1]===1000)));
+ const closed=rq.find(c=>c.ops.some(o=>o[0]==='in'&&o[2].includes('shipped')));
+ assert.deepEqual(closed.ops.find(o=>o[0]==='gte'),['gte','created_at',new Date(NOW-180*86400000).toISOString()]);
+ const fq=calls.filter(c=>c.table==='logistics_request_files');
+ assert.equal(fq.length,2); // 151개 id → 100 + 51
+ assert.deepEqual(fq.map(c=>c.ops.find(o=>o[0]==='in')[2].length).sort((a,b)=>a-b),[51,100]);
+ assert.ok(fq.every(c=>c.ops.find(o=>o[0]==='in')[1]==='request_id'));
+ const none=fakeClient(()=>({data:[],error:null}));
+ await P.createApi(none.client,{now:()=>NOW}).loadAll();
+ assert.ok(!none.calls.some(c=>c.table==='logistics_request_files')); // id가 없으면 조회하지 않는다
+});
+
 test('등록 폼: 해외 칸은 해외 건일 때만 보인다',()=>{
  assert.ok(P.renderForm({type_code:'b2b',ship_mode_code:'air'},{invoices:[]}).includes('name="packing_code"'));
  assert.ok(!P.renderForm({type_code:'quick',ship_mode_code:'quick'},{invoices:[]}).includes('name="packing_code"'));
@@ -170,4 +214,65 @@ test('영업 대시보드 메뉴에 물류 요청 링크가 있고, 검사 스�
  const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
  assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js/);
  assert.ok(fs.existsSync(path.join(__dirname,'../LOGISTICS.md')));
+});
+
+function editDom(rows,onUpdate,invoiceRows=[]){
+ const d=fakeDom();
+ const {client}=fakeClient(q=>{
+  if(q.table==='logistics_requests'&&q.ops[0][0]==='update')return onUpdate(q);
+  if(q.table==='logistics_requests')return {data:rows,error:null};
+  if(q.table==='logistics_handlers')return {data:[{email:'handler@entropymakeup.com',display_name:'담당',is_active:true}],error:null};
+  if(q.table==='invoices')return {data:invoiceRows,error:null};
+  return {data:[],error:null};});
+ client.auth={getSession:async()=>({data:{session:{user:{email:'handler@entropymakeup.com'}}},error:null}),onAuthStateChange:()=>{},signInWithOAuth:async()=>({error:null})};
+ return {d,client};
+}
+const fakeForm=(vals,act)=>({dataset:{act},querySelector:()=>null,querySelectorAll:()=>Object.entries(vals).map(([name,value])=>({name,value,type:'text'}))});
+
+test('mount: 요약 수정은 폼을 채우고, 담당자는 해외 칸까지 포함해 이전 상태 조건으로 저장한다',async()=>{
+ const patches=[];
+ const rows=[{id:'r1',type_code:'b2b',title_text:'옛 제목',counterparty_text:'c',status_code:'accepted',ship_mode_code:'air',team_code:'global',requester_email:'req@entropymakeup.com',created_at:'2026-11-19T00:00:00Z'}];
+ const {d,client}=editDom(rows,q=>{patches.push(q);return {data:[{id:'r1'}],error:null};});
+ const page=P.mount({document:d.document,client,location:{href:'x',search:'?id=r1'},now:()=>NOW});
+ await page.ready;
+ await d.els['lg-detail'].listeners.click({target:{dataset:{act:'edit-summary'}}});
+ assert.ok(d.els['lg-form'].innerHTML.includes('수정 저장'));
+ assert.ok(d.els['lg-form'].innerHTML.includes('value="옛 제목"'));
+ assert.equal(d.els['lg-form'].hidden,false);
+ const vals={type_code:'b2b',title_text:'새 제목',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'air',qty_summary_text:'',note_text:'',invoice_id:'',packing_code:'done',etd_on:'2026-12-01',forwarder_text:'DHL'};
+ await d.els['lg-form'].listeners.submit({preventDefault(){},target:fakeForm(vals,'edit')});
+ assert.equal(patches.length,1);
+ assert.deepEqual(patches[0].ops.filter(o=>o[0]==='eq'),[['eq','id','r1'],['eq','status_code','accepted']]);
+ const patch=patches[0].ops[0][1];
+ assert.equal(patch.title_text,'새 제목');assert.equal(patch.packing_code,'done');assert.equal(patch.forwarder_text,'DHL');assert.equal(patch.status_code,undefined);
+ assert.match(d.els['lg-message'].textContent,/저장했어요/);
+ assert.equal(d.els['lg-form'].hidden,true);
+});
+
+test('mount: 연결 주문이 목록에 없으면 상세를 열 때 따로 불러온다',async()=>{
+ const rows=[{id:'r1',type_code:'quick',title_text:'퀵',counterparty_text:'c',status_code:'requested',ship_mode_code:'quick',team_code:'global',requester_email:'req@entropymakeup.com',invoice_id:'inv9',created_at:'2026-11-19T00:00:00Z'}];
+ const {d,client}=editDom(rows,()=>({data:[],error:null}),[]);
+ const eqs=[];
+ const orig=client.from;client.from=t=>{const c=orig(t);if(t==='invoices'){const e=c.eq;c.eq=(...a)=>{eqs.push(a);return e(...a);};}return c;};
+ const page=P.mount({document:d.document,client,location:{href:'x',search:'?id=r1'},now:()=>NOW});
+ await page.ready;
+ assert.deepEqual(eqs,[['id','inv9']]);
+ const {client:c2}=fakeClient(q=>q.table==='invoices'?{data:[{id:'inv9',no:'ORD-9',customer:'고객'}],error:null}:{data:[],error:null});
+ assert.equal((await P.createApi(c2).loadInvoice('inv9')).no,'ORD-9');
+});
+
+test('mount: 파일 링크는 먼저 빈 창을 열고 서명 주소를 받은 뒤 이동시킨다',async()=>{
+ const rows=[{id:'r1',type_code:'quick',title_text:'퀵',counterparty_text:'c',status_code:'requested',ship_mode_code:'quick',team_code:'global',requester_email:'req@entropymakeup.com',created_at:'2026-11-19T00:00:00Z'}];
+ const {d,client}=editDom(rows,()=>({data:[],error:null}));
+ const w={location:{href:''},closed:false,close(){this.closed=true;}};const opened=[];
+ const page=P.mount({document:d.document,client,location:{href:'x',search:'?id=r1'},now:()=>NOW,open:u=>{opened.push(u);return w;}});
+ await page.ready;
+ page.state.data.files=[{id:'f1',request_id:'r1',storage_path:'p/x',kind_code:'etc',name_text:'x'}];
+ client.storage.from=()=>({createSignedUrl:async()=>({data:{signedUrl:'https://signed/x'},error:null})});
+ await d.els['lg-detail'].listeners.click({target:{dataset:{file:'f1'}},preventDefault(){}});
+ assert.deepEqual(opened,['about:blank']);
+ assert.equal(w.location.href,'https://signed/x');assert.equal(w.opener,null);
+ client.storage.from=()=>({createSignedUrl:async()=>({data:null,error:{message:'nope'}})});
+ await d.els['lg-detail'].listeners.click({target:{dataset:{file:'f1'}},preventDefault(){}});
+ assert.equal(w.closed,true);assert.match(d.els['lg-message'].textContent,/nope/);
 });

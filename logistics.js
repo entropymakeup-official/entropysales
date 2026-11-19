@@ -9,18 +9,31 @@ const nameOf=(email,people)=>(people||[]).find(p=>p.email===String(email||'').to
 const storageName=n=>M.safeFileName(n).replace(/[^A-Za-z0-9._-]/g,'_');
 const fmtDay=d=>d?String(d).slice(5).replace('-','/'):'미정';
 
-function createApi(client,{uuid}={}){
+const DAY=86400000,OPEN_STATUSES=['requested','accepted','preparing','on_hold'],CLOSED_STATUSES=['shipped','canceled'];
+function createApi(client,{uuid,now=()=>Date.now()}={}){
  const newId=uuid||(()=>root.crypto.randomUUID());
  const need=async q=>{const {data,error}=await q;if(error)throw new Error(error.message||String(error));return data;};
  return {
   async loadAll(){
-   const [requests,files,handlers,people,invoices]=await Promise.all([
-    need(client.from(T).select('*').order('created_at',{ascending:false}).limit(2000)),
-    need(client.from('logistics_request_files').select('*').order('created_at')),
+   // Supabase는 select를 1000행에서 조용히 자르므로 열린 요청과 최근 180일 닫힌 요청을 따로 받고, 첨부는 요청 id 묶음으로 받는다.
+   const cutoff=new Date(now()-180*DAY).toISOString();
+   const [open,closed,handlers,people,invoices]=await Promise.all([
+    need(client.from(T).select('*').in('status_code',OPEN_STATUSES).order('created_at',{ascending:false}).limit(1000)),
+    need(client.from(T).select('*').in('status_code',CLOSED_STATUSES).gte('created_at',cutoff).order('created_at',{ascending:false}).limit(1000)),
     need(client.from('logistics_handlers').select('email,display_name,is_active')),
     need(client.from('logistics_people').select('email,display_name')),
     need(client.from('invoices').select('id,no,customer').order('order_date',{ascending:false}).limit(500))]);
-   return {requests:requests||[],files:files||[],handlers:(handlers||[]).filter(h=>h.is_active),people:people||[],invoices:invoices||[]};
+   const seen=new Set(),requests=[];
+   for(const r of [...(open||[]),...(closed||[])])if(!seen.has(r.id)){seen.add(r.id);requests.push(r);}
+   const ids=requests.map(r=>r.id),chunks=[];
+   for(let i=0;i<ids.length;i+=100)chunks.push(ids.slice(i,i+100));
+   const files=(await Promise.all(chunks.map(c=>need(client.from('logistics_request_files').select('*').in('request_id',c).order('created_at'))))).flat().filter(Boolean)
+    .sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')));
+   return {requests,files,handlers:(handlers||[]).filter(h=>h.is_active),people:people||[],invoices:invoices||[]};
+  },
+  async loadInvoice(id){
+   const rows=await need(client.from('invoices').select('id,no,customer').eq('id',id));
+   return Array.isArray(rows)?rows[0]||null:null;
   },
   async loadDetail(id){
    const [comments,history]=await Promise.all([
@@ -81,6 +94,7 @@ function renderDetail(r,ctx){
  const files=(ctx.files||[]).filter(f=>f.request_id===r.id);
  const inv=(ctx.invoices||[]).find(i=>i.id===r.invoice_id);
  const overseas=M.needsOverseas(r);
+ const canEdit=(owner&&r.status_code==='requested')||(ctx.isHandler&&!M.CLOSED.includes(r.status_code));
  const field=(label,val)=>`<div class="lg-f"><span>${esc(label)}</span><b>${esc(val||'-')}</b></div>`;
  return `<div class="lg-detail" data-id="${esc(r.id)}">
  <h2>[${esc(M.TYPES[r.type_code])}] ${esc(r.title_text)} <span class="lg-st st-${esc(r.status_code)}">${esc(M.STATUSES[r.status_code])}</span></h2>
@@ -91,6 +105,7 @@ function renderDetail(r,ctx){
  ${field('결과(송장·배차·BL)',r.result_text)}${field('출고일',r.shipped_on)}${r.status_note_text?field('사유',r.status_note_text):''}
  ${r.slack_state_code==='failed'?'<p class="lg-warn">슬랙 알림을 보내지 못했어요. 담당자에게 직접 알려 주세요.</p>':''}
  <div class="lg-actions">${next.map(to=>`<button type="button" class="lg-btn" data-to="${esc(to)}">${esc(M.STATUSES[to])}</button>`).join('')}
+  ${canEdit?'<button type="button" class="lg-btn ghost" data-act="edit-summary">요약 수정</button>':''}
   ${ctx.isHandler&&r.status_code!=='canceled'?'<button type="button" class="lg-btn ghost" data-act="edit-result">결과 입력</button>':''}</div>
  <h3>첨부</h3><ul class="lg-files">${files.map(f=>`<li><a href="#" data-file="${esc(f.id)}">${esc(M.FILE_KINDS[f.kind_code])} · ${esc(f.name_text)}</a></li>`).join('')||'<li>없음</li>'}</ul>
  ${M.CLOSED.includes(r.status_code)?'':`<label class="lg-upload">파일 올리기 <select data-act="file-kind">${opt(M.FILE_KINDS,'request')}</select><input type="file" data-act="file"></label>`}
@@ -101,8 +116,9 @@ function renderDetail(r,ctx){
 }
 
 function renderForm(d,ctx){
- const overseas=M.needsOverseas(d);
- return `<form class="lg-form" data-act="create">
+ const edit=ctx.mode==='edit';
+ const overseas=M.needsOverseas(d)&&(!edit||ctx.isHandler);
+ return `<form class="lg-form" data-act="${edit?'edit':'create'}">
  <label>유형<select name="type_code">${opt({'':'선택',...M.TYPES},d.type_code||'')}</select></label>
  <label>제목<input name="title_text" maxlength="80" value="${esc(d.title_text)}"></label>
  <label>요청팀<select name="team_code">${opt({'':'선택',...M.TEAMS},d.team_code||'')}</select></label>
@@ -116,16 +132,16 @@ function renderForm(d,ctx){
   <label>패킹리스트<select name="packing_code">${opt({'':'-',...M.PACKING},d.packing_code||'')}</select></label>
   <label>ETD<input type="date" name="etd_on" value="${esc(d.etd_on)}"></label>
   <label>포워더<input name="forwarder_text" maxlength="120" value="${esc(d.forwarder_text)}"></label></fieldset>`:''}
- <label>첨부(출고요청서 등)<input type="file" name="files" multiple></label>
+ ${edit?'':'<label>첨부(출고요청서 등)<input type="file" name="files" multiple></label>'}
  <p class="lg-error" role="alert"></p>
- <button class="lg-btn">요청 올리기</button></form>`;
+ <button type="submit" class="lg-btn">${edit?'수정 저장':'요청 올리기'}</button>${edit?' <button type="button" class="lg-btn ghost" data-act="cancel-edit">취소</button>':''}</form>`;
 }
 
 return {createApi,renderList,renderDetail,renderForm,mount:(...a)=>mount(...a)};
-function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),prompt=(m,v)=>root.prompt(m,v),location=root.location,open=(u)=>root.open(u,'_blank','noopener')}){
+function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),prompt=(m,v)=>root.prompt(m,v),location=root.location,open=(u)=>root.open(u,'_blank')}){
  const $=id=>document.getElementById(id);
- const api=createApi(client);
- const state={email:'',isHandler:false,data:{requests:[],files:[],handlers:[],people:[],invoices:[]},tab:'todo',q:'',selected:null,detail:{comments:[],history:[]},busy:false,draft:{}};
+ const api=createApi(client,{now});
+ const state={email:'',isHandler:false,data:{requests:[],files:[],handlers:[],people:[],invoices:[]},tab:'todo',q:'',selected:null,detail:{comments:[],history:[]},busy:false,draft:{},formMode:'create'};
  let generation=0;
  const say=t=>{$('lg-message').textContent=t||'';};
  const ctx=()=>({email:state.email,isHandler:state.isHandler,nowMs:now(),files:state.data.files,people:state.data.people,invoices:state.data.invoices,...state.detail});
@@ -139,8 +155,13 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
  }
  function drawDetail(){const r=current();$('lg-detail').innerHTML=r?renderDetail(r,ctx()):'';if(state.busy)setBusy(true);}
  async function openDetail(id){
-  state.selected=id;state.detail={comments:[],history:[]};drawDetail();
-  const g=generation;try{const d=await api.loadDetail(id);if(g!==generation||state.selected!==id)return;state.detail=d;drawDetail();}catch(e){say(M.errorMessage(e));}
+  state.selected=id;state.detail={comments:[],history:[]};
+  const g=generation,r0=current();
+  if(r0?.invoice_id&&!state.data.invoices.some(i=>i.id===r0.invoice_id)){
+   try{const inv=await api.loadInvoice(r0.invoice_id);if(g!==generation||state.selected!==id)return;if(inv)state.data.invoices=[...state.data.invoices,inv];}catch(e){say(M.errorMessage(e));}
+  }
+  drawDetail();
+  try{const d=await api.loadDetail(id);if(g!==generation||state.selected!==id)return;state.detail=d;drawDetail();}catch(e){say(M.errorMessage(e));}
  }
  async function reload(){
   const g=++generation;
@@ -182,7 +203,21 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
   try{await api.update(id,r.status_code,patch);say('저장했어요.');await reload();}catch(e){say(M.errorMessage(e));}finally{setBusy(false);}
  }
  function readForm(form){const d={};for(const el of form.querySelectorAll('[name]'))if(el.type!=='file')d[el.name]=el.value;return d;}
- function drawForm(){$('lg-form').innerHTML=renderForm(state.draft,{invoices:state.data.invoices});$('lg-form').hidden=false;}
+ function drawForm(){$('lg-form').innerHTML=renderForm(state.draft,{invoices:state.data.invoices,mode:state.formMode,isHandler:state.isHandler});$('lg-form').hidden=false;}
+ function closeForm(){state.draft={};state.formMode='create';$('lg-form').hidden=true;}
+ const SUMMARY=['type_code','title_text','team_code','counterparty_text','want_date','ship_mode_code','qty_summary_text','note_text','invoice_id'];
+ async function submitEdit(form){
+  if(state.busy)return;const r=current();if(!r)return;
+  const draft=readForm(form);const errors=M.validateDraft(draft);
+  const errEl=form.querySelector('.lg-error');if(errors.length){if(errEl)errEl.textContent=errors.join(' ');return;}
+  const row=M.toInsertRow(draft),patch={};
+  for(const k of SUMMARY)patch[k]=row[k];
+  if(state.isHandler)for(const k of ['packing_code','etd_on','forwarder_text'])patch[k]=row[k];
+  setBusy(true);say('수정 내용을 저장하는 중…');
+  try{await api.update(r.id,r.status_code,patch);closeForm();say('저장했어요.');await reload();}
+  catch(e){if(errEl)errEl.textContent=M.errorMessage(e);say('');}
+  finally{setBusy(false);}
+ }
  async function submitForm(form){
   if(state.busy)return;const draft=readForm(form);const errors=M.validateDraft(draft);
   const errEl=form.querySelector('.lg-error');if(errors.length){if(errEl)errEl.textContent=errors.join(' ');return;}
@@ -192,7 +227,7 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
    row=await api.create(draft);const failed=[];
    const input=form.querySelector('input[type=file]');
    for(const f of Array.from(input?.files||[])){try{await api.uploadFile(row.id,f,'request');}catch(e){failed.push(f.name);}}
-   state.draft={};$('lg-form').hidden=true;state.tab='mine';state.selected=row.id;
+   closeForm();state.tab='mine';state.selected=row.id;
    say(failed.length?`요청은 올라갔고, ${failed.join(', ')} 파일은 올리지 못했어요. 상세에서 다시 올려 주세요.`:'요청을 올렸어요. 슬랙에도 곧 알림이 가요.');
    await reload();
   }catch(e){if(row)say('요청은 올라갔어요. 목록을 새로고침해 주세요. ('+M.errorMessage(e)+')');else{if(errEl)errEl.textContent=M.errorMessage(e);say('');}}
@@ -204,7 +239,14 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
   const t=ev.target;const r=current();if(!r)return;
   if(t.dataset?.to){changeStatus(r.id,t.dataset.to);return;}
   if(t.dataset?.act==='edit-result'){editResult(r.id);return;}
-  if(t.dataset?.file){ev.preventDefault();const f=state.data.files.find(x=>x.id===t.dataset.file);if(f){try{open(await api.fileUrl(f.storage_path));}catch(e){say(M.errorMessage(e));}}}
+  if(t.dataset?.act==='edit-summary'){state.formMode='edit';state.draft={...r};drawForm();return;}
+  if(t.dataset?.file){ev.preventDefault();const f=state.data.files.find(x=>x.id===t.dataset.file);if(f){
+   const w=open('about:blank'); // 클릭 안에서 먼저 창을 열어야 Safari가 팝업으로 막지 않는다
+   try{const u=await api.fileUrl(f.storage_path);if(!u)throw new Error('UNCONFIRMED');
+    if(!w){say('팝업이 막혀 파일을 열지 못했어요. 팝업을 허용해 주세요.');return;}
+    try{w.opener=null;}catch(_){} w.location.href=u;
+   }catch(e){try{w?.close();}catch(_){} say(M.errorMessage(e));}
+  }}
  });
  $('lg-detail').addEventListener('change',async ev=>{
   const t=ev.target;const r=current();if(!r||t.dataset?.act!=='file'||!t.files?.[0])return;
@@ -218,8 +260,9 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
   try{await api.addComment(r.id,body);input.value='';await openDetail(r.id);}catch(e){say(M.errorMessage(e));}finally{setBusy(false);}
  });
  $('lg-form').addEventListener('change',ev=>{if(['type_code','ship_mode_code'].includes(ev.target.name)){state.draft=readForm($('lg-form').querySelector('form')||$('lg-form'));drawForm();}});
- $('lg-form').addEventListener('submit',ev=>{ev.preventDefault();submitForm(ev.target);});
- $('lg-new').addEventListener('click',()=>{state.draft={team_code:'',want_date:''};drawForm();});
+ $('lg-form').addEventListener('submit',ev=>{ev.preventDefault();return ev.target.dataset?.act==='edit'?submitEdit(ev.target):submitForm(ev.target);});
+ $('lg-form').addEventListener('click',ev=>{if(ev.target.dataset?.act==='cancel-edit'){closeForm();$('lg-form').innerHTML='';}});
+ $('lg-new').addEventListener('click',()=>{state.formMode='create';state.draft={team_code:'',want_date:''};drawForm();});
  $('lg-search').addEventListener('input',ev=>{state.q=ev.target.value;drawList();});
  $('lg-tabs').addEventListener('click',ev=>{const tab=ev.target.dataset?.tab;if(tab){state.tab=tab;drawList();}});
  $('lg-google').addEventListener('click',async()=>{try{const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.href,queryParams:{hd:'entropymakeup.com'}}});if(error)say(M.errorMessage(error));}catch(e){say(M.errorMessage(e));}});
@@ -238,7 +281,7 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
   drawTabs();
   try{await reload();}catch(e){say(M.errorMessage(e));}
  }
- client.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT'){generation++;state.email='';state.isHandler=false;state.data={requests:[],files:[],handlers:[],people:[],invoices:[]};state.selected=null;state.detail={comments:[],history:[]};state.draft={};state.busy=false;state.tab='todo';state.q='';$('lg-list').innerHTML='';$('lg-detail').innerHTML='';$('lg-form').innerHTML='';$('lg-form').hidden=true;$('lg-me').textContent='';say('');$('lg-login').hidden=false;$('lg-app').hidden=true;}else if(ev==='SIGNED_IN')setTimeout(start,0);});
+ client.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT'){generation++;state.email='';state.isHandler=false;state.data={requests:[],files:[],handlers:[],people:[],invoices:[]};state.selected=null;state.detail={comments:[],history:[]};state.draft={};state.formMode='create';state.busy=false;state.tab='todo';state.q='';$('lg-list').innerHTML='';$('lg-detail').innerHTML='';$('lg-form').innerHTML='';$('lg-form').hidden=true;$('lg-me').textContent='';say('');$('lg-login').hidden=false;$('lg-app').hidden=true;}else if(ev==='SIGNED_IN')setTimeout(start,0);});
  const ready=start();
  return {ready,state,reload,changeStatus,openDetail};
 }
