@@ -111,3 +111,44 @@ test('등록 폼: 해외 칸은 해외 건일 때만 보인다',()=>{
  assert.ok(P.renderForm({type_code:'b2b',ship_mode_code:'air'},{invoices:[]}).includes('name="packing_code"'));
  assert.ok(!P.renderForm({type_code:'quick',ship_mode_code:'quick'},{invoices:[]}).includes('name="packing_code"'));
 });
+
+// mount는 최소한의 DOM 대역으로 검사한다: 로그인 분기, 목록 표시, 상태 변경 호출, 슬랙 링크 id
+function fakeDom(){
+ const els={};const mk=id=>els[id]||(els[id]={id,hidden:false,innerHTML:'',value:'',textContent:'',listeners:{},
+  addEventListener(t,f){this.listeners[t]=f;},querySelector:()=>null,querySelectorAll:()=>[]});
+ for(const id of ['lg-login','lg-app','lg-list','lg-detail','lg-form','lg-search','lg-tabs','lg-new','lg-google','lg-message','lg-me'])mk(id);
+ return {document:{getElementById:mk},els};
+}
+function fakeAuthClient({session,rows=[],onUpdate}={}){
+ const {client}=fakeClient(q=>{
+  if(q.table==='logistics_requests'&&q.ops[0][0]==='update')return onUpdate?onUpdate(q):{data:[],error:null};
+  if(q.table==='logistics_requests')return {data:rows,error:null};
+  if(q.table==='logistics_handlers')return {data:[{email:'handler@entropymakeup.com',display_name:'가짜 담당',is_active:true}],error:null};
+  return {data:[],error:null};});
+ client.auth={getSession:async()=>({data:{session},error:null}),onAuthStateChange:()=>{},signInWithOAuth:async()=>({error:null})};
+ return client;
+}
+
+test('mount: 세션이 없으면 로그인 화면, 있으면 목록과 슬랙 링크의 상세를 연다',async()=>{
+ const d1=fakeDom();
+ await P.mount({document:d1.document,client:fakeAuthClient({session:null}),location:{href:'x',search:''}}).ready;
+ assert.equal(d1.els['lg-login'].hidden,false);assert.equal(d1.els['lg-app'].hidden,true);
+ const d2=fakeDom();
+ const rows=[{id:'r1',type_code:'quick',title_text:'퀵 요청',counterparty_text:'c',status_code:'requested',ship_mode_code:'quick',team_code:'global',requester_email:'req@entropymakeup.com',want_date:null,created_at:'2026-11-19T00:00:00Z'}];
+ const page=P.mount({document:d2.document,client:fakeAuthClient({session:{user:{email:'handler@entropymakeup.com'}},rows}),location:{href:'x',search:'?id=r1'},now:()=>NOW});
+ await page.ready;
+ assert.equal(d2.els['lg-app'].hidden,false);
+ assert.ok(d2.els['lg-list'].innerHTML.includes('퀵 요청'));
+ assert.ok(d2.els['lg-detail'].innerHTML.includes('data-to="accepted"'));
+ assert.equal(page.state.isHandler,true);
+});
+
+test('mount: 상태 변경은 이전 상태 조건으로 한 번만 보내고 실패 문구를 보여 준다',async()=>{
+ let n=0;const d=fakeDom();
+ const rows=[{id:'r1',type_code:'quick',title_text:'퀵',counterparty_text:'c',status_code:'requested',ship_mode_code:'quick',team_code:'global',requester_email:'req@entropymakeup.com',created_at:'2026-11-19T00:00:00Z'}];
+ const page=P.mount({document:d.document,client:fakeAuthClient({session:{user:{email:'handler@entropymakeup.com'}},rows,onUpdate:q=>{n++;return {data:[],error:null};}}),location:{href:'x',search:''},now:()=>NOW});
+ await page.ready;
+ await Promise.all([page.changeStatus('r1','accepted'),page.changeStatus('r1','accepted')]);
+ assert.equal(n,1);
+ assert.match(d.els['lg-message'].textContent,/다른 사람이 먼저 바꿨어요/);
+});

@@ -122,5 +122,116 @@ function renderForm(d,ctx){
 }
 
 return {createApi,renderList,renderDetail,renderForm,mount:(...a)=>mount(...a)};
-function mount(){throw new Error('mount는 Task 6에서 구현');}
+function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),prompt=(m,v)=>root.prompt(m,v),location=root.location,open=(u)=>root.open(u,'_blank','noopener')}){
+ const $=id=>document.getElementById(id);
+ const api=createApi(client);
+ const state={email:'',isHandler:false,data:{requests:[],files:[],handlers:[],people:[],invoices:[]},tab:'todo',q:'',selected:null,detail:{comments:[],history:[]},busy:false,draft:{}};
+ let generation=0;
+ const say=t=>{$('lg-message').textContent=t||'';};
+ const ctx=()=>({email:state.email,isHandler:state.isHandler,nowMs:now(),files:state.data.files,people:state.data.people,invoices:state.data.invoices,...state.detail});
+ const current=()=>state.data.requests.find(r=>r.id===state.selected);
+
+ function drawList(){
+  const rows=M.search(M.filterTab(state.data.requests,state.tab,{email:state.email,nowMs:now()}),state.q);
+  $('lg-list').innerHTML=renderList(rows,ctx());
+ }
+ function drawDetail(){const r=current();$('lg-detail').innerHTML=r?renderDetail(r,ctx()):'';}
+ async function openDetail(id){
+  state.selected=id;state.detail={comments:[],history:[]};drawDetail();
+  const g=generation;try{const d=await api.loadDetail(id);if(g!==generation||state.selected!==id)return;state.detail=d;drawDetail();}catch(e){say(M.errorMessage(e));}
+ }
+ async function reload(){
+  const g=++generation;
+  const data=await api.loadAll();if(g!==generation)return;
+  state.data=data;state.isHandler=M.isHandler(state.email,data.handlers);
+  $('lg-me').textContent=state.email+(state.isHandler?' · 물류 담당':'');
+  drawList();if(state.selected)await openDetail(state.selected);
+ }
+ async function changeStatus(id,to){
+  if(state.busy)return;const r=state.data.requests.find(x=>x.id===id);if(!r)return;
+  const owner=state.email===String(r.requester_email||'').toLowerCase();
+  const patch={status_code:to};
+  if(to==='shipped'){
+   const result=prompt('송장번호·배차정보·BL을 적어 주세요.',r.result_text||'');if(result==null)return;
+   const day=prompt('출고일(YYYY-MM-DD)',M.kstToday(now()));if(day==null)return;
+   Object.assign(patch,{result_text:result.trim(),shipped_on:day.trim()});
+  }
+  if(to==='on_hold'||(r.status_code==='shipped'&&to==='preparing')||to==='canceled'){
+   const note=prompt(to==='canceled'?'취소 사유(선택)':'사유를 적어 주세요.','');if(note==null)return;patch.status_note_text=note.trim();
+  }
+  const check=M.checkTransition({isHandler:state.isHandler,isOwner:owner,from:r.status_code,to,fields:{...r,...patch}});
+  if(!check.ok){say(check.reason);return;}
+  state.busy=true;say('저장 중…');
+  try{await api.update(id,r.status_code,patch);say('저장했어요.');await reload();}
+  catch(e){say(M.errorMessage(e));}
+  finally{state.busy=false;}
+ }
+ async function editResult(id){
+  if(state.busy)return;const r=current();if(!r||r.id!==id)return;
+  const result=prompt('결과(송장·배차·BL)',r.result_text||'');if(result==null)return;
+  const fee=prompt('퀵비(원, 없으면 비움)',r.quick_fee_krw??'');if(fee==null)return;
+  const patch={result_text:result.trim(),quick_fee_krw:fee.trim()===''?null:Number(fee.replace(/[^0-9]/g,''))};
+  if(M.needsOverseas(r)){
+   const etd=prompt('ETD(YYYY-MM-DD, 없으면 비움)',r.etd_on||'');if(etd==null)return;patch.etd_on=etd.trim()||null;
+   const pk=prompt('패킹리스트: waiting(대기)/done(작성완료)/replied(거래처회신), 없으면 비움',r.packing_code||'');if(pk==null)return;patch.packing_code=pk.trim()||null;
+  }
+  state.busy=true;
+  try{await api.update(id,r.status_code,patch);say('저장했어요.');await reload();}catch(e){say(M.errorMessage(e));}finally{state.busy=false;}
+ }
+ function readForm(form){const d={};for(const el of form.querySelectorAll('[name]'))if(el.type!=='file')d[el.name]=el.value;return d;}
+ function drawForm(){$('lg-form').innerHTML=renderForm(state.draft,{invoices:state.data.invoices});$('lg-form').hidden=false;}
+ async function submitForm(form){
+  if(state.busy)return;const draft=readForm(form);const errors=M.validateDraft(draft);
+  const errEl=form.querySelector('.lg-error');if(errors.length){if(errEl)errEl.textContent=errors.join(' ');return;}
+  state.busy=true;say('요청을 올리는 중…');
+  try{
+   const row=await api.create(draft);const failed=[];
+   const input=form.querySelector('input[type=file]');
+   for(const f of Array.from(input?.files||[])){try{await api.uploadFile(row.id,f,'request');}catch(e){failed.push(f.name);}}
+   state.draft={};$('lg-form').hidden=true;state.tab='mine';state.selected=row.id;
+   say(failed.length?`요청은 올라갔고, ${failed.join(', ')} 파일은 올리지 못했어요. 상세에서 다시 올려 주세요.`:'요청을 올렸어요. 슬랙에도 곧 알림이 가요.');
+   await reload();
+  }catch(e){if(errEl)errEl.textContent=M.errorMessage(e);say('');}
+  finally{state.busy=false;}
+ }
+
+ $('lg-list').addEventListener('click',ev=>{const tr=ev.target.closest?.('tr[data-id]');if(tr)openDetail(tr.dataset.id);});
+ $('lg-detail').addEventListener('click',async ev=>{
+  const t=ev.target;const r=current();if(!r)return;
+  if(t.dataset?.to){changeStatus(r.id,t.dataset.to);return;}
+  if(t.dataset?.act==='edit-result'){editResult(r.id);return;}
+  if(t.dataset?.file){ev.preventDefault();const f=state.data.files.find(x=>x.id===t.dataset.file);if(f){try{open(await api.fileUrl(f.storage_path));}catch(e){say(M.errorMessage(e));}}}
+ });
+ $('lg-detail').addEventListener('change',async ev=>{
+  const t=ev.target;const r=current();if(!r||t.dataset?.act!=='file'||!t.files?.[0])return;
+  const kind=t.closest('.lg-upload')?.querySelector('[data-act=file-kind]')?.value||'etc';
+  try{await api.uploadFile(r.id,t.files[0],kind);say('파일을 올렸어요.');await reload();}catch(e){say(M.errorMessage(e));}
+ });
+ $('lg-detail').addEventListener('submit',async ev=>{
+  ev.preventDefault();const r=current();const input=ev.target.querySelector('[name=body]');const body=(input?.value||'').trim();
+  if(!r||!body)return;try{await api.addComment(r.id,body);input.value='';await openDetail(r.id);}catch(e){say(M.errorMessage(e));}
+ });
+ $('lg-form').addEventListener('change',ev=>{if(['type_code','ship_mode_code'].includes(ev.target.name)){state.draft=readForm($('lg-form').querySelector('form')||$('lg-form'));drawForm();}});
+ $('lg-form').addEventListener('submit',ev=>{ev.preventDefault();submitForm(ev.target);});
+ $('lg-new').addEventListener('click',()=>{state.draft={team_code:'',want_date:''};drawForm();});
+ $('lg-search').addEventListener('input',ev=>{state.q=ev.target.value;drawList();});
+ $('lg-tabs').addEventListener('click',ev=>{const tab=ev.target.dataset?.tab;if(tab){state.tab=tab;drawList();}});
+ $('lg-google').addEventListener('click',async()=>{const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.href,queryParams:{hd:'entropymakeup.com'}}});if(error)say(error.message);});
+
+ async function start(){
+  const g=++generation;
+  try{
+   const {data,error}=await client.auth.getSession();if(g!==generation)return;if(error)throw error;
+   const session=data?.session;
+   if(!session){$('lg-login').hidden=false;$('lg-app').hidden=true;return;}
+   state.email=String(session.user?.email||'').toLowerCase();
+   $('lg-login').hidden=true;$('lg-app').hidden=false;
+   const id=new URLSearchParams(location.search||'').get('id');if(id)state.selected=id;
+   await reload();
+  }catch(e){$('lg-login').hidden=false;$('lg-app').hidden=true;say('로그인을 확인하지 못했어요. '+(e.message||''));}
+ }
+ client.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT'){generation++;state.data={requests:[],files:[],handlers:[],people:[],invoices:[]};state.selected=null;$('lg-list').innerHTML='';$('lg-detail').innerHTML='';$('lg-login').hidden=false;$('lg-app').hidden=true;}else if(ev==='SIGNED_IN')setTimeout(start,0);});
+ const ready=start();
+ return {ready,state,reload,changeStatus,openDetail};
+}
 });
