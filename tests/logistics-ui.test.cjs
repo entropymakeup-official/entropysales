@@ -152,3 +152,13 @@ test('mount: 상태 변경은 이전 상태 조건으로 한 번만 보내고 �
  assert.equal(n,1);
  assert.match(d.els['lg-message'].textContent,/다른 사람이 먼저 바꿨어요/);
 });
+
+test('mount: 세션이 있는데 불러오기가 실패하면 앱 화면을 유지하고 오류를 보여 준다',async()=>{
+ const d=fakeDom();
+ const {client}=fakeClient(q=>q.table==='logistics_requests'?{data:null,error:{message:'boom'}}:{data:[],error:null});
+ client.auth={getSession:async()=>({data:{session:{user:{email:'a@entropymakeup.com'}}},error:null}),onAuthStateChange:()=>{},signInWithOAuth:async()=>({error:null})};
+ await P.mount({document:d.document,client,location:{href:'x',search:''},now:()=>NOW}).ready;
+ assert.equal(d.els['lg-app'].hidden,false);
+ assert.equal(d.els['lg-login'].hidden,true);
+ assert.match(d.els['lg-message'].textContent,/boom/);
+});
