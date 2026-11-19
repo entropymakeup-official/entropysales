@@ -8,7 +8,7 @@ async function setup({storage=false}={}){
  create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,banned_until timestamptz);
  create table auth.sessions(id uuid primary key,user_id uuid,not_after timestamptz);
  create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
- create function auth.jwt() returns jsonb language sql as $$select jsonb_build_object('session_id',current_setting('request.jwt.claim.session_id',true),'email',(select email from auth.users where id=nullif(current_setting('request.jwt.claim.sub',true),'')::uuid))$$;
+ create function auth.jwt() returns jsonb language sql security definer as $$select jsonb_build_object('session_id',current_setting('request.jwt.claim.session_id',true),'email',(select email from auth.users where id=nullif(current_setting('request.jwt.claim.sub',true),'')::uuid))$$;
  grant usage on schema public,auth,approval_private to anon,authenticated;
  insert into auth.users values ('${id(1)}','req@entropymakeup.com',now(),null),('${id(2)}','outsider@example.com',now(),null),('${id(3)}','handler@entropymakeup.com',now(),null),('${id(4)}','other@entropymakeup.com',now(),null);
  insert into auth.sessions select id,id,null from auth.users;
@@ -164,5 +164,28 @@ test('첨부·댓글: 작성자는 DB가 정하고, 닫힌 요청과 10개 초�
   assert.equal((await db.query(`delete from logistics_request_files where storage_path=$1 returning id`,[path0])).rows.length,1); // 담당자는 지울 수 있다
   await db.query(`update logistics_requests set status_code='canceled' where id=$1`,[r.id]);
   await assert.rejects(()=>db.query(`insert into logistics_request_files(request_id,kind_code,storage_path,name_text,size_bytes) values ($1,'etc',$2,'x',1)`,[r.id,`${r.id}/${id(31)}-x`]),/LOGISTICS_CLOSED/);
+ }finally{await db.close();}
+});
+
+test('첨부 버킷: 열린 요청 경로에만 올리고, 수정은 막고, 올린 사람이나 담당자만 지운다',async()=>{
+ const {db,login,create}=await setup({storage:true});
+ try{
+  await db.exec('reset role');
+  const b=(await db.query(`select public,file_size_limit from storage.buckets where id='logistics-docs'`)).rows[0];
+  assert.deepEqual([b.public,Number(b.file_size_limit)],[false,20971520]);
+  await login(1);const r=await create();
+  const name=`${r.id}/${id(9)}-출고요청서.xlsx`;
+  await db.query(`insert into storage.objects(bucket_id,name) values ('logistics-docs',$1)`,[name]);
+  await assert.rejects(()=>db.query(`insert into storage.objects(bucket_id,name) values ('logistics-docs','../x')`),/row-level security/);
+  await assert.rejects(()=>db.query(`insert into storage.objects(bucket_id,name) values ('logistics-docs',$1)`,[`${id(77)}/${id(9)}-x`]),/row-level security/);
+  assert.equal((await db.query(`update storage.objects set name=name||'x' where bucket_id='logistics-docs' returning id`)).rows.length,0);
+  await db.query(`insert into logistics_request_files(request_id,kind_code,storage_path,name_text,size_bytes) values ($1,'request',$2,'출고요청서.xlsx',1)`,[r.id,name]);
+  await login(4);
+  assert.equal((await db.query(`delete from storage.objects where name=$1 returning id`,[name])).rows.length,0);
+  await db.query(`insert into storage.objects(bucket_id,name) values ('other-bucket','free')`); // 다른 버킷은 그대로
+  await login(3);
+  assert.equal((await db.query(`delete from storage.objects where name=$1 returning id`,[name])).rows.length,1);
+  await db.query(`update logistics_requests set status_code='canceled' where id=$1`,[r.id]);
+  await assert.rejects(()=>db.query(`insert into storage.objects(bucket_id,name) values ('logistics-docs',$1)`,[`${r.id}/${id(10)}-x`]),/row-level security/);
  }finally{await db.close();}
 });
