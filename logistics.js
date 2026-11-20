@@ -192,7 +192,8 @@ function renderPending(r,p,ctx){
 }
 
 // ── 파스토 양식(받는 곳·품목) ──
-const itemWarn=(it,groups)=>F.qtyWarning(it,groups)||((groups||[]).some(g=>g.product_code===String(it.product_code||'').trim())?'':'파스토 목록에 없는 상품이에요.');
+// 목록이 비었거나 못 불러왔으면 모든 줄이 "없는 상품"이 되므로 그 경고는 건너뛴다
+const itemWarn=(it,groups)=>F.qtyWarning(it,groups)||(!(groups||[]).length||groups.some(g=>g.product_code===String(it.product_code||'').trim())?'':'파스토 목록에 없는 상품이에요.');
 function renderStockBanner(stock,nowMs){
  if(!stock)return '';
  if(stock.error)return `<p class="lg-stock warn" role="status">파스토 목록을 불러오지 못했어요: ${esc(stock.error)}</p>`;
@@ -249,13 +250,13 @@ function renderFasstoSection(r,ctx){
  const form=F.formFor(r.ship_mode_code),fx=ctx.fassto||{},items=fx.items||[];
  if(!form&&!items.length)return '';
  const owner=String(ctx.email||'').toLowerCase()===String(r.requester_email||'').toLowerCase(),canSee=Boolean(ctx.isHandler||owner);
- const groups=ctx.groups||[];
+ const groups=ctx.groups||[],wait=!fx.loaded&&!fx.error; // 아직 못 불러온 것은 "입력 안 됨"이 아니라 불러오는 중
  const f=(l,v,c='')=>`<div class="lg-f${c}"><dt>${esc(l)}</dt><dd>${esc(v||'-')}</dd></div>`;
  let rec='';
  if(form==='parcel'||form==='overseas'){
   let body;
   if(!canSee)body='<p class="lg-muted">요청자와 물류 담당자만 볼 수 있어요.</p>';
-  else if(fx.loading)body='<p class="lg-muted">불러오는 중…</p>';
+  else if(fx.loading||wait)body='<p class="lg-muted">불러오는 중…</p>';
   else if(fx.error)body='';
   else if(!fx.recipient)body='<p class="lg-muted">입력 안 됨</p>';
   else{
@@ -270,7 +271,7 @@ function renderFasstoSection(r,ctx){
  const list=fx.error?'':items.length?`<div class="tw"><table class="lg-items"><thead><tr><th>#</th><th>상품코드</th><th>상품명</th><th>수량</th><th>로트·유통기한</th>${form==='overseas'?'<th>단가</th><th>무게(kg)</th>':''}<th>확인</th></tr></thead><tbody>${items.map((it,i)=>
    `<tr><td>${i+1}</td><td>${esc(it.product_code)}</td><td>${esc(it.product_name_text)}</td><td>${esc(it.qty)}</td><td>${esc(it.lot_text?`${it.lot_text} · ${it.expires_on||'유통기한 없음'}`:'지정 안 함')}</td>`
    +(form==='overseas'?`<td>${esc(it.unit_price??'')}</td><td>${esc(it.weight_kg??'1')}</td>`:'')+`<td class="lg-item-warn">${esc(itemWarn(it,groups))}</td></tr>`).join('')}</tbody></table></div>`
-  :(fx.loading?'<p class="lg-muted">불러오는 중…</p>':'<p class="lg-muted">품목이 없어요.</p>');
+  :(fx.loading||wait?'<p class="lg-muted">불러오는 중…</p>':'<p class="lg-muted">품목이 없어요.</p>');
  const canDownload=Boolean(form&&canSee&&fx.loaded);
  const errs=ctx.fasstoErrors||[];
  return `<section class="lg-sec lg-fassto"><h3>파스토 양식${r.fassto_order_no?` <span class="lg-muted">주문번호 ${esc(r.fassto_order_no)}</span>`:''}</h3><p class="lg-hint">${esc(F.formHint(form))}</p>`
@@ -343,16 +344,21 @@ function renderForm(d,ctx){
 }
 
 // ── 대시보드 탭 ──
-function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m=>root.confirm(m),location=root.location,history=root.history,open=u=>root.open(u,'_blank')}){
+function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m=>root.confirm(m),location=root.location,history=root.history,open=u=>root.open(u,'_blank'),xlsx=null,saveWorkbook=null}){
  const $=id=>document.getElementById(id);
  const api=createApi(client,{now});
  const EMPTY=()=>({requests:[],files:[],handlers:[],people:[],invoices:[]});
+ const NO_STOCK=()=>({rows:[],groups:[],sync:null,error:''});
+ const NO_FASSTO=()=>({loaded:false,loading:false,recipient:null,items:[],error:''});
+ const XL=()=>xlsx||root.XLSX;
+ const save=saveWorkbook||((wb,name)=>XL().writeFile(wb,name));
  const state={active:false,loaded:false,loading:false,error:'',email:'',isHandler:false,data:EMPTY(),tab:'todo',quick:'',q:'',
-  selected:null,detail:{comments:[],history:[]},detailLoading:false,pending:null,detailError:'',detailNote:'',busy:false,form:null,editTarget:null,pendingOpen:null,ready:Promise.resolve(),commentDraft:'',renderedId:null};
+  selected:null,detail:{comments:[],history:[]},detailLoading:false,pending:null,detailError:'',detailNote:'',busy:false,form:null,editTarget:null,pendingOpen:null,ready:Promise.resolve(),commentDraft:'',renderedId:null,
+  stock:NO_STOCK(),fassto:NO_FASSTO(),fasstoErrors:[],formFassto:null};
  let generation=0;
  const say=t=>{if(t)onMessage(t);};
  const current=()=>state.data.requests.find(r=>r.id===state.selected);
- const ctx=()=>({email:state.email,isHandler:state.isHandler,nowMs:now(),files:state.data.files,people:state.data.people,handlers:state.data.handlers,invoices:state.data.invoices});
+ const ctx=()=>({email:state.email,isHandler:state.isHandler,nowMs:now(),files:state.data.files,people:state.data.people,handlers:state.data.handlers,invoices:state.data.invoices,groups:state.stock.groups,stock:state.stock});
  const buttons=el=>el?.querySelectorAll?.('button')||[];
  function setBusy(v){state.busy=v;for(const id of ['lg-detail','lg-form'])for(const b of buttons($(id)))b.disabled=v;}
  const dlgOpen=d=>{if(d&&!d.open){try{d.showModal();}catch(_){d.setAttribute?.('open','');}}};
@@ -360,8 +366,9 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
 
  function paint(){
   if(!state.active)return;
-  const k=$('lg-kpis'),t=$('lg-tabs'),nowMs=now();
+  const k=$('lg-kpis'),t=$('lg-tabs'),sl=$('lg-stock-line'),nowMs=now();
   if(k)k.innerHTML=state.loaded?renderKpis(summarize(state.data.requests,nowMs),state.quick||(state.tab==='todo'?'todo':'')):'';
+  if(sl)sl.innerHTML=state.loaded?renderStockBanner(state.stock,nowMs):'';
   if(t){const c={};for(const key of Object.keys(TAB_LABELS))c[key]=M.filterTab(state.data.requests,key,{email:state.email,nowMs}).length;t.innerHTML=renderTabs(state.quick?'':state.tab,state.loaded?c:null);}
   drawList();
  }
@@ -384,31 +391,36 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   const d=$('lg-detail'),r=current();if(!d||!r)return;
   captureInputs();
   const ae=document.activeElement,fid=ae&&ae.id&&d.contains?.(ae)?ae.id:'',sel=fid?[ae.selectionStart,ae.selectionEnd]:null;
-  d.innerHTML=renderDetail(r,{...ctx(),...state.detail,loading:state.detailLoading,pending:state.pending,error:state.detailError,note:state.detailNote,commentDraft:state.commentDraft});
+  d.innerHTML=renderDetail(r,{...ctx(),...state.detail,loading:state.detailLoading,pending:state.pending,error:state.detailError,note:state.detailNote,commentDraft:state.commentDraft,fassto:state.fassto,fasstoErrors:state.fasstoErrors});
   state.renderedId=r.id;
   if(state.busy)setBusy(true);
   if(fid){try{const el=$(fid);el?.focus?.();if(sel&&sel[0]!=null)el?.setSelectionRange?.(sel[0],sel[1]);}catch(_){}}
  }
  function focusPending(){try{$('lg-detail')?.querySelector?.('[data-autofocus]')?.focus?.();}catch(_){}}
- function closeDetail(){state.selected=null;state.renderedId=null;state.commentDraft='';state.pending=null;state.detailError='';state.detailNote='';state.detail={comments:[],history:[]};const d=$('lg-detail');dlgClose(d);if(d)d.innerHTML='';}
- function closeForm(){state.form=null;state.editTarget=null;const f=$('lg-form');dlgClose(f);if(f)f.innerHTML='';}
+ function closeDetail(){state.selected=null;state.renderedId=null;state.commentDraft='';state.pending=null;state.detailError='';state.detailNote='';state.detail={comments:[],history:[]};state.fassto=NO_FASSTO();state.fasstoErrors=[];const d=$('lg-detail');dlgClose(d);if(d)d.innerHTML='';}
+ function closeForm(){state.form=null;state.editTarget=null;state.formFassto=null;const f=$('lg-form');dlgClose(f);if(f)f.innerHTML='';}
 
  async function openDetail(id,{keep=false}={}){
   if(!state.active)return;
   const same=state.selected===id;
   state.selected=id;
-  if(!keep||!same){captureInputs();state.pending=null;state.detailError='';state.detailNote='';state.commentDraft='';state.renderedId=null;}
+  if(!keep||!same){captureInputs();state.pending=null;state.detailError='';state.detailNote='';state.commentDraft='';state.renderedId=null;state.fasstoErrors=[];}
   const r0=current();
   if(!r0){closeDetail();say('요청을 찾지 못했어요. 닫힌 지 180일이 지났거나 지워진 요청일 수 있어요.');return;}
-  state.detail={comments:[],history:[]};state.detailLoading=true;
+  state.detail={comments:[],history:[]};state.detailLoading=true;state.fassto={...NO_FASSTO(),loading:true};
   const g=generation;
   drawDetail();dlgOpen($('lg-detail'));
   if(r0.invoice_id&&!state.data.invoices.some(i=>i.id===r0.invoice_id)){
    try{const inv=await api.loadInvoice(r0.invoice_id);if(g!==generation||state.selected!==id)return;if(inv){state.data.invoices=[...state.data.invoices,inv];drawDetail();}}
    catch(e){if(g!==generation||state.selected!==id)return;state.detailError='연결 주문을 불러오지 못했어요: '+(e?.message||e);}
   }
-  try{const d=await api.loadDetail(id);if(g!==generation||state.selected!==id)return;state.detail=d;}
-  catch(e){if(g!==generation||state.selected!==id)return;state.detailError='댓글과 이력을 불러오지 못했어요: '+(e?.message||e);}
+  // 받는 곳은 요청자·담당자만 부른다(다른 사람은 RLS가 0행). 품목은 운송 방식이 바뀌었을 때도 보이게 늘 부른다.
+  const canSee=state.isHandler||state.email===String(r0.requester_email||'').toLowerCase();
+  const [det,rec,its]=await Promise.allSettled([api.loadDetail(id),canSee?api.loadRecipient(id):Promise.resolve(null),api.loadItems(id)]);
+  if(g!==generation||state.selected!==id)return;
+  if(det.status==='fulfilled')state.detail=det.value;else state.detailError='댓글과 이력을 불러오지 못했어요: '+(det.reason?.message||det.reason);
+  if(rec.status==='fulfilled'&&its.status==='fulfilled')state.fassto={loaded:true,loading:false,recipient:rec.value,items:its.value||[],error:''};
+  else{const e=rec.status==='rejected'?rec.reason:its.reason;state.fassto={...NO_FASSTO(),error:'받는 곳과 품목을 불러오지 못했어요: '+(e?.message||e)};}
   state.detailLoading=false;drawDetail();
  }
 
@@ -418,8 +430,10 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
    const {data,error}=await client.auth.getSession();if(g!==generation)return;if(error)throw error;
    const email=String(data?.session?.user?.email||'').toLowerCase();
    if(!email)throw new Error('로그인 정보를 확인하지 못했어요. 다시 로그인해 주세요.');
-   const d=await api.loadAll();if(g!==generation)return;
-   state.email=email;state.data=d;state.isHandler=M.isHandler(email,d.handlers);state.loaded=true;
+   // 파스토 목록을 못 받아도 물류 요청 화면은 연다(목록 줄에 오류를 보인다)
+   const [d,stock]=await Promise.all([api.loadAll(),api.loadStock().then(x=>({...x,groups:F.groupStock(x.rows),error:''}),e=>({...NO_STOCK(),error:String(e?.message||e)}))]);
+   if(g!==generation)return;
+   state.email=email;state.data=d;state.stock=stock;state.isHandler=M.isHandler(email,d.handlers);state.loaded=true;
   }catch(e){if(g!==generation)return;state.error='물류 요청을 불러오지 못했어요. '+(e?.message||e);}
   state.loading=false;paint();
   if(!state.active)return;
@@ -486,26 +500,96 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   finally{setBusy(false);}
  }
 
+ const fasstoCtx=()=>({isHandler:state.isHandler,groups:state.stock.groups,stock:state.stock,nowMs:now()});
  function openForm(mode,draft){
   const f=$('lg-form');if(!state.active||!f)return;
   state.form={mode};
-  f.innerHTML=renderForm(draft,{invoices:state.data.invoices,mode,isHandler:state.isHandler});dlgOpen(f);
+  f.innerHTML=renderForm(draft,{invoices:state.data.invoices,mode,...fasstoCtx(),fassto:state.formFassto});dlgOpen(f);
   try{f.querySelector?.('select,input')?.focus?.();}catch(_){}
  }
- function openNew(){if(!state.active||!state.loaded)return;state.editTarget=null;openForm('create',{team_code:'',want_date:''});}
- function openEdit(){const r=current();if(!r)return;state.editTarget={id:r.id,status_code:r.status_code};openForm('edit',{...r});}
+ // 창에서 고치는 받는 곳·품목의 사본. orig*는 바뀌지 않았으면 저장하지 않으려고 둔다.
+ function formFasstoFrom(recipient,items,mode){
+  return {form:F.formFor(mode),recipient:{...(recipient||{})},items:(items||[]).map(x=>({...x})),q:'',hadRecipient:Boolean(recipient),
+   origRecipient:JSON.stringify(F.toRecipientRow(recipient||{},{isHandler:state.isHandler})),origItems:JSON.stringify(F.toItemRows(items||[]))};
+ }
+ function openNew(){if(!state.active||!state.loaded)return;state.editTarget=null;state.formFassto=formFasstoFrom(null,[],'');openForm('create',{team_code:'',want_date:''});}
+ function openEdit(){
+  const r=current();if(!r)return;
+  state.editTarget={id:r.id,status_code:r.status_code};
+  state.formFassto=state.fassto.loaded?formFasstoFrom(state.fassto.recipient,state.fassto.items,r.ship_mode_code):null; // 못 불러왔으면 받는 곳·품목은 건드리지 않는다
+  openForm('edit',{...r});
+ }
+ const lotExpiry=(it,lot)=>{const l=state.stock.groups.find(g=>g.product_code===it.product_code)?.lots.find(x=>x.lot_text===lot);return lot?(l?l.expires_on:(it.lot_text===lot?it.expires_on:null)):null;};
+ // 폼 값(r_*, item_*_<줄>)을 창 사본에 덮어 받는 곳·품목을 만든다. 입력 이벤트를 놓쳐도 제출 순간의 값이 이긴다.
+ function fasstoFromForm(draft){
+  const fx=state.formFassto;if(!fx)return null;
+  const recipient={...fx.recipient};
+  for(const k of [...F.RECIPIENT_KEYS,...F.HANDLER_KEYS])if(('r_'+k) in draft)recipient[k]=draft['r_'+k];
+  const items=fx.items.map((it,i)=>{
+   const o={...it};
+   for(const k of ['qty','unit_price','weight_kg','en_name_text'])if(`item_${k}_${i}` in draft)o[k]=draft[`item_${k}_${i}`];
+   if(`item_lot_${i}` in draft){const lot=draft[`item_lot_${i}`];o.expires_on=lotExpiry(it,lot);o.lot_text=lot;}
+   return o;});
+  return {...fx,recipient,items};
+ }
+ const hasRecipientValues=r=>F.RECIPIENT_KEYS.some(k=>String(r?.[k]??'').trim());
+ // 요청 저장 뒤 받는 곳 → 품목 순서로 저장한다. 바뀌지 않은 것은 보내지 않는다.
+ async function saveFassto(id,form,fx){
+  if(!form||!fx)return;
+  const rec=F.toRecipientRow(fx.recipient,{isHandler:state.isHandler});
+  if(form!=='vehicle'&&(fx.hadRecipient||hasRecipientValues(fx.recipient))&&JSON.stringify(rec)!==fx.origRecipient)await api.saveRecipient(id,rec);
+  if(JSON.stringify(F.toItemRows(fx.items))!==fx.origItems)await api.saveItems(id,fx.items);
+ }
+ function drawItems(){const host=$('lg-item-lines'),fx=state.formFassto;if(host&&fx)host.innerHTML=renderItems(fx.items,{form:fx.form,groups:state.stock.groups});}
+ function addItem(code){
+  const fx=state.formFassto;if(!fx||state.busy)return;
+  if(fx.items.length>=F.MAX_ITEMS)return formError('품목은 50줄까지 넣을 수 있어요.');
+  const g=state.stock.groups.find(x=>x.product_code===code);if(!g)return;
+  fx.items.push({product_code:g.product_code,product_name_text:g.product_name,qty:1,lot_text:'',expires_on:null,en_name_text:'',weight_kg:'',unit_price:''});
+  fx.q='';const q=$('lg-item-q');if(q)q.value='';const res=$('lg-item-results');if(res)res.innerHTML='';
+  formError('');drawItems();
+ }
+ function removeItem(i){const fx=state.formFassto;if(!fx||state.busy||!fx.items[i])return;fx.items.splice(i,1);drawItems();}
+ function updateItem(i,field,value){
+  const it=state.formFassto?.items[i];if(!it)return;
+  if(field==='lot'){it.expires_on=lotExpiry(it,value);it.lot_text=value;}else it[field]=value;
+  const w=$('lg-item-warn-'+i);if(w)w.textContent=itemWarn(it,state.stock.groups);
+ }
+ function downloadFassto(){
+  const r=current();if(!r||state.busy)return;
+  const form=F.formFor(r.ship_mode_code);if(!form||!state.fassto.loaded)return;
+  const {recipient,items}=state.fassto;
+  const errors=F.validate(form,r,recipient,items);
+  state.detailError='';state.detailNote='';
+  if(errors.length){state.fasstoErrors=errors;drawDetail();return;}
+  if(!XL()){state.fasstoErrors=[];state.detailError='엑셀 도구를 불러오지 못했어요. 페이지를 새로고침한 뒤 다시 해 주세요.';drawDetail();return;}
+  try{
+   save(F.toWorkbook(form,F.buildRows(form,r,recipient,items),XL()),F.fileName(form,r));
+   const warn=F.stockWarnings(items,state.stock.groups);
+   state.fasstoErrors=[];state.detailNote='파스토 양식을 내려받았어요.'+(warn.length?' 확인할 점: '+warn.join(' '):'');
+  }catch(e){state.fasstoErrors=[];state.detailError='파스토 양식을 만들지 못했어요: '+String(e?.message||e);}
+  drawDetail();
+ }
  const formError=t=>{const el=$('lg-form-error');if(el)el.textContent=t||'';};
  const SUMMARY=['type_code','title_text','team_code','counterparty_text','want_date','ship_mode_code','qty_summary_text','note_text','invoice_id'];
  async function submitEdit(form){
   if(state.busy)return;const t=state.editTarget;if(!t)return; // 폼을 연 요청과 그때의 상태 — 그 사이 다른 요청을 골라도 바뀌지 않는다
   const draft=readForm(form),errors=M.validateDraft(draft);
+  const fform=F.formFor(draft.ship_mode_code),fx=fasstoFromForm(draft);
+  if(fform&&fx)errors.push(...F.checkInput(fform,fx.recipient,fx.items));
   if(errors.length)return formError(errors.join(' '));
   const row=M.toInsertRow(draft),patch={};
   for(const k of SUMMARY)patch[k]=row[k];
   if(state.isHandler)for(const k of ['packing_code','etd_on','forwarder_text'])patch[k]=row[k];
   setBusy(true);formError('');
-  try{await api.update(t.id,t.status_code,patch);closeForm();state.detailNote='요약을 저장했어요.';say(state.detailNote);await reload();}
+  let summarySaved=false;
+  try{
+   await api.update(t.id,t.status_code,patch);summarySaved=true;
+   await saveFassto(t.id,fform,fx);
+   closeForm();state.detailNote='요약을 저장했어요.';say(state.detailNote);await reload();
+  }
   catch(e){
+   if(summarySaved){formError('요약은 저장했지만 받는 곳·품목은 저장하지 못했어요. 다시 저장해 주세요. ('+M.errorMessage(e)+')');return;}
    if(!isStale(e)){formError(M.errorMessage(e));return;}
    formError(STALE_TEXT);await reload();
    const fresh=state.data.requests.find(x=>x.id===t.id);
@@ -516,15 +600,21 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
  async function submitCreate(form){
   if(state.busy)return;
   const draft=readForm(form),errors=M.validateDraft(draft);
+  const fform=F.formFor(draft.ship_mode_code),fx=fasstoFromForm(draft);
+  if(fform&&fx)errors.push(...F.checkInput(fform,fx.recipient,fx.items));
   if(errors.length)return formError(errors.join(' '));
   const picked=Array.from($('lg-f-files')?.files||[]); // 기다리는 동안 창이 바뀌어도 고른 파일을 잃지 않게 먼저 읽는다
   setBusy(true);formError('');
   let row=null;
   try{
-   row=await api.create(draft);const failed=[];
+   row=await api.create(draft);const failed=[];let fasstoFailed=false;
+   try{await saveFassto(row.id,fform,fx);}catch(e){fasstoFailed=true;} // 저장 순서: 요청 → 받는 곳 → 품목
    for(const f of picked){try{await api.uploadFile(row.id,f,'request');}catch(e){failed.push(f.name);}}
    closeForm();state.tab='mine';state.quick='';state.selected=row.id;state.pending=null;state.detailError='';
-   state.detailNote=failed.length?`요청은 올라갔고, ${failed.join(', ')} 파일은 올리지 못했어요. 아래 첨부에서 다시 올려 주세요.`:'요청을 올렸어요. 슬랙에도 곧 알림이 가요.';
+   const notes=[];
+   if(fasstoFailed)notes.push('요청은 올라갔고 품목은 저장하지 못했어요. 상세에서 다시 입력해 주세요.');
+   if(failed.length)notes.push(`요청은 올라갔고, ${failed.join(', ')} 파일은 올리지 못했어요. 아래 첨부에서 다시 올려 주세요.`);
+   state.detailNote=notes.length?notes.join(' '):'요청을 올렸어요. 슬랙에도 곧 알림이 가요.';
    say(state.detailNote);
    await reload();
   }catch(e){if(row)say('요청은 올라갔어요. 목록을 새로고침해 주세요. ('+M.errorMessage(e)+')');else formError(M.errorMessage(e));}
@@ -588,8 +678,11 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
    if(act==='pending-cancel'){state.pending=null;state.detailError='';drawDetail();return;}
    if(act==='edit-summary')return openEdit();
    if(act==='edit-result'){if(state.busy)return;state.pending={kind:'result'};state.detailError='';drawDetail();focusPending();return;}
+   if(act==='fassto-download')return downloadFassto();
    return;
   }
+  if((el=at('[data-item-add]')))return addItem(el.dataset.itemAdd);
+  if((el=at('[data-item-del]')))return removeItem(Number(el.dataset.itemDel));
   if((el=at('[data-to]')))return chooseStatus(el.dataset.to);
   if((el=at('[data-file-del]')))return deleteFile(el.dataset.fileDel);
   if((el=at('[data-file]'))){e.preventDefault?.();return openFile(el.dataset.file);}
@@ -602,8 +695,19 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   if(t?.name==='type_code'||t?.name==='ship_mode_code'){
    const fs=$('lg-f-overseas');if(fs)fs.hidden=!M.needsOverseas({type_code:$('lg-f-type_code')?.value,ship_mode_code:$('lg-f-ship_mode_code')?.value});
   }
+  if(t?.name==='ship_mode_code'){
+   if(state.formFassto)state.formFassto.form=F.formFor(t.value);
+   const host=$('lg-f-fassto');if(host)host.innerHTML=renderFasstoFields(t.value,state.formFassto,fasstoCtx());
+   return;
+  }
+  if(t?.dataset?.recipient&&state.formFassto){state.formFassto.recipient[t.dataset.recipient]=t.value;return;}
+  if(t?.dataset?.itemField)return updateItem(Number(t.dataset.line),t.dataset.itemField,t.value);
  }
  function onInput(e){
+  const t=e.target;
+  if(t?.id==='lg-item-q'&&state.formFassto){state.formFassto.q=t.value;const host=$('lg-item-results');if(host)host.innerHTML=renderStockResults(F.searchStock(state.stock.groups,t.value),t.value);return;}
+  if(t?.dataset?.recipient&&state.formFassto){state.formFassto.recipient[t.dataset.recipient]=t.value;return;}
+  if(t?.dataset?.itemField&&t.dataset.itemField!=='lot')return updateItem(Number(t.dataset.line),t.dataset.itemField,t.value);
   if(e.target?.id==='lg-search'){state.q=e.target.value;drawList();return;}
   if(e.target?.id==='lg-comment-body')state.commentDraft=e.target.value;
  }
@@ -620,7 +724,7 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
  function show(){
   state.active=true;state.form=null;state.editTarget=null;state.renderedId=null;
   $('topbar-actions').innerHTML='<button type="button" class="btn btn-primary" id="lg-new"><i class="ti ti-plus"></i> 새 요청</button><button type="button" class="btn" id="lg-refresh"><i class="ti ti-refresh"></i> 새로고침</button>';
-  $('content').innerHTML='<section class="lg"><div class="kpi-grid lg-kpis" id="lg-kpis"></div>'
+  $('content').innerHTML='<section class="lg"><div class="kpi-grid lg-kpis" id="lg-kpis"></div><div id="lg-stock-line"></div>'
    +'<div class="lg-bar"><nav class="tab-bar lg-tabs" id="lg-tabs" role="tablist" aria-label="물류 요청 보기"></nav><input type="search" id="lg-search" class="lg-search" placeholder="제목·거래처·송장 검색" aria-label="물류 요청 검색"></div>'
    +'<div id="lg-list"></div>'
    +'<dialog class="lg-dialog" id="lg-detail" aria-labelledby="lg-detail-title"></dialog><dialog class="lg-dialog lg-form-dialog" id="lg-form" aria-label="물류 요청 입력"></dialog></section>';
@@ -632,6 +736,7 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   d.oncancel=e=>{e.preventDefault?.();if(state.busy||state.form)return;closeDetail();};
   f.oncancel=e=>{e.preventDefault?.();if(state.busy)return;closeForm();};
   for(const el of [d,f]){el.onkeydown=e=>e.stopPropagation?.();el.onpaste=e=>e.stopPropagation?.();}
+  f.onkeydown=e=>{e.stopPropagation?.();if(e.key==='Enter'&&e.target?.id==='lg-item-q')e.preventDefault?.();}; // 상품 찾기에서 Enter가 요청을 올리지 않게
   paint();
   return reload();
  }
@@ -656,10 +761,10 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   return openDetail(id);
  }
  client.auth?.onAuthStateChange?.((ev,session)=>{
-  if(ev==='SIGNED_OUT'){hide();generation++;Object.assign(state,{loaded:false,loading:false,error:'',email:'',isHandler:false,data:EMPTY(),tab:'todo',quick:'',q:'',busy:false});}
+  if(ev==='SIGNED_OUT'){hide();generation++;Object.assign(state,{loaded:false,loading:false,error:'',email:'',isHandler:false,data:EMPTY(),tab:'todo',quick:'',q:'',busy:false,stock:NO_STOCK(),fassto:NO_FASSTO(),fasstoErrors:[],formFassto:null});}
   else if(ev==='SIGNED_IN'&&state.active&&String(session?.user?.email||'').toLowerCase()!==state.email)reload();
  });
- return {show,hide,reload,openRequest,takeUrlRequest,state,changeStatus:chooseStatus,openDetail};
+ return {show,hide,reload,openRequest,takeUrlRequest,state,changeStatus:chooseStatus,openDetail,downloadFassto};
 }
 
 return {createApi,kstWeek,summarize,listView,renderKpis,renderTabs,renderList,renderDetail,renderForm,renderStockBanner,renderStockResults,renderItems,renderFasstoFields,renderFasstoSection,mountTab};
