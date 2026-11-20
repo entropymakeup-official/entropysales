@@ -191,6 +191,95 @@ function renderPending(r,p,ctx){
   +`<div class="lg-row-btns"><button type="button" class="btn" data-act="pending-cancel">그만두기</button><button type="submit" class="btn btn-primary">저장</button></div></form>`;
 }
 
+// ── 파스토 양식(받는 곳·품목) ──
+const itemWarn=(it,groups)=>F.qtyWarning(it,groups)||((groups||[]).some(g=>g.product_code===String(it.product_code||'').trim())?'':'파스토 목록에 없는 상품이에요.');
+function renderStockBanner(stock,nowMs){
+ if(!stock)return '';
+ if(stock.error)return `<p class="lg-stock warn" role="status">파스토 목록을 불러오지 못했어요: ${esc(stock.error)}</p>`;
+ const a=F.stockAge(stock.sync,stock.groups,nowMs);
+ return `<p class="lg-stock${a.stale?' warn':''}" role="status">${esc(a.text)}</p>`;
+}
+function renderStockResults(list,q){
+ if(!String(q||'').trim())return '';
+ if(!list.length)return '<p class="lg-muted">찾는 상품이 없어요. 파스토 목록에 있는 상품만 넣을 수 있어요.</p>';
+ return `<ul class="lg-stock-results">${list.map(g=>`<li><button type="button" class="lg-link" data-item-add="${esc(g.product_code)}">${esc(g.product_name||g.product_code)} <span class="lg-muted">${esc(g.product_code)}${g.barcode?' · '+esc(g.barcode):''}${g.kind_text?' · '+esc(g.kind_text):''} · 출고 가능 ${esc(g.total_qty.toLocaleString('ko-KR'))}개</span></button></li>`).join('')}</ul>`;
+}
+function renderItemRow(it,i,{form,groups}){
+ const g=(groups||[]).find(x=>x.product_code===it.product_code),lots=g?.lots||[];
+ const box=(field,label,val,mode='decimal')=>`<input name="item_${field}_${i}" data-item-field="${field}" data-line="${i}" inputmode="${mode}" value="${esc(val??'')}" aria-label="${i+1}번째 ${label}">`;
+ const lotOpts=`<option value="">로트 지정 안 함</option>`+lots.map(l=>`<option value="${esc(l.lot_text)}"${l.lot_text===it.lot_text?' selected':''}>${esc(l.lot_text)} · ${esc(l.expires_on||'유통기한 없음')} · ${esc(l.available_qty)}개</option>`).join('')
+  +(it.lot_text&&!lots.some(l=>l.lot_text===it.lot_text)?`<option value="${esc(it.lot_text)}" selected>${esc(it.lot_text)} (목록에 없음)</option>`:'');
+ return `<tr><td><b>${esc(it.product_name_text||g?.product_name||'')}</b><br><span class="lg-muted">${esc(it.product_code)}</span></td>`
+  +`<td>${box('qty','수량',it.qty,'numeric')}</td>`
+  +`<td><select name="item_lot_${i}" data-item-field="lot" data-line="${i}" aria-label="${i+1}번째 로트">${lotOpts}</select></td>`
+  +(form==='overseas'?`<td>${box('unit_price','단가',it.unit_price)}</td><td>${box('weight_kg','무게',it.weight_kg)}</td><td><input name="item_en_name_text_${i}" data-item-field="en_name_text" data-line="${i}" maxlength="200" value="${esc(it.en_name_text||'')}" aria-label="${i+1}번째 영문 상품명"></td>`:'')
+  +`<td><span class="lg-item-warn" id="lg-item-warn-${i}">${esc(itemWarn(it,groups))}</span> <button type="button" class="btn btn-sm" data-item-del="${i}" aria-label="${i+1}번째 품목 빼기">빼기</button></td></tr>`;
+}
+function renderItems(items,ctx){
+ if(!items.length)return '<p class="lg-muted">아직 넣은 품목이 없어요. 위에서 상품을 찾아 넣어 주세요.</p>';
+ const head=`<tr><th>상품</th><th>수량</th><th>로트</th>${ctx.form==='overseas'?'<th>단가 <small>필수</small></th><th>무게(kg)</th><th>영문 상품명</th>':''}<th>${items.length}/${F.MAX_ITEMS}줄</th></tr>`;
+ return `<div class="tw"><table class="lg-items"><thead>${head}</thead><tbody>${items.map((it,i)=>renderItemRow(it,i,ctx)).join('')}</tbody></table></div>`;
+}
+// 새 요청·요약 수정 창의 파스토 칸. mode=운송 방식 코드, fx=null이면 받는 곳·품목을 못 불러와 고칠 수 없다.
+function renderFasstoFields(mode,fx,ctx){
+ if(!mode)return '';
+ const form=F.formFor(mode);
+ if(!form)return `<p class="lg-hint">${esc(F.formHint(null))}</p>`;
+ if(!fx)return `<p class="lg-hint">${esc(F.formHint(form))}</p><p class="lg-muted">받는 곳·품목을 불러오지 못해 이번에는 고칠 수 없어요. 상세를 다시 열어 주세요.</p>`;
+ const r=fx.recipient||{};
+ const inp=([key,label,max])=>`<div class="fg"><label for="lg-r-${key}">${label}</label><input id="lg-r-${key}" name="r_${key}" data-recipient="${key}" maxlength="${max}" value="${esc(r[key]||'')}"></div>`;
+ const sel=(key,label,list)=>`<div class="fg"><label for="lg-r-${key}">${label}</label><select id="lg-r-${key}" name="r_${key}" data-recipient="${key}"><option value="">선택</option>${list.map(v=>`<option value="${esc(v)}"${r[key]===v?' selected':''}>${esc(v)}</option>`).join('')}</select></div>`;
+ let rec='';
+ if(form!=='vehicle'){
+  rec=`<fieldset class="lg-fassto-box"><legend>받는 곳 <small>요청자와 물류 담당자만 봐요</small></legend><div class="lg-form-grid">${F.RECIPIENT_FIELDS[form].map(inp).join('')}${form==='overseas'?sel('currency_code','화폐',F.CURRENCIES):''}</div>`
+   +(form==='overseas'?(ctx.isHandler?`<div class="lg-form-grid lg-handler-only">${inp(F.HANDLER_FIELDS[0])}${sel('incoterms_code','Incoterms',F.INCOTERMS)}${F.HANDLER_FIELDS.slice(1).map(inp).join('')}</div>`
+    :'<p class="lg-muted">운송사·Incoterms·발송인은 물류 담당자가 정해요.</p>'):'')+`</fieldset>`;
+ }else rec='<p class="lg-muted">차량배송은 받는 곳 칸이 없어요. 도착지는 특이사항에 적어 주세요.</p>';
+ const groups=ctx.groups||[],stockLine=ctx.stock?.error?'파스토 목록을 불러오지 못했어요.':F.stockAge(ctx.stock?.sync,groups,ctx.nowMs);
+ const stale=typeof stockLine==='string'||stockLine.stale;
+ return `<p class="lg-hint">${esc(F.formHint(form))}</p>${rec}`
+  +`<fieldset class="lg-fassto-box"><legend>품목 <small>파스토 목록에서 골라요</small></legend>`
+  +`<p class="lg-stock${stale?' warn':''}">${esc(typeof stockLine==='string'?stockLine:stockLine.text)}</p>`
+  +`<div class="fg"><label for="lg-item-q">상품 찾기 <small>상품명·바코드·상품코드</small></label><input type="search" id="lg-item-q" autocomplete="off" value="${esc(fx.q||'')}"></div>`
+  +`<div id="lg-item-results">${renderStockResults(F.searchStock(groups,fx.q),fx.q)}</div>`
+  +`<div id="lg-item-lines">${renderItems(fx.items||[],{form,groups})}</div></fieldset>`;
+}
+// 상세 창의 파스토 칸: 받는 곳(권한), 품목 표, 내려받기 버튼, 검사 결과
+function renderFasstoSection(r,ctx){
+ const form=F.formFor(r.ship_mode_code),fx=ctx.fassto||{},items=fx.items||[];
+ if(!form&&!items.length)return '';
+ const owner=String(ctx.email||'').toLowerCase()===String(r.requester_email||'').toLowerCase(),canSee=Boolean(ctx.isHandler||owner);
+ const groups=ctx.groups||[];
+ const f=(l,v,c='')=>`<div class="lg-f${c}"><dt>${esc(l)}</dt><dd>${esc(v||'-')}</dd></div>`;
+ let rec='';
+ if(form==='parcel'||form==='overseas'){
+  let body;
+  if(!canSee)body='<p class="lg-muted">요청자와 물류 담당자만 볼 수 있어요.</p>';
+  else if(fx.loading)body='<p class="lg-muted">불러오는 중…</p>';
+  else if(fx.error)body='';
+  else if(!fx.recipient)body='<p class="lg-muted">입력 안 됨</p>';
+  else{
+   const x=fx.recipient;
+   body=`<dl class="lg-fields">${f('받는 분',x.name_text)}${f('전화',x.phone_text)}`
+    +(form==='overseas'?f('이메일',x.email_text)+f('국가',x.country_code)+f('주·시·구',[x.state_text,x.city_text,x.district_text].filter(Boolean).join(', '))+f('화폐',x.currency_code)+(x.tax_id_text?f('신분번호',x.tax_id_text):''):'')
+    +`${f('우편번호',x.postal_text)}${f('주소',[x.address1_text,x.address2_text].filter(Boolean).join(' '),' lg-wide')}`
+    +(form==='overseas'?(()=>{const snd=F.senderOf(x);return f('운송사',x.courier_text||'담당자가 정해요')+f('Incoterms',x.incoterms_code)+f('발송인',`${snd.name_text} · ${snd.phone_text} · ${snd.email_text}`,' lg-wide');})():'')+`</dl>`;
+  }
+  rec=`<h4>받는 곳</h4>${body}`;
+ }
+ const list=fx.error?'':items.length?`<div class="tw"><table class="lg-items"><thead><tr><th>#</th><th>상품코드</th><th>상품명</th><th>수량</th><th>로트·유통기한</th>${form==='overseas'?'<th>단가</th><th>무게(kg)</th>':''}<th>확인</th></tr></thead><tbody>${items.map((it,i)=>
+   `<tr><td>${i+1}</td><td>${esc(it.product_code)}</td><td>${esc(it.product_name_text)}</td><td>${esc(it.qty)}</td><td>${esc(it.lot_text?`${it.lot_text} · ${it.expires_on||'유통기한 없음'}`:'지정 안 함')}</td>`
+   +(form==='overseas'?`<td>${esc(it.unit_price??'')}</td><td>${esc(it.weight_kg??'1')}</td>`:'')+`<td class="lg-item-warn">${esc(itemWarn(it,groups))}</td></tr>`).join('')}</tbody></table></div>`
+  :(fx.loading?'<p class="lg-muted">불러오는 중…</p>':'<p class="lg-muted">품목이 없어요.</p>');
+ const canDownload=Boolean(form&&canSee&&fx.loaded);
+ const errs=ctx.fasstoErrors||[];
+ return `<section class="lg-sec lg-fassto"><h3>파스토 양식${r.fassto_order_no?` <span class="lg-muted">주문번호 ${esc(r.fassto_order_no)}</span>`:''}</h3><p class="lg-hint">${esc(F.formHint(form))}</p>`
+  +(fx.error?`<p class="lg-error">${esc(fx.error)}</p>`:'')+rec+`<h4>품목 <span class="lg-count">${items.length}</span></h4>${list}`
+  +(canDownload?`<div class="lg-actions"><button type="button" class="btn" data-act="fassto-download"><i class="ti ti-download"></i> 파스토 양식 내려받기</button></div>`:'')
+  +(errs.length?`<div class="lg-error" role="alert"><p>내려받지 않았어요. 아래 칸을 채워 주세요.</p><ul>${errs.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')
+  +`</section>`;
+}
+
 function renderDetail(r,ctx){
  const people=[...(ctx.people||[]),...(ctx.handlers||[])];
  const me=String(ctx.email||'').toLowerCase();
@@ -213,6 +302,7 @@ function renderDetail(r,ctx){
  +`${field('연결 주문',inv?`${inv.no} ${inv.customer||''}`:(r.invoice_id?'불러오는 중…':''))}${field('특이사항',r.note_text,' lg-wide')}`
  +(overseas?field('패킹리스트',M.PACKING[r.packing_code]||'')+field('ETD',r.etd_on)+field('포워더',r.forwarder_text):'')
  +`${field('결과(송장·배차·BL)',r.result_text,' lg-wide')}${field('출고일',r.shipped_on)}${r.quick_fee_krw!=null?field('퀵비',won(r.quick_fee_krw)):''}${r.status_note_text?field('사유',r.status_note_text,' lg-wide'):''}</dl>`
+ +renderFasstoSection(r,ctx)
  +((next.length||canEdit||canResult)?`<section class="lg-sec"><h3>처리</h3><div class="lg-actions">${next.map(to=>`<button type="button" class="btn${pendingTo===to?' btn-primary':''}" data-to="${esc(to)}">${esc(M.STATUSES[to])}</button>`).join('')}`
   +`${canEdit?'<button type="button" class="btn" data-act="edit-summary"><i class="ti ti-pencil"></i> 요약 수정</button>':''}${canResult?'<button type="button" class="btn" data-act="edit-result">결과 수정</button>':''}</div>`
   +renderPending(r,ctx.pending,ctx)+`</section>`:'')
@@ -242,6 +332,7 @@ function renderForm(d,ctx){
  +fg('note_text','특이사항',`<textarea ${id('note_text')} maxlength="${M.LIMITS.note}">${esc(d.note_text)}</textarea>`,true)
  +fg('invoice_id','연결 주문',`<select ${id('invoice_id')}><option value="">없음</option>${d.invoice_id&&!(ctx.invoices||[]).some(i=>i.id===d.invoice_id)?`<option value="${esc(d.invoice_id)}" selected>현재 연결 주문(목록에 없음)</option>`:''}${(ctx.invoices||[]).map(i=>`<option value="${esc(i.id)}"${i.id===d.invoice_id?' selected':''}>${esc(i.no)} ${esc(i.customer||'')}</option>`).join('')}</select>`,true)
  +`</div>`
+ +`<div class="lg-fassto" id="lg-f-fassto">${renderFasstoFields(d.ship_mode_code,ctx.fassto!==undefined?ctx.fassto:(edit?null:{recipient:{},items:[],q:''}),ctx)}</div>`
  +(showOverseas?`<fieldset class="lg-overseas" id="lg-f-overseas"${M.needsOverseas(d)?'':' hidden'}><legend>해외 출고</legend><div class="lg-form-grid">`
   +fg('packing_code','패킹리스트',`<select ${id('packing_code')}>${opt({'':'-',...M.PACKING},d.packing_code||'')}</select>`)
   +fg('etd_on','ETD',`<input type="date" ${id('etd_on')} value="${esc(d.etd_on)}">`)
@@ -571,5 +662,5 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
  return {show,hide,reload,openRequest,takeUrlRequest,state,changeStatus:chooseStatus,openDetail};
 }
 
-return {createApi,kstWeek,summarize,listView,renderKpis,renderTabs,renderList,renderDetail,renderForm,mountTab};
+return {createApi,kstWeek,summarize,listView,renderKpis,renderTabs,renderList,renderDetail,renderForm,renderStockBanner,renderStockResults,renderItems,renderFasstoFields,renderFasstoSection,mountTab};
 });

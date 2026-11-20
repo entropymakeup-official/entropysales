@@ -670,3 +670,42 @@ test('요청자 저장 행에는 담당자 전용 칸이 들어가지 않는다(
  for(const k of F.HANDLER_KEYS)assert.equal(k in sent,false,k);
  assert.equal(sent.name_text,'A');
 });
+
+test('입력 폼: 운송 방식별 받는 곳 칸과 안내, 운송사·Incoterms는 담당자에게만',()=>{
+ const base={invoices:[],groups:G,stock:{sync:SYNC[0],groups:G},nowMs:NOW,fassto:{recipient:{},items:[],q:''}};
+ const parcel=P.renderForm({ship_mode_code:'parcel'},base);
+ assert.ok(parcel.includes('파스토 택배신청 양식으로 만들어요.'));
+ for(const n of ['r_name_text','r_phone_text','r_postal_text','r_address1_text','r_address2_text'])assert.ok(parcel.includes(`name="${n}"`),n);
+ assert.ok(!parcel.includes('name="r_country_code"')&&!parcel.includes('name="r_courier_text"'));
+ assert.ok(parcel.includes('파스토 목록: 11/20 09:05 기준 (상품 2종)'));
+ const ov=P.renderForm({ship_mode_code:'express'},base);
+ for(const n of ['r_email_text','r_country_code','r_state_text','r_city_text','r_district_text','r_tax_id_text','r_currency_code'])assert.ok(ov.includes(`name="${n}"`),n);
+ assert.ok(!ov.includes('name="r_courier_text"')&&ov.includes('운송사·Incoterms·발송인은 물류 담당자가 정해요.'));
+ const ovh=P.renderForm({ship_mode_code:'express'},{...base,isHandler:true});
+ assert.ok(ovh.includes('name="r_courier_text"')&&ovh.includes('name="r_incoterms_code"')&&ovh.includes('name="r_sender_email_text"'));
+ const veh=P.renderForm({ship_mode_code:'direct'},base);
+ assert.ok(veh.includes('파스토 차량배송신청(상품) 양식으로 만들어요.')&&veh.includes('차량배송은 받는 곳 칸이 없어요')&&!veh.includes('name="r_name_text"'));
+ assert.ok(P.renderForm({ship_mode_code:'quick'},base).includes('이 운송 방식은 파스토 양식 없이 처리해요.'));
+ assert.ok(!P.renderForm({ship_mode_code:''},base).includes('lg-hint'));
+ assert.ok(P.renderForm({ship_mode_code:'parcel'},{...base,mode:'edit',fassto:null}).includes('받는 곳·품목을 불러오지 못해 이번에는 고칠 수 없어요.'));
+ const old=P.renderFasstoFields('parcel',{recipient:{},items:[],q:''},{groups:G,stock:{sync:{synced_at:'2026-11-17T00:00:00Z'},groups:G},nowMs:NOW});
+ assert.ok(old.includes('lg-stock warn')&&old.includes('재고 정보가 오래됐어요'));
+ const lines=P.renderItems([{product_code:'0012345',product_name_text:'가짜 립',qty:200,lot_text:'L2'}],{form:'overseas',groups:G});
+ assert.ok(lines.includes('name="item_qty_0"')&&lines.includes('name="item_unit_price_0"')&&lines.includes('<option value="L2" selected>'));
+ assert.ok(lines.includes('출고 가능 30개보다 많아요.'));
+ assert.ok(P.renderItems([{product_code:'ZZ',qty:1}],{form:'parcel',groups:G}).includes('파스토 목록에 없는 상품이에요.'));
+});
+
+test('상세 렌더링: 받는 곳은 요청자·담당자만, 입력 안 됨과 볼 수 없음을 나누고, 내려받기 버튼과 빠진 칸 목록',()=>{
+ const r=R('r1',{ship_mode_code:'parcel',fassto_order_no:'LG20261120_001'});
+ const fx={loaded:true,loading:false,recipient:null,items:[{product_code:'ZZ',product_name_text:'없는 상품',qty:1,lot_text:''}],error:''};
+ const other=P.renderDetail(r,{email:'other@entropymakeup.com',isHandler:false,nowMs:NOW,fassto:{...fx,recipient:null},groups:G});
+ assert.ok(other.includes('요청자와 물류 담당자만 볼 수 있어요.')&&!other.includes('data-act="fassto-download"'));
+ const owner=P.renderDetail(r,{email:'req@entropymakeup.com',isHandler:false,nowMs:NOW,fassto:fx,groups:G});
+ assert.ok(owner.includes('입력 안 됨')&&owner.includes('data-act="fassto-download"')&&owner.includes('주문번호 LG20261120_001'));
+ assert.ok(owner.includes('파스토 목록에 없는 상품이에요.'));
+ const full=P.renderDetail({...r,ship_mode_code:'express'},{email:'h@x',isHandler:true,nowMs:NOW,groups:G,fassto:{...fx,recipient:{name_text:'<b>Buyer</b>',country_code:'CH',courier_text:''}},fasstoErrors:['받는 곳: 전화 칸이 비어 있어요.']});
+ assert.ok(full.includes('&lt;b&gt;Buyer&lt;/b&gt;')&&full.includes('담당자가 정해요')&&full.includes('ENTROPY (Brand Genome Co., Ltd.)'));
+ assert.match(full,/내려받지 않았어요\. 아래 칸을 채워 주세요\.<\/p><ul><li>받는 곳: 전화 칸이 비어 있어요\.<\/li>/);
+ assert.equal(P.renderDetail(R('q1'),{email:'req@entropymakeup.com',nowMs:NOW,fassto:{loaded:true,items:[]}}).includes('파스토 양식'),false); // 퀵은 칸 자체가 없다
+});
