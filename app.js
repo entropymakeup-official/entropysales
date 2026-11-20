@@ -178,6 +178,7 @@ function resetApplicationData(){
   // 로그아웃·계정 전환 시 이전 계정의 조회 결과와 진행 중인 로드를 무효화
   _loadAllGeneration++;
   _loadAllPromise=null;
+  if(typeof goStartPage==='function')goStartPage.done=false;
   resetDashboardTaxLedger();
   resetDashboardConsignment();
   _customers=[];_products=[];_invoices=[];_items=[];_stocks=[];_docs=[];_schedules=[];_taxRecords=[];
@@ -279,7 +280,10 @@ let _contractCustomer='';
 function renderContracts(){globalThis.contractRegister?.show(_contractCustomer);_contractCustomer='';}
 function openCustomerContracts(id){_contractCustomer=id;cm('m-cust');go('contracts');}
 // 로그인 후 첫 화면. 슬랙 물류 알림 링크(logistics.html → index.html?logistics=<id>)로 왔으면 물류 요청 탭과 그 요청을 연다.
+// 세션 확인(초기화)과 로그인 이벤트가 둘 다 앱을 띄울 수 있어 두 번 불릴 수 있다. 두 번째가 대시보드로 되돌리지 않게 한 번만 한다.
 function goStartPage(){
+  if(goStartPage.done)return;
+  goStartPage.done=true;
   const id=globalThis.logistics?.takeUrlRequest?.();
   if(id==null){go('dash');return;}
   go('logistics');

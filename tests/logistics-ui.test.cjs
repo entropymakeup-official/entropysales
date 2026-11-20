@@ -507,6 +507,18 @@ test('대시보드: 첫 화면은 주소에 logistics가 있으면 물류 요청
  assert.deepEqual(run('r1'),['go:logistics','open:r1']);
 });
 
+test('대시보드: 첫 화면 처리는 두 번 불려도 한 번만 한다 (세션 확인과 로그인 이벤트가 겹칠 때)',()=>{
+ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+ const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
+ const start=app.indexOf('function goStartPage(){'),end=app.indexOf('\n}\n',start)+3;
+ const log=[];let ids=['r1',null];
+ const c={go:p=>log.push('go:'+p),globalThis:{logistics:{takeUrlRequest:()=>ids.shift(),openRequest:x=>log.push('open:'+x)}}};
+ vm.createContext(c);vm.runInContext(app.slice(start,end)+';goStartPage();goStartPage();',c);
+ assert.deepEqual(log,['go:logistics','open:r1']);
+ // 로그아웃하면 다음 로그인에서 다시 첫 화면을 정한다
+ assert.match(app,/function resetApplicationData\(\)\{[^}]*goStartPage\.done=false/);
+});
+
 test('logistics.html은 슬랙 링크의 id를 대시보드 탭 주소로 넘긴다',()=>{
  const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
  const html=fs.readFileSync(path.join(__dirname,'../logistics.html'),'utf8');
