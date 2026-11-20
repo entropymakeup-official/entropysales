@@ -898,4 +898,10 @@ test('운영 문서: 설치 순서에 파스토 SQL, 목록 갱신 절차와 예
  assert.ok(routine.includes('평일 08:30 KST')&&routine.includes('비밀번호·인증번호는 입력하지 않는다'));
  const dev=fs.readFileSync(path.join(__dirname,'../DEVELOPMENT.md'),'utf8');
  assert.ok(dev.includes('sql/logistics-slack.sql → sql/logistics-fassto.sql'));
+ const iPre=routine.indexOf('select row_count from public.logistics_fassto_sync'),iRun=routine.indexOf('select 문 하나만 실행');
+ assert.ok(iPre>0&&iRun>iPre); // 비우기 전에 지난 row_count를 읽는다
+ assert.ok(routine.includes('아무것도 실행하지 않고')&&routine.includes('npm ci')&&routine.includes('상품 M종'));
+ assert.ok(!routine.includes('count(distinct')); // M은 변환기 요약에서 가져온다
+ assert.ok(doc.split("(사용자 승인 후)").length-1>=3);
+ assert.ok(doc.indexOf('select row_count from public.logistics_fassto_sync')<doc.indexOf('select 문 하나만'));
 });

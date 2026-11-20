@@ -38,9 +38,9 @@ update public.logistics_handlers set mention_on_new = false where email = 'name@
 update public.logistics_handlers set is_active = false where email = 'name@entropymakeup.com';
 ```
 
-6. 첫 파스토 목록 갱신(아래 "파스토 목록 갱신" 절차)
-7. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, fassto-forms.js, logistics.css, logistics.html(이동 페이지). 바꾼 파일은 index.html의 버전 쿼리도 함께 올립니다.
-8. 예약 작업 등록(평일 08:30 KST, 지시문은 `tools/fassto-sync-routine.txt`)
+6. 첫 파스토 목록 갱신 (사용자 승인 후): 아래 "파스토 목록 갱신" 절차
+7. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, fassto-forms.js, logistics.css, logistics.html(이동 페이지). 바꾼 파일은 index.html의 버전 쿼리도 함께 올립니다. (사용자 승인 후)
+8. 예약 작업 등록(평일 08:30 KST, 지시문은 `tools/fassto-sync-routine.txt`) (사용자 승인 후)
 
 ## 파스토 양식 (2026-11-20)
 
@@ -65,17 +65,24 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
    node tools/fassto-stock-json.cjs "<내려받은 파일>" --sql > "<스크래치 폴더>/fassto-stock.sql"
    ```
 
-   필수 열을 못 찾으면 찾은 제목을 보여 주고 멈춥니다. 그때는 `tools/fassto-stock-json.cjs`의 `ALIASES`에 FMS 열 이름을 더하고 `tests/fassto-stock-json.test.cjs`를 맞춘 뒤 다시 합니다. 로트 행이 지난번 `row_count`의 절반보다 적으면 실행하지 말고 사용자에게 확인합니다.
+   필수 열을 못 찾으면 찾은 제목을 보여 주고 멈춥니다. 그때는 `tools/fassto-stock-json.cjs`의 `ALIASES`에 FMS 열 이름을 더하고 `tests/fassto-stock-json.test.cjs`를 맞춘 뒤 다시 합니다.
    변환기는 상품코드·바코드 칸이 숫자인 파일(문자로 내보내야 합니다)과 수량·날짜가 잘못된 파일을 거부합니다. 거부하면 아무것도 바꾸지 말고 그 문구를 사용자에게 알립니다.
-3. 운영 Supabase(SQL 편집기 또는 Supabase MCP `execute_sql`)에서 그 파일의 select 문 하나만 postgres 권한으로 실행합니다. 돌려준 숫자가 넣은 로트 행 수입니다. 이 함수는 anon·authenticated에는 실행 권한이 없습니다.
-4. 확인합니다.
+3. 실행 전 확인(비우기 전에 합니다). 운영 Supabase에서 지난번 행 수를 읽습니다.
+
+   ```sql
+   select row_count from public.logistics_fassto_sync order by synced_at desc limit 1;
+   ```
+
+   변환기가 화면에 낸 "로트 행 N개"의 N이 지난번 `row_count`의 절반보다 적으면 아무것도 실행하지 않고 두 숫자를 사용자에게 알린 채 끝냅니다(이 함수는 실행하면 기존 목록을 먼저 비웁니다). 지난 행이 없는 첫 갱신은 이 확인을 건너뜁니다.
+4. 운영 Supabase(SQL 편집기 또는 Supabase MCP `execute_sql`)에서 그 파일의 select 문 하나만 postgres 권한으로 실행합니다. 돌려준 숫자가 넣은 로트 행 수입니다. 이 함수는 anon·authenticated에는 실행 권한이 없습니다.
+5. 확인합니다.
 
    ```sql
    select synced_at, source_text, row_count from public.logistics_fassto_sync order by synced_at desc limit 1;
    select count(*) as lots, count(distinct product_code) as products from public.logistics_fassto_stock;
    ```
 
-5. 내려받은 엑셀과 SQL 파일은 저장소에 넣지 않고 지웁니다.
+6. 내려받은 엑셀과 SQL 파일은 저장소에 넣지 않고 지웁니다.
 
 예약 작업(평일 08:30 KST)은 `tools/fassto-sync-routine.txt`의 지시문을 그대로 씁니다. 나중에 파스토 API를 받으면 같은 함수를 Edge Function이나 pg_cron이 `'fassto-api'`로 부르게 바꿉니다. 표와 화면은 그대로입니다.
 
