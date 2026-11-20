@@ -518,3 +518,98 @@ test('logistics.html은 슬랙 링크의 id를 대시보드 탭 주소로 넘긴
  assert.deepEqual(go('?id=a&b'),['index.html?logistics=a']);
  assert.ok(html.includes('href="index.html?logistics=1"'));
 });
+
+// ── 리뷰 반영 ──
+test('mountTab: 검사·저장이 실패해도 상태·결과 입력 칸과 쓰던 댓글을 지우지 않는다',async()=>{
+ const t=setup({rows:[R('r1',{status_code:'preparing'})],onUpdate:()=>({data:null,error:{message:'network down'}})});
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{to:'shipped'});
+ await submit(t.d,{result_text:'CJ 9999',shipped_on:''},'status');
+ assert.match(t.d.els['lg-detail'].innerHTML,/출고일을 골라 주세요/);
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('>CJ 9999</textarea>'));
+ await submit(t.d,{result_text:'CJ 9999',shipped_on:'2026-11-19'},'status');
+ assert.equal(t.updates.length,1);
+ assert.match(t.d.els['lg-detail'].innerHTML,/network down/);
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('>CJ 9999</textarea>')&&t.d.els['lg-detail'].innerHTML.includes('name="shipped_on" value="2026-11-19"'));
+ click(t.d,{act:'edit-result'});
+ await submit(t.d,{result_text:'BL 7',quick_fee_krw:'만원'},'result');
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('>BL 7</textarea>')&&t.d.els['lg-detail'].innerHTML.includes('value="만원"'));
+ t.d.els['lg-comment-body'].value='쓰는 중인 댓글';
+ await t.page.openDetail('r1',{keep:true}); // 댓글을 다시 불러와 다시 그려도
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('value="쓰는 중인 댓글"'));
+});
+
+test('mountTab: 저장하는 동안 Esc로 상세·입력 창이 닫히지 않고, 새 요청 첨부는 미리 읽어 둔다',async()=>{
+ let release;const rows=[R('r1')];
+ const t=setup({rows,onUpdate:()=>new Promise(r=>{release=()=>r({data:[{id:'r1'}],error:null});})});
+ await t.page.show();await t.page.openDetail('r1');
+ const p=t.page.changeStatus('accepted');await new Promise(r=>setImmediate(r));
+ t.d.els['lg-detail'].oncancel({preventDefault(){}});
+ click(t.d,{act:'close-detail'});
+ assert.equal(t.d.els['lg-detail'].open,true);assert.equal(t.page.state.selected,'r1');
+ release();await p;
+ t.d.els['lg-detail'].oncancel({preventDefault(){}});
+ assert.equal(t.d.els['lg-detail'].open,false); // 저장이 끝나면 Esc로 닫힌다
+ let finishCreate;const uploaded=[];
+ const c=setup({rows:[],handler:q=>{
+  if(q.table==='logistics_requests'&&q.ops[0][0]==='insert')return new Promise(r=>{finishCreate=()=>r({data:{id:'n1'},error:null});});
+  if(q.table==='storage:logistics-docs'&&q.ops[0][0]==='upload'){uploaded.push(q.ops[0][1]);return {data:{},error:null};}
+  if(q.table==='logistics_request_files'&&q.ops[0][0]==='insert')return {data:{id:'f1'},error:null};
+  return null;}});
+ await c.page.show();click(c.d,{act:'new'});
+ c.d.document.getElementById('lg-f-files').files=[{name:'a.xlsx',size:3}];
+ const s=submit(c.d,{type_code:'quick',title_text:'퀵',team_code:'global',counterparty_text:'x',want_date:'',ship_mode_code:'quick'},'create');
+ await new Promise(r=>setImmediate(r));
+ c.d.els['lg-form'].oncancel({preventDefault(){}});
+ assert.equal(c.d.els['lg-form'].open,true);
+ c.d.els['lg-f-files'].files=[]; // 기다리는 동안 입력이 바뀌어도
+ finishCreate();await s;
+ assert.equal(uploaded.length,1);assert.match(uploaded[0],/a\.xlsx$/);
+});
+
+test('mountTab: 숨기면 상단 물류 버튼을 지우고, 숨긴 뒤 누른 새 요청은 폼 상태를 남기지 않는다',async()=>{
+ const t=setup({rows:[R('r1')]});
+ await t.page.show();
+ const newBtn=t.d.els['lg-new'].onclick;
+ t.page.hide();
+ assert.equal(t.d.els['topbar-actions'].innerHTML,'');
+ newBtn();assert.equal(t.page.state.form,null);
+ t.d.els['topbar-actions'].innerHTML='<button id="other">다른 화면</button>';
+ t.page.hide(); // 이미 숨김: 다른 화면 버튼은 건드리지 않는다
+ assert.ok(t.d.els['topbar-actions'].innerHTML.includes('other'));
+ await t.page.show();await t.page.openDetail('r1');
+ t.d.els['lg-detail'].oncancel({preventDefault(){}});
+ assert.equal(t.d.els['lg-detail'].open,false); // 돌아와서도 Esc로 상세가 닫힌다
+});
+
+test('mountTab: 연결 주문을 못 불러와도 요약 수정이 invoice_id를 지우지 않는다',async()=>{
+ const t=setup({rows:[R('r1',{status_code:'accepted',invoice_id:'inv-old'})],handler:q=>q.table==='invoices'&&q.ops.some(o=>o[0]==='eq')?{data:null,error:{message:'timeout'}}:null});
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{act:'edit-summary'});
+ assert.ok(t.d.els['lg-form'].innerHTML.includes('<option value="inv-old" selected>현재 연결 주문(목록에 없음)</option>'));
+ await submit(t.d,{type_code:'quick',title_text:'제목만 수정',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'quick',qty_summary_text:'',note_text:'',invoice_id:'inv-old'},'edit');
+ assert.equal(t.updates[0].ops[0][1].invoice_id,'inv-old');
+ assert.ok(!P.renderForm({invoice_id:'i1'},{invoices:[{id:'i1',no:'N1'}],mode:'edit'}).includes('목록에 없음'));
+});
+
+test('mountTab: STALE이면 최신 행을 다시 불러와 창을 새로 그리고, 문구를 남긴 채 다시 시도할 수 있다',async()=>{
+ const rows=[R('r1')];let n=0;
+ const t=setup({rows,onUpdate:()=>{n++;if(n===1){rows[0]={...rows[0],status_code:'accepted'};return {data:[],error:null};}return {data:[{id:'r1'}],error:null};}});
+ await t.page.show();await t.page.openDetail('r1');
+ await t.page.changeStatus('accepted');
+ const html=t.d.els['lg-detail'].innerHTML;
+ assert.match(html,/다른 사람이 먼저 바꿨어요\. 최신 내용을 다시 불러왔으니/);
+ assert.ok(html.includes('st-accepted')&&html.includes('data-to="preparing"')&&!html.includes('data-to="accepted"'));
+ assert.equal(t.d.els['lg-detail'].open,true);
+ await t.page.changeStatus('preparing');
+ assert.deepEqual(t.updates[1].ops.filter(o=>o[0]==='eq'),[['eq','id','r1'],['eq','status_code','accepted']]);
+ // 요약 수정 STALE: 폼은 열린 채 문구를 보여 주고, 다시 저장하면 최신 상태 조건으로 보낸다
+ const rows2=[R('r2',{status_code:'accepted'})];let m=0;
+ const e=setup({rows:rows2,onUpdate:()=>{m++;if(m===1){rows2[0]={...rows2[0],status_code:'preparing'};return {data:[],error:null};}return {data:[{id:'r2'}],error:null};}});
+ await e.page.show();await e.page.openDetail('r2');click(e.d,{act:'edit-summary'});
+ const vals={type_code:'quick',title_text:'t',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'quick',qty_summary_text:'',note_text:'',invoice_id:''};
+ await submit(e.d,vals,'edit');
+ assert.match(e.d.els['lg-form-error'].textContent,/다른 사람이 먼저 바꿨어요/);assert.equal(e.d.els['lg-form'].open,true);
+ await submit(e.d,vals,'edit');
+ assert.deepEqual(e.updates[1].ops.filter(o=>o[0]==='eq'),[['eq','id','r2'],['eq','status_code','preparing']]);
+});
