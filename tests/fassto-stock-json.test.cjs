@@ -56,3 +56,49 @@ test('날짜 표기와 SQL 문',()=>{
  assert.throws(()=>T.toSql([{product_code:'$fassto$'}]),/\$fassto\$/);
  assert.throws(()=>T.toSql([],'manual'),/source/);
 });
+
+// ---- 검사 강화(Fix round 1) ----
+const os=require('node:os'),path=require('node:path'),fs=require('node:fs'),{spawnSync}=require('node:child_process');
+const HEAD=['상품코드','상품바코드','상품명','상품구분','LOT번호','유통기한','출고 가능 수량'];
+function wbOf(rowsAfterHead){
+ const ws=XLSX.utils.aoa_to_sheet([HEAD,...rowsAfterHead]);
+ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'S');
+ return XLSX.read(XLSX.write(wb,{type:'buffer',bookType:'xlsx'}),{type:'buffer'});
+}
+const okRow=['0012345','8800000000001','가짜 립','본품','L1','2028-01-31','5'];
+
+test('숫자 칸 상품코드·바코드는 멈춘다(과학 표기로 깨짐), 문자 칸 앞자리 0은 유지',()=>{
+ assert.throws(()=>T.parseWorkbook(wbOf([[2553620331724,'','가짜','본품','L','2028-01-31','1']])),/상품코드.*2행.*문자/s);
+ assert.throws(()=>T.parseWorkbook(wbOf([['0012345',8800000000001,'가짜','본품','L','2028-01-31','1']])),/바코드.*2행.*문자/s);
+ assert.throws(()=>T.parseWorkbook(wbOf([['2.55362E+12','','가짜','본품','L','2028-01-31','1']])),/상품코드.*2행/s);
+ const {rows}=T.parseWorkbook(wbOf([okRow]));
+ assert.equal(rows[0].product_code,'0012345');
+});
+
+test('assertClean: 수량·유통기한이 잘못된 행이 있으면 던진다',()=>{
+ const bad=r=>()=>T.assertClean(T.parseWorkbook(wbOf([r])));
+ assert.doesNotThrow(bad(okRow));
+ assert.throws(bad([...okRow.slice(0,6),'abc']),/수량.*행: 2/s);
+ assert.throws(bad([...okRow.slice(0,6),'-5']),/수량.*행: 2/s);
+ assert.throws(bad([...okRow.slice(0,6),'']),/수량.*행: 2/s);
+ assert.throws(bad([...okRow.slice(0,5),'2028-13-45','5']),/유통기한.*행: 2/s);
+ assert.throws(bad([...okRow.slice(0,5),'언젠가','5']),/유통기한.*행: 2/s);
+});
+
+test('달력에 없는 날짜는 null',()=>{
+ assert.deepEqual(['2028-13-45','2027-02-29','2028-02-29','20281301','13/45/28'].map(T.normalizeDate),[null,null,'2028-02-29',null,null]);
+});
+
+test('CLI: 잘못된 파일은 SQL 없이 non-zero, --sql을 앞에 써도 파일로 읽지 않는다',()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fassto-'));
+ const cli=path.join(__dirname,'..','tools','fassto-stock-json.cjs');
+ const write=(n,r)=>{const p=path.join(dir,n);fs.writeFileSync(p,XLSX.write(wbOf(r),{type:'buffer',bookType:'xlsx'}));return p;};
+ const good=write('good.xlsx',[okRow]);
+ const g=spawnSync(process.execPath,[cli,'--sql',good],{encoding:'utf8'});
+ assert.equal(g.status,0);assert.match(g.stdout,/^select approval_private\.logistics_replace_fassto_stock/);
+ for(const [n,r] of [['num.xlsx',[[2553620331724,'','가짜','본품','L','2028-01-31','1']]],['qty.xlsx',[[...okRow.slice(0,6),'abc']]],['neg.xlsx',[[...okRow.slice(0,6),'-5']]],['date.xlsx',[[...okRow.slice(0,5),'2028-13-45','5']]],['unread.xlsx',[[...okRow.slice(0,5),'언젠가','5']]]]){
+  const x=spawnSync(process.execPath,[cli,'--sql',write(n,r)],{encoding:'utf8'});
+  assert.notEqual(x.status,0,n);assert.equal(x.stdout,'',n);
+ }
+ fs.rmSync(dir,{recursive:true,force:true});
+});
