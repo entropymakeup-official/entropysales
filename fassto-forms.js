@@ -66,6 +66,7 @@ function validate(form,request,recipient,items,defaults=SENDER){
   const n=i+1;
   if(!s(it.product_code))e.push(`${n}번째 품목의 상품코드가 없어요.`);
   if(!(Number.isInteger(Number(it.qty))&&Number(it.qty)>=1))e.push(`${n}번째 품목의 수량을 1 이상으로 적어 주세요.`);
+  if(form!=='overseas'&&s(it.lot_text)&&!it.expires_on)e.push(`${n}번째 품목의 로트에 유통기한이 없어요. 파스토 목록을 갱신하거나 로트 지정을 빼 주세요.`);
   if(form==='overseas'){
    if(blank(it.unit_price)||!(Number(it.unit_price)>0))e.push(`${n}번째 품목의 단가를 적어 주세요.`);
    if(!blank(it.weight_kg)&&!(Number(it.weight_kg)>0))e.push(`${n}번째 품목의 무게는 0보다 커야 해요.`);

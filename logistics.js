@@ -590,7 +590,7 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
    closeForm();state.detailNote='요약을 저장했어요.';say(state.detailNote);await reload();
   }
   catch(e){
-   if(summarySaved){formError('요약은 저장했지만 받는 곳·품목은 저장하지 못했어요. 다시 저장해 주세요. ('+M.errorMessage(e)+')');return;}
+   if(summarySaved){await reload();formError('요약은 저장했지만 받는 곳·품목은 저장하지 못했어요. 다시 저장해 주세요. ('+M.errorMessage(e)+')');return;} // 목록·상세는 저장된 요약으로 새로 그리고, 창과 입력은 그대로 둔다
    if(!isStale(e)){formError(M.errorMessage(e));return;}
    formError(STALE_TEXT);await reload();
    const fresh=state.data.requests.find(x=>x.id===t.id);

@@ -53,7 +53,7 @@ FMS '상품별재고현황'의 로트별 행. 갱신할 때 전체를 지우고 
 
 갱신 기록 `logistics_fassto_sync`(한 행 이상, 최신만 사용): synced_at, source_text('fms-browser' 또는 나중에 'fassto-api'), row_count, note_text.
 
-읽기: 회사 구성원. 쓰기: 서버 함수 `approval_private.logistics_replace_fassto_stock(rows jsonb, source text)`만. 이 함수는 SQL 편집기·Claude(서비스 역할)에서만 실행하고 anon·authenticated에는 실행 권한을 주지 않는다.
+읽기: 회사 구성원. 쓰기: 서버 함수 `approval_private.logistics_replace_fassto_stock(rows jsonb, source text)`만. 이 함수는 SQL 편집기·postgres(SQL 편집기·Supabase MCP)에서만 실행하고 anon·authenticated에는 실행 권한을 주지 않는다.
 
 ### 3.2 받는 곳 `logistics_request_recipients` (요청당 0~1행)
 

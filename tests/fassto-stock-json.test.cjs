@@ -102,3 +102,20 @@ test('CLI: 잘못된 파일은 SQL 없이 non-zero, --sql을 앞에 써도 파�
  }
  fs.rmSync(dir,{recursive:true,force:true});
 });
+
+test('실제 FMS 파일의 맨 끝 총합계 줄(숫자 칸 199, 상품명 없음)은 숫자 칸 검사 전에 건너뛴다',()=>{
+ const ws=XLSX.utils.aoa_to_sheet([
+  ['상품코드','상품바코드','상품명','상품구분','LOT번호','유통기한','출고가능수량'],
+  ['0012345','8800000000001','가짜 립','본품','L1','2028-01-31','1,200'],
+  ['가짜 립 - 1 건','','','','','',''],
+  [199,'','','','','',1423477]]);
+ ws.A4.z='#,##0" 건"';ws.G4.z='#,##0';
+ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'s');
+ const res=T.parseWorkbook(wb);
+ assert.equal(res.rows.length,1);
+ assert.equal(res.rows[0].product_code,'0012345');
+ assert.deepEqual(res.skipped,[3,4]);
+ assert.doesNotThrow(()=>T.assertClean(res));
+ // 상품명이 있는 진짜 데이터 행의 숫자 코드는 여전히 막는다
+ assert.throws(()=>T.parseWorkbook(wbOf([[199,'','가짜','본품','L','2028-01-31','1']])),/상품코드.*2행/s);
+});

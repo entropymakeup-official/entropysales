@@ -116,3 +116,12 @@ test('저장 변환: 받는 곳 담당자 칸은 담당자만, 품목은 숫자�
   ['1번째 품목의 수량을 1 이상의 정수로 적어 주세요.','1번째 품목의 단가는 숫자로 적어 주세요.','1번째 품목의 무게는 0보다 큰 숫자로 적어 주세요.','국가코드는 영문 두 글자로 적어 주세요(예 CH).','화폐는 USD·JPY·EUR 중에서 골라 주세요.']);
  assert.deepEqual(F.checkInput('vehicle',{},Array.from({length:51},()=>({qty:1}))),['품목은 50줄까지 넣을 수 있어요.']);
 });
+
+test('검사: 로트를 골랐는데 유통기한이 없으면 택배·차량은 막고, 해외는 로트 칸이 없어 막지 않는다',()=>{
+ const noExp=[{product_code:'0099',qty:2,lot_text:'L2',expires_on:null,unit_price:7}];
+ const msg='1번째 품목의 로트에 유통기한이 없어요. 파스토 목록을 갱신하거나 로트 지정을 빼 주세요.';
+ assert.deepEqual(F.validate('parcel',req,parcelTo,noExp),[msg]);
+ assert.deepEqual(F.validate('vehicle',req,null,noExp),[msg]);
+ assert.deepEqual(F.validate('overseas',req,overseasTo,noExp),[]);
+ assert.deepEqual(F.validate('parcel',req,parcelTo,[{product_code:'0099',qty:2,lot_text:'',expires_on:null}]),[]);
+});

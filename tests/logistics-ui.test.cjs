@@ -905,3 +905,22 @@ test('운영 문서: 설치 순서에 파스토 SQL, 목록 갱신 절차와 예
  assert.ok(doc.split("(사용자 승인 후)").length-1>=3);
  assert.ok(doc.indexOf('select row_count from public.logistics_fassto_sync')<doc.indexOf('select 문 하나만'));
 });
+
+test('mountTab: 요약은 저장됐는데 받는 곳·품목 저장이 실패하면 목록과 상세를 다시 불러오고, 창과 입력·오류는 그대로 둔다',async()=>{
+ const rows=[R('r1',{ship_mode_code:'express',requester_email:'req@entropymakeup.com'})];
+ const rec={request_id:'r1',name_text:'Buyer',country_code:'CH',currency_code:'USD',courier_text:'',incoterms_code:'',sender_name_text:'',sender_phone_text:'',sender_address_text:'',sender_email_text:''};
+ const t=setup({rows,email:'req@entropymakeup.com',
+  onUpdate:q=>{Object.assign(rows[0],q.ops[0][1]);return {data:[rows[0]],error:null};},
+  handler:q=>{const s=stockHandler(q);if(s)return s;
+   if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert')return {data:null,error:{message:'LOGISTICS_FORBIDDEN'}};
+   if(q.table==='logistics_request_recipients')return {data:[rec],error:null};
+   if(q.table==='logistics_request_items')return {data:[{product_code:'0012345',product_name_text:'가짜 립',qty:2,lot_text:'',unit_price:10,line_no:1}],error:null};
+   return null;}});
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{act:'edit-summary'});
+ await submit(t.d,{type_code:'quick',title_text:'새 제목 r1',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'express',qty_summary_text:'',note_text:'',invoice_id:'',r_name_text:'New Buyer',item_qty_0:'3',item_unit_price_0:'10'},'edit');
+ assert.match(t.d.els['lg-form-error'].textContent,/요약은 저장했지만 받는 곳·품목은 저장하지 못했어요/);
+ assert.ok(t.d.els['lg-list'].innerHTML.includes('새 제목 r1')); // 지난 요약이 아니라 저장된 요약
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('새 제목 r1'));
+ assert.ok(t.page.state.editTarget&&t.page.state.form); // 창과 입력은 그대로(닫지 않음)
+});

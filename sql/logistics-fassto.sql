@@ -24,7 +24,7 @@ create table if not exists public.logistics_fassto_sync (
 );
 create index if not exists logistics_fassto_sync_at_idx on public.logistics_fassto_sync(synced_at desc);
 
--- 전체를 지우고 새로 넣는다(한 트랜잭션). SQL 편집기·서비스 역할만 실행한다. 상품코드는 JSON 문자열만 받는다(앞자리 0 유지).
+-- 전체를 지우고 새로 넣는다(한 트랜잭션). postgres(SQL 편집기·Supabase MCP execute_sql)만 실행한다. 서비스 역할도 실행할 수 없다. 상품코드는 JSON 문자열만 받는다(앞자리 0 유지).
 create or replace function approval_private.logistics_replace_fassto_stock(rows jsonb, source text) returns integer
 language plpgsql security definer set search_path='' as $$
 declare p_rows jsonb := $1; p_source text := $2; n integer;

@@ -48,7 +48,7 @@ function parseStockRows(aoa,rawAoa){
  rows.slice(h+1).forEach((r,k)=>{
   const at=key=>col[key]==null?'':String((r||[])[col[key]]??'').trim();
   const code=at('product_code');
-  if(!code||norm(code)==='상품코드'||(r||[]).some(c=>TOTAL.test(norm(c)))){if((r||[]).some(c=>norm(c)))skipped.push(h+2+k);return;}
+  if(!code||!at('product_name')||norm(code)==='상품코드'||(r||[]).some(c=>TOTAL.test(norm(c)))){if((r||[]).some(c=>norm(c)))skipped.push(h+2+k);return;}
   const rawRow=(rawAoa&&rawAoa[h+1+k])||[];
   for(const key of ['product_code','barcode']){
    if(col[key]==null)continue;
