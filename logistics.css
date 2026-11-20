@@ -1,36 +1,81 @@
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2433;--muted:#6b7280;--line:#e5e7eb;--accent:#2f5bea;--late:#c62828;--warn:#b45309;--ok:#15803d;color-scheme:light dark}
-@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1f26;--ink:#e6e9ef;--muted:#9aa3b2;--line:#2a313b;--accent:#7b9bff;--late:#ff6b6b;--warn:#f5a524;--ok:#4ade80}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
-.lg-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--card)}
-.lg-head h1{font-size:18px;margin:0}.lg-head a{margin-left:auto;color:var(--accent)}
-#lg-message{margin:8px 16px;min-height:1.5em;color:var(--warn)}
-#lg-login,#lg-app{padding:0 16px 16px}
-.lg-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-#lg-tabs button{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:6px 10px;border-radius:6px;cursor:pointer}
-#lg-search{flex:1;min-width:160px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
-.lg-btn{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
-.lg-btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
-.lg-btn:disabled{opacity:.5;cursor:default}
-.lg-cols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:12px}
-@media (max-width:900px){.lg-cols{grid-template-columns:minmax(0,1fr)}}
-.lg-table{width:100%;border-collapse:collapse;background:var(--card)}
-.lg-table th,.lg-table td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-.lg-row{cursor:pointer}.lg-row:hover{background:var(--bg)}
-.lg-row.late td:nth-child(5),.lg-late{color:var(--late)}
-.lg-st{display:inline-block;padding:1px 6px;border-radius:10px;font-size:12px;border:1px solid var(--line)}
-.st-shipped{color:var(--ok)}.st-on_hold{color:var(--warn)}.st-canceled{color:var(--muted);text-decoration:line-through}
-.lg-warn{color:var(--warn);font-size:12px}
-.lg-detail{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
-.lg-detail h2{font-size:16px;margin:0 0 8px}.lg-detail h3{font-size:13px;margin:12px 0 4px;color:var(--muted)}
-.lg-f{display:flex;gap:8px;padding:2px 0}.lg-f span{width:120px;color:var(--muted);flex-shrink:0}.lg-f b{font-weight:500;white-space:pre-wrap;word-break:break-word}
-.lg-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
-.lg-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px}
-.lg-form label{display:flex;flex-direction:column;gap:4px}.lg-form textarea{min-height:60px}
-.lg-form input,.lg-form select,.lg-form textarea{padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
-.lg-form fieldset{grid-column:1/-1;border:1px dashed var(--line);border-radius:6px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
-.lg-error{grid-column:1/-1;color:var(--late);margin:0}
-.lg-empty{color:var(--muted);padding:16px}
-#lg-list{overflow-x:auto}
-#lg-me{overflow-wrap:anywhere}
-#lg-tabs button[aria-selected="true"]{background:var(--accent);color:#fff}
+/* 영업 대시보드 물류 요청 탭. style.css의 색·간격 변수와 .kpi/.card/.btn/.badge/.tab/.fg를 그대로 쓰고 여기서는 배치만 정한다. */
+.lg{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-width:0}
+.lg .kpi-grid.lg-kpis{grid-template-columns:repeat(4,minmax(0,1fr))!important;margin-bottom:0}
+.lg-kpi{display:block;width:100%;min-width:0;text-align:left;border:1px solid transparent;font:inherit;color:var(--text);cursor:pointer}
+.lg-kpi span{display:block}
+.lg-kpi:hover{border-color:var(--border2)}
+.lg-kpi:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+.lg-kpi.on{background:var(--purple-light);border-color:var(--purple)}
+.lg-kpi.warn .val{color:var(--red)}
+.lg-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;justify-content:space-between}
+.lg .lg-tabs{margin-bottom:0;flex:1 1 auto;min-width:0}
+.lg-tabs .tab{border:0;border-bottom:2px solid transparent;background:none;font-family:inherit}
+.lg-tabs .tab.active{border-bottom-color:var(--purple)}
+.lg-count{font-size:10px;color:var(--text3);font-weight:400;font-variant-numeric:tabular-nums}
+.lg-search{flex:0 1 240px;min-width:0;padding:5px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);font:inherit;font-size:11px;background:var(--bg2);color:var(--text)}
+.lg .card{margin-bottom:0}
+.lg-table td{vertical-align:top}
+.lg-row{cursor:pointer}
+.lg-nowrap{white-space:nowrap}
+.lg-title-cell{min-width:160px}
+.lg-late,.lg-f.lg-late dd{color:var(--red);font-weight:600}
+.lg-link{border:0;background:none;padding:0;font:inherit;color:var(--text);text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.lg-link:hover{color:var(--purple);text-decoration:underline}
+.lg-table .lg-link{font-weight:500}
+.lg-muted{color:var(--text3);font-size:11px}
+.lg-empty{display:grid;justify-items:center;gap:10px;padding:28px 16px;text-align:center;color:var(--text2);font-size:12px}
+.lg-error{color:var(--red);font-size:12px;margin:0}
+.lg-error:empty{display:none}
+.lg-note{background:var(--green-light);color:var(--green);border-radius:var(--radius);padding:6px 10px;font-size:12px;margin:0}
+.lg-warn{vertical-align:middle}
+.lg-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* 상세·입력 창 */
+.lg-dialog{margin:auto;border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:16px;width:min(720px,calc(100vw - 16px));max-height:calc(100vh - 32px);overflow-y:auto;background:var(--bg2);color:var(--text);font-size:12px}
+.lg-dialog::backdrop{background:rgb(0 0 0 / .35)}
+.lg-dialog>*+*,.lg-dialog form>*+*{margin-top:12px}
+.lg-dh{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.lg-dh h2{font-size:15px;margin:0;overflow-wrap:anywhere}
+.lg-kicker{font-size:11px;color:var(--text2);margin:0 0 2px}
+.lg-status{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.lg-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 16px;margin:0}
+.lg-f{min-width:0}
+.lg-f dt{font-size:10px;color:var(--text2);font-weight:500;margin-bottom:2px}
+.lg-f dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.lg-wide{grid-column:1/-1}
+.lg-sec{border-top:0.5px solid var(--border);padding-top:10px}
+.lg-sec h3{font-size:12px;margin:0 0 8px}
+.lg-actions{display:flex;flex-wrap:wrap;gap:6px}
+.lg-pending{margin-top:10px;padding:12px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--bg)}
+.lg-pending h4{font-size:12px;margin:0 0 8px}
+.lg-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.lg-dialog .fg label small{color:var(--text3);font-weight:400}
+.lg-dialog .fg input,.lg-dialog .fg select,.lg-dialog .fg textarea{font-size:12px;padding:6px 8px}
+.lg-dialog .fg textarea{min-height:60px}
+.lg-row-btns{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px;margin-top:10px}
+.lg-files,.lg-comments{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.lg-files li{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.lg-upload{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+.lg-upload select{padding:5px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);font:inherit;font-size:11px;background:var(--bg2);color:var(--text)}
+.lg-upload label.btn{position:relative}
+.lg-comments li{background:var(--bg3);border-radius:var(--radius);padding:6px 10px}
+.lg-comments p{margin:2px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.lg-cmeta{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;font-size:11px}
+.lg-cmeta time{color:var(--text3)}
+.lg-del{font-size:11px;color:var(--text2)}
+.lg-comment-form{display:flex;gap:6px;margin-top:8px}
+.lg-comment-form input{flex:1;min-width:0;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--radius);font:inherit;background:var(--bg2);color:var(--text)}
+.lg-history summary{cursor:pointer;font-size:12px;font-weight:600}
+.lg-history ol{margin:8px 0 0;padding-left:1.2em;display:grid;gap:2px;color:var(--text2);font-size:11px}
+.lg-overseas{border:1px dashed var(--border2);border-radius:var(--radius);padding:10px;margin:12px 0 0}
+.lg-overseas[hidden]{display:none}
+.lg-overseas legend{font-size:11px;color:var(--text2);padding:0 4px}
+
+@media(max-width:768px){
+  .lg .kpi-grid.lg-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .lg-search{flex:1 1 100%}
+}
+@media(max-width:520px){
+  .lg-form-grid{grid-template-columns:minmax(0,1fr)}
+  .lg-dialog{padding:12px;max-height:calc(100vh - 16px)}
+}

@@ -108,7 +108,7 @@
     <div class="ni" onclick="go('consign')" id="nav-consign"><i class="ti ti-building-store"></i>면세점 정산</div>
     <div class="ns">업무</div>
     <div class="ni" onclick="go('tasks')" id="nav-tasks"><i class="ti ti-list-check"></i>업무 목록</div>
-    <a class="ni" href="logistics.html" id="nav-logistics" style="text-decoration:none"><i class="ti ti-truck"></i>물류 요청</a>
+    <div class="ni" onclick="go('logistics')" id="nav-logistics"><i class="ti ti-truck"></i>물류 요청</div>
     <div class="ns">거래처</div>
     <div class="ni" onclick="go('customers')" id="nav-customers"><i class="ti ti-building-store"></i>거래처 마스터</div>
     <div class="ni" onclick="go('contacts')" id="nav-contacts"><i class="ti ti-address-book"></i>거래처 연락처</div>
@@ -673,10 +673,14 @@
 <script src="contacts-import.js?v=20260917-contacts-1"></script>
 <link rel="stylesheet" href="team-tasks.css?v=20261020-team-tasks-14">
 <script src="team-tasks.js?v=20261020-team-tasks-14"></script>
+<link rel="stylesheet" href="logistics.css?v=20261120-logistics-tab-1">
+<script src="logistics-model.js?v=20261120-logistics-tab-1"></script>
+<script src="logistics.js?v=20261120-logistics-tab-1"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=3ba25bbfcd0b"></script>
+  <script src="app.js?v=4f909a07d3e3"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
+<script>globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m)});</script>
 </body>
 </html>

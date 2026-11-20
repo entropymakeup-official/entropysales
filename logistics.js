@@ -1,6 +1,6 @@
 (function(root,factory){const api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;else root.LogisticsPage=api;})(typeof globalThis!=='undefined'?globalThis:this,function(root){
 'use strict';
-// 물류 요청 페이지. 데이터 계층(createApi), HTML 렌더링(render*), 화면 연결(mount). 규칙은 logistics-model.js.
+// 영업 대시보드의 물류 요청 탭. 데이터 계층(createApi), 계산·HTML 렌더링(summarize·render*), 탭 연결(mountTab). 규칙은 logistics-model.js.
 const M=root.LogisticsModel||(typeof require==='function'?require('./logistics-model.js'):null);
 const {esc}=M;
 const BUCKET='logistics-docs',T='logistics_requests';
@@ -77,212 +77,438 @@ function createApi(client,{uuid,now=()=>Date.now()}={}){
  };
 }
 
+// ── 순수 계산·렌더링(테스트 대상) ──
+const HOUR=3600000,KST=9*HOUR;
+const STATUS_BADGE={requested:'bg-blue',accepted:'bg-teal',preparing:'bg-amber',shipped:'bg-green',on_hold:'bg-coral',canceled:'bg-gray'};
+const TAB_LABELS={todo:'처리할 일',hold:'보류',shipped:'출고완료',canceled:'취소',mine:'내 요청'};
+const QUICK_LABELS={late:'희망일 지남',today:'오늘 출고 예정',week:'이번 주 출고완료'};
+const HISTORY_LABELS={created:'등록',status:'상태',want_date:'희망일',result:'결과',packing:'패킹리스트',invoice:'연결 주문'};
+const EMPTY_TEXT={todo:'처리할 요청이 없어요.',hold:'보류 중인 요청이 없어요.',shipped:'최근 30일 출고완료가 없어요.',canceled:'취소된 요청이 없어요.',mine:'내가 올린 요청이 없어요.',late:'희망일이 지난 요청이 없어요.',today:'오늘 출고 예정인 요청이 없어요.',week:'이번 주 출고완료가 없어요.'};
+const addDays=(day,n)=>{const [y,m,d]=day.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+n)).toISOString().slice(0,10);};
+const kstTime=v=>{const t=Date.parse(v);return Number.isFinite(t)?new Date(t+KST).toISOString().slice(5,16).replace('T',' ').replace('-','/'):String(v||'');};
+const needsNote=(from,to)=>to==='on_hold'||(from==='shipped'&&to==='preparing');
+const badge=code=>`<span class="badge lg-st st-${esc(code)} ${STATUS_BADGE[code]||'bg-gray'}">${esc(M.STATUSES[code]||code)}</span>`;
+const won=n=>n==null||n===''?'':Number(n).toLocaleString('ko-KR')+'원';
+const sizeText=b=>!b?'':b<1024*1024?Math.max(1,Math.round(b/1024))+'KB':(b/1024/1024).toFixed(1)+'MB';
+
+// 이번 주(KST 월~일)
+function kstWeek(nowMs){
+ const today=M.kstToday(nowMs),dow=new Date(today+'T00:00:00Z').getUTCDay();
+ const start=addDays(today,dow===0?-6:1-dow);
+ return {start,end:addDays(start,6)};
+}
+const QUICK={
+ late:(r,{nowMs})=>M.isLate(r,nowMs),
+ today:(r,{today})=>M.OPEN.includes(r.status_code)&&r.want_date===today,
+ week:(r,{week})=>r.status_code==='shipped'&&String(r.shipped_on||'')>=week.start&&String(r.shipped_on||'')<=week.end
+};
+function summarize(requests,nowMs){
+ const c={nowMs,today:M.kstToday(nowMs),week:kstWeek(nowMs)},list=requests||[];
+ return {todo:list.filter(r=>['requested','accepted','preparing'].includes(r.status_code)).length,
+  late:list.filter(r=>QUICK.late(r,c)).length,today:list.filter(r=>QUICK.today(r,c)).length,week:list.filter(r=>QUICK.week(r,c)).length};
+}
+// 탭(todo/hold/shipped/canceled/mine) 또는 KPI 필터(late/today/week) + 검색
+function listView(requests,{tab='todo',quick='',q='',email='',nowMs}={}){
+ let rows;
+ if(QUICK[quick]){
+  const c={nowMs,today:M.kstToday(nowMs),week:kstWeek(nowMs)};
+  rows=(requests||[]).filter(r=>QUICK[quick](r,c));
+  rows=quick==='week'?rows.sort((a,b)=>String(b.shipped_on).localeCompare(String(a.shipped_on))):M.sortRequests(rows);
+ }else rows=M.filterTab(requests||[],tab,{email,nowMs});
+ return M.search(rows,q);
+}
+
+function renderKpis(counts,active){
+ const card=(key,label,sub,val,warn)=>`<button type="button" class="kpi lg-kpi${active===key?' on':''}${warn&&val?' warn':''}" data-kpi="${key}" aria-pressed="${active===key}"><span class="lbl">${esc(label)}</span><span class="val">${esc(val)}</span><span class="sub">${esc(sub)}</span></button>`;
+ return card('todo','처리할 일','요청·접수·준비중',counts.todo)+card('late','희망일 지남','출고 전, 보류 포함',counts.late,true)
+  +card('today','오늘 출고 예정','희망 출고일이 오늘',counts.today)+card('week','이번 주 출고완료','월요일부터',counts.week);
+}
+function renderTabs(active,counts){
+ return Object.entries(TAB_LABELS).map(([k,v])=>`<button type="button" role="tab" class="tab${active===k?' active':''}" data-tab="${k}" aria-selected="${active===k}">${esc(v)}${counts&&counts[k]!=null?` <span class="lg-count">${esc(counts[k])}</span>`:''}</button>`).join('');
+}
+
 function renderList(rows,ctx){
- if(!rows.length)return '<p class="lg-empty">요청이 없어요.</p>';
+ if(!rows.length)return `<div class="lg-empty"><p>${esc(ctx.q?'검색 결과가 없어요.':(EMPTY_TEXT[ctx.view]||'요청이 없어요.'))}</p>${ctx.q?'':'<button type="button" class="btn btn-primary" data-act="new"><i class="ti ti-plus"></i> 새 요청</button>'}</div>`;
+ const people=[...(ctx.people||[]),...(ctx.handlers||[])];
  const fileCount=id=>(ctx.files||[]).filter(f=>f.request_id===id).length;
- return `<table class="lg-table"><thead><tr><th>유형</th><th>제목</th><th>거래처·수신처</th><th>요청자</th><th>희망일</th><th>운송</th><th>상태</th><th></th></tr></thead><tbody>${rows.map(r=>{
+ return `<div class="tw"><table class="lg-table"><thead><tr><th>유형</th><th>제목</th><th>거래처·수신처</th><th>희망일</th><th>요청자</th><th>상태</th></tr></thead><tbody>${rows.map(r=>{
   const late=M.isLate(r,ctx.nowMs),n=fileCount(r.id);
-  return `<tr class="lg-row${late?' late':''}" data-id="${esc(r.id)}"><td>${esc(M.TYPES[r.type_code])}</td><td>${esc(r.title_text)}</td><td>${esc(r.counterparty_text)}</td>
-   <td>${esc(nameOf(r.requester_email,ctx.people))}</td><td>${esc(fmtDay(r.want_date))}${late?' <b class="lg-late">지연</b>':''}</td><td>${esc(M.SHIP_MODES[r.ship_mode_code])}</td>
-   <td><span class="lg-st st-${esc(r.status_code)}">${esc(M.STATUSES[r.status_code])}</span></td>
-   <td>${n?`📎 ${n}`:''}${r.slack_state_code==='failed'?' <span class="lg-warn">알림 실패</span>':''}</td></tr>`;}).join('')}</tbody></table>`;
+  return `<tr class="lg-row${late?' late':''}" data-open="${esc(r.id)}"><td class="lg-nowrap">${esc(M.TYPES[r.type_code]||r.type_code)}</td>`
+   +`<td class="lg-title-cell"><button type="button" class="lg-link" data-open="${esc(r.id)}">${esc(r.title_text)}</button>${n?` <span class="lg-muted" title="첨부 ${n}개"><i class="ti ti-paperclip"></i>${n}</span>`:''}${r.slack_state_code==='failed'?' <span class="badge bg-red lg-warn" title="슬랙 알림을 보내지 못했어요">알림 실패</span>':''}</td>`
+   +`<td>${esc(r.counterparty_text)}</td><td class="lg-nowrap${late?' lg-late':''}">${esc(fmtDay(r.want_date))}${late?' · 지남':''}</td>`
+   +`<td class="lg-nowrap">${esc(nameOf(r.requester_email,people))}</td><td>${badge(r.status_code)}</td></tr>`;}).join('')}</tbody></table></div>`;
+}
+
+function renderPending(r,p,ctx){
+ if(!p)return '';
+ const today=M.kstToday(ctx.nowMs);
+ const ta=(name,label,val,max,opts='')=>`<div class="fg lg-wide"><label for="lg-p-${name}">${label}</label><textarea id="lg-p-${name}" name="${name}" maxlength="${max}"${opts}>${esc(val)}</textarea></div>`;
+ let title,body;
+ if(p.kind==='result'){
+  title='결과 수정';
+  body=ta('result_text','결과(송장·배차·BL)',r.result_text||'',M.LIMITS.result,' data-autofocus')
+   +`<div class="fg"><label for="lg-p-quick_fee_krw">퀵비(원)</label><input id="lg-p-quick_fee_krw" name="quick_fee_krw" inputmode="numeric" value="${esc(r.quick_fee_krw??'')}" placeholder="없으면 비워 두세요"></div>`
+   +(M.needsOverseas(r)?`<div class="fg"><label for="lg-p-etd_on">ETD</label><input type="date" id="lg-p-etd_on" name="etd_on" value="${esc(r.etd_on||'')}"></div>`
+    +`<div class="fg"><label for="lg-p-packing_code">패킹리스트</label><select id="lg-p-packing_code" name="packing_code">${opt({'':'-',...M.PACKING},r.packing_code||'')}</select></div>`:'');
+ }else{
+  const to=p.to;title=`${M.STATUSES[to]}(으)로 바꾸기`;body='';
+  if(to==='shipped')body+=ta('result_text','결과(송장·배차·BL) <small>필수 · 슬랙 채널에 그대로 보여요</small>',r.result_text||'',M.LIMITS.result,' required data-autofocus')
+   +`<div class="fg"><label for="lg-p-shipped_on">출고일 <small>필수</small></label><input type="date" id="lg-p-shipped_on" name="shipped_on" value="${esc(r.shipped_on||today)}" required></div>`;
+  if(needsNote(r.status_code,to))body+=ta('status_note_text','사유 <small>필수</small>','',M.LIMITS.statusNote,' required data-autofocus');
+  else if(to==='canceled')body+=ta('status_note_text','취소 사유 <small>선택</small>','',M.LIMITS.statusNote,' data-autofocus');
+ }
+ return `<form class="lg-pending" data-form="${p.kind==='result'?'result':'status'}" novalidate><h4>${esc(title)}</h4><div class="lg-form-grid">${body}</div>`
+  +`<div class="lg-row-btns"><button type="button" class="btn" data-act="pending-cancel">그만두기</button><button type="submit" class="btn btn-primary">저장</button></div></form>`;
 }
 
 function renderDetail(r,ctx){
- const owner=String(ctx.email||'').toLowerCase()===String(r.requester_email||'').toLowerCase();
+ const people=[...(ctx.people||[]),...(ctx.handlers||[])];
+ const me=String(ctx.email||'').toLowerCase();
+ const owner=me===String(r.requester_email||'').toLowerCase();
  const next=M.allowedNext({isHandler:ctx.isHandler,isOwner:owner,from:r.status_code});
  const files=(ctx.files||[]).filter(f=>f.request_id===r.id);
  const inv=(ctx.invoices||[]).find(i=>i.id===r.invoice_id);
- const overseas=M.needsOverseas(r);
- const canEdit=(owner&&r.status_code==='requested')||(ctx.isHandler&&!M.CLOSED.includes(r.status_code));
- const field=(label,val)=>`<div class="lg-f"><span>${esc(label)}</span><b>${esc(val||'-')}</b></div>`;
- return `<div class="lg-detail" data-id="${esc(r.id)}">
- <h2>[${esc(M.TYPES[r.type_code])}] ${esc(r.title_text)} <span class="lg-st st-${esc(r.status_code)}">${esc(M.STATUSES[r.status_code])}</span></h2>
- ${field('거래처·수신처',r.counterparty_text)}${field('요청',nameOf(r.requester_email,ctx.people)+' · '+(M.TEAMS[r.team_code]||''))}
- ${field('희망 출고일',fmtDay(r.want_date))}${field('운송',M.SHIP_MODES[r.ship_mode_code])}${field('수량',r.qty_summary_text)}
- ${field('특이사항',r.note_text)}${field('연결 주문',inv?`${inv.no} ${inv.customer||''}`:'')}
- ${overseas?field('패킹리스트',M.PACKING[r.packing_code]||'')+field('ETD',r.etd_on)+field('포워더',r.forwarder_text):''}
- ${field('결과(송장·배차·BL)',r.result_text)}${field('출고일',r.shipped_on)}${r.status_note_text?field('사유',r.status_note_text):''}
- ${r.slack_state_code==='failed'?'<p class="lg-warn">슬랙 알림을 보내지 못했어요. 담당자에게 직접 알려 주세요.</p>':''}
- <div class="lg-actions">${next.map(to=>`<button type="button" class="lg-btn" data-to="${esc(to)}">${esc(M.STATUSES[to])}</button>`).join('')}
-  ${canEdit?'<button type="button" class="lg-btn ghost" data-act="edit-summary">요약 수정</button>':''}
-  ${ctx.isHandler&&r.status_code!=='canceled'?'<button type="button" class="lg-btn ghost" data-act="edit-result">결과 입력</button>':''}</div>
- <h3>첨부</h3><ul class="lg-files">${files.map(f=>`<li><a href="#" data-file="${esc(f.id)}">${esc(M.FILE_KINDS[f.kind_code])} · ${esc(f.name_text)}</a></li>`).join('')||'<li>없음</li>'}</ul>
- ${M.CLOSED.includes(r.status_code)?'':`<label class="lg-upload">파일 올리기 <select data-act="file-kind">${opt(M.FILE_KINDS,'request')}</select><input type="file" data-act="file"></label>`}
- <h3>댓글</h3><ul class="lg-comments">${(ctx.comments||[]).map(c=>`<li><b>${esc(nameOf(c.author_email,ctx.people))}</b> ${esc(c.body_text)} <time>${esc(String(c.created_at).slice(5,16).replace('T',' '))}</time></li>`).join('')}</ul>
- <form data-act="comment"><input name="body" maxlength="1000" placeholder="댓글"><button class="lg-btn ghost">남기기</button></form>
- <details><summary>변경 이력</summary><ul>${(ctx.history||[]).map(h=>`<li>${esc(String(h.changed_at).slice(5,16).replace('T',' '))} ${esc(h.field_code)} ${esc(h.from_text)} → ${esc(h.to_text)} (${esc(nameOf(h.changed_by_text,ctx.people))})</li>`).join('')}</ul></details>
- </div>`;
+ const overseas=M.needsOverseas(r),closed=M.CLOSED.includes(r.status_code),late=M.isLate(r,ctx.nowMs);
+ const canEdit=(owner&&r.status_code==='requested')||(ctx.isHandler&&!closed);
+ const canResult=ctx.isHandler&&r.status_code!=='canceled';
+ const field=(label,val,cls='')=>`<div class="lg-f${cls}"><dt>${esc(label)}</dt><dd>${esc(val||'-')}</dd></div>`;
+ const canDelFile=f=>ctx.isHandler||(String(f.created_by||'').toLowerCase()===me&&!closed);
+ const canDelComment=c=>String(c.author_email||'').toLowerCase()===me&&ctx.nowMs-Date.parse(c.created_at)<24*HOUR;
+ const pendingTo=ctx.pending?.to;
+ return `<header class="lg-dh"><div><p class="lg-kicker">${esc(M.TYPES[r.type_code]||r.type_code)} · ${esc(M.SHIP_MODES[r.ship_mode_code]||r.ship_mode_code)}</p><h2 id="lg-detail-title">${esc(r.title_text)}</h2></div><button type="button" class="btn" data-act="close-detail">닫기</button></header>`
+ +`<div class="lg-status">${badge(r.status_code)}${late?' <span class="badge bg-red">희망일 지남</span>':''}${r.slack_state_code==='failed'?' <span class="badge bg-red lg-warn">알림 실패</span> <span class="lg-muted">슬랙 알림을 보내지 못했어요. 담당자에게 직접 알려 주세요.</span>':''}</div>`
+ +(ctx.note?`<p class="lg-note" role="status">${esc(ctx.note)}</p>`:'')
+ +`<dl class="lg-fields">${field('거래처·수신처',r.counterparty_text)}${field('요청',nameOf(r.requester_email,people)+(M.TEAMS[r.team_code]?' · '+M.TEAMS[r.team_code]:''))}`
+ +`${field('희망 출고일',fmtDay(r.want_date)+(late?' (지남)':''),late?' lg-late':'')}${field('운송',M.SHIP_MODES[r.ship_mode_code])}${field('수량',r.qty_summary_text)}`
+ +`${field('연결 주문',inv?`${inv.no} ${inv.customer||''}`:(r.invoice_id?'불러오는 중…':''))}${field('특이사항',r.note_text,' lg-wide')}`
+ +(overseas?field('패킹리스트',M.PACKING[r.packing_code]||'')+field('ETD',r.etd_on)+field('포워더',r.forwarder_text):'')
+ +`${field('결과(송장·배차·BL)',r.result_text,' lg-wide')}${field('출고일',r.shipped_on)}${r.quick_fee_krw!=null?field('퀵비',won(r.quick_fee_krw)):''}${r.status_note_text?field('사유',r.status_note_text,' lg-wide'):''}</dl>`
+ +((next.length||canEdit||canResult)?`<section class="lg-sec"><h3>처리</h3><div class="lg-actions">${next.map(to=>`<button type="button" class="btn${pendingTo===to?' btn-primary':''}" data-to="${esc(to)}">${esc(M.STATUSES[to])}</button>`).join('')}`
+  +`${canEdit?'<button type="button" class="btn" data-act="edit-summary"><i class="ti ti-pencil"></i> 요약 수정</button>':''}${canResult?'<button type="button" class="btn" data-act="edit-result">결과 수정</button>':''}</div>`
+  +renderPending(r,ctx.pending,ctx)+`</section>`:'')
+ +(ctx.error?`<p class="lg-error" role="alert">${esc(ctx.error)}</p>`:'')
+ +`<section class="lg-sec"><h3>첨부 <span class="lg-count">${files.length}</span></h3><ul class="lg-files">${files.map(f=>`<li><button type="button" class="lg-link" data-file="${esc(f.id)}"><i class="ti ti-file"></i> ${esc(M.FILE_KINDS[f.kind_code]||'기타')} · ${esc(f.name_text)}</button> <span class="lg-muted">${esc(sizeText(f.size_bytes))}</span>${canDelFile(f)?` <button type="button" class="btn btn-sm" data-file-del="${esc(f.id)}" aria-label="${esc(f.name_text)} 지우기">지우기</button>`:''}</li>`).join('')||'<li class="lg-muted">첨부가 없어요.</li>'}</ul>`
+ +(closed?'':`<div class="lg-upload"><select id="lg-file-kind" data-act="file-kind" aria-label="올릴 파일 종류">${opt(M.FILE_KINDS,'request')}</select><label class="btn"><input type="file" id="lg-file-input" data-act="file" class="lg-sr"><i class="ti ti-upload"></i> 파일 올리기</label><span class="lg-muted">파일당 20MB, 요청당 10개까지</span></div>`)+`</section>`
+ +`<section class="lg-sec"><h3>댓글 <span class="lg-count">${(ctx.comments||[]).length}</span></h3>${ctx.loading?'<p class="lg-muted">불러오는 중…</p>':''}<ul class="lg-comments">${(ctx.comments||[]).map(c=>`<li><div class="lg-cmeta"><b>${esc(nameOf(c.author_email,people))}</b> <time>${esc(kstTime(c.created_at))}</time>${canDelComment(c)?` <button type="button" class="lg-link lg-del" data-comment-del="${esc(c.id)}">지우기</button>`:''}</div><p>${esc(c.body_text)}</p></li>`).join('')}</ul>`
+ +`<form class="lg-comment-form" data-form="comment"><input id="lg-comment-body" name="body" maxlength="${M.LIMITS.comment}" placeholder="댓글을 남겨 주세요" aria-label="댓글"><button type="submit" class="btn">남기기</button></form></section>`
+ +`<details class="lg-sec lg-history"><summary>변경 이력 ${(ctx.history||[]).length}건</summary><ol>${(ctx.history||[]).map(h=>{
+   const show=v=>h.field_code==='status'?(M.STATUSES[v]||v):h.field_code==='packing'?(M.PACKING[v]||v||'없음'):(v||'없음');
+   return `<li>${esc(kstTime(h.changed_at))} · ${esc(nameOf(h.changed_by_text,people))} · ${esc(HISTORY_LABELS[h.field_code]||h.field_code)}${h.field_code==='created'?'':`: ${esc(show(h.from_text))} → ${esc(show(h.to_text))}`}</li>`;}).join('')}</ol></details>`;
 }
 
 function renderForm(d,ctx){
  const edit=ctx.mode==='edit';
- const overseas=M.needsOverseas(d)&&(!edit||ctx.isHandler);
- return `<form class="lg-form" data-act="${edit?'edit':'create'}">
- <label>유형<select name="type_code">${opt({'':'선택',...M.TYPES},d.type_code||'')}</select></label>
- <label>제목<input name="title_text" maxlength="80" value="${esc(d.title_text)}"></label>
- <label>요청팀<select name="team_code">${opt({'':'선택',...M.TEAMS},d.team_code||'')}</select></label>
- <label>거래처·수신처<input name="counterparty_text" maxlength="120" value="${esc(d.counterparty_text)}"></label>
- <label>희망 출고일<input type="date" name="want_date" value="${esc(d.want_date)}"> <small>비워 두면 미정</small></label>
- <label>운송 방식<select name="ship_mode_code">${opt({'':'선택',...M.SHIP_MODES},d.ship_mode_code||'')}</select></label>
- <label>수량 요약<input name="qty_summary_text" maxlength="300" value="${esc(d.qty_summary_text)}" placeholder="예: 12 SKU, 3,240ea"></label>
- <label>특이사항<textarea name="note_text" maxlength="1000">${esc(d.note_text)}</textarea></label>
- <label>연결 주문<select name="invoice_id"><option value="">없음</option>${(ctx.invoices||[]).map(i=>`<option value="${esc(i.id)}"${i.id===d.invoice_id?' selected':''}>${esc(i.no)} ${esc(i.customer||'')}</option>`).join('')}</select></label>
- ${overseas?`<fieldset><legend>해외 출고</legend>
-  <label>패킹리스트<select name="packing_code">${opt({'':'-',...M.PACKING},d.packing_code||'')}</select></label>
-  <label>ETD<input type="date" name="etd_on" value="${esc(d.etd_on)}"></label>
-  <label>포워더<input name="forwarder_text" maxlength="120" value="${esc(d.forwarder_text)}"></label></fieldset>`:''}
- ${edit?'':'<label>첨부(출고요청서 등)<input type="file" name="files" multiple></label>'}
- <p class="lg-error" role="alert"></p>
- <button type="submit" class="lg-btn">${edit?'수정 저장':'요청 올리기'}</button>${edit?' <button type="button" class="lg-btn ghost" data-act="cancel-edit">취소</button>':''}</form>`;
+ const showOverseas=!edit||ctx.isHandler; // 요청자는 해외 칸(패킹·ETD·포워더)을 고칠 수 없다
+ const fg=(name,label,input,wide)=>`<div class="fg${wide?' lg-wide':''}"><label for="lg-f-${name}">${label}</label>${input}</div>`;
+ const id=n=>`id="lg-f-${n}" name="${n}"`;
+ return `<form class="lg-form" data-form="${edit?'edit':'create'}" novalidate><header class="lg-dh"><h2>${edit?'요약 수정':'새 물류 요청'}</h2><button type="button" class="btn" data-act="close-form">닫기</button></header>`
+ +`<div class="lg-form-grid">${fg('type_code','유형',`<select ${id('type_code')}>${opt({'':'선택',...M.TYPES},d.type_code||'')}</select>`)}`
+ +fg('team_code','요청팀',`<select ${id('team_code')}>${opt({'':'선택',...M.TEAMS},d.team_code||'')}</select>`)
+ +fg('title_text','제목',`<input ${id('title_text')} maxlength="${M.LIMITS.title}" value="${esc(d.title_text)}" placeholder="예: 비주그룹 11월 2차 출고">`,true)
+ +fg('counterparty_text','거래처·수신처',`<input ${id('counterparty_text')} maxlength="${M.LIMITS.counterparty}" value="${esc(d.counterparty_text)}">`,true)
+ +fg('want_date','희망 출고일 <small>비워 두면 미정</small>',`<input type="date" ${id('want_date')} value="${esc(d.want_date)}">`)
+ +fg('ship_mode_code','운송 방식',`<select ${id('ship_mode_code')}>${opt({'':'선택',...M.SHIP_MODES},d.ship_mode_code||'')}</select>`)
+ +fg('qty_summary_text','수량 요약',`<input ${id('qty_summary_text')} maxlength="${M.LIMITS.qty}" value="${esc(d.qty_summary_text)}" placeholder="예: 12 SKU, 3,240ea">`,true)
+ +fg('note_text','특이사항',`<textarea ${id('note_text')} maxlength="${M.LIMITS.note}">${esc(d.note_text)}</textarea>`,true)
+ +fg('invoice_id','연결 주문',`<select ${id('invoice_id')}><option value="">없음</option>${(ctx.invoices||[]).map(i=>`<option value="${esc(i.id)}"${i.id===d.invoice_id?' selected':''}>${esc(i.no)} ${esc(i.customer||'')}</option>`).join('')}</select>`,true)
+ +`</div>`
+ +(showOverseas?`<fieldset class="lg-overseas" id="lg-f-overseas"${M.needsOverseas(d)?'':' hidden'}><legend>해외 출고</legend><div class="lg-form-grid">`
+  +fg('packing_code','패킹리스트',`<select ${id('packing_code')}>${opt({'':'-',...M.PACKING},d.packing_code||'')}</select>`)
+  +fg('etd_on','ETD',`<input type="date" ${id('etd_on')} value="${esc(d.etd_on)}">`)
+  +fg('forwarder_text','포워더',`<input ${id('forwarder_text')} maxlength="${M.LIMITS.forwarder}" value="${esc(d.forwarder_text)}">`,true)+`</div></fieldset>`:'')
+ +(edit?'':fg('files','첨부 <small>출고요청서 등 · 파일당 20MB, 10개까지</small>','<input type="file" id="lg-f-files" name="files" multiple>',true))
+ +`<p class="lg-error" id="lg-form-error" role="alert"></p>`
+ +`<footer class="lg-row-btns"><button type="button" class="btn" data-act="close-form">취소</button><button type="submit" class="btn btn-primary">${edit?'수정 저장':'요청 올리기'}</button></footer></form>`;
 }
 
-return {createApi,renderList,renderDetail,renderForm,mount:(...a)=>mount(...a)};
-function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),prompt=(m,v)=>root.prompt(m,v),location=root.location,open=(u)=>root.open(u,'_blank')}){
+// ── 대시보드 탭 ──
+function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m=>root.confirm(m),location=root.location,history=root.history,open=u=>root.open(u,'_blank')}){
  const $=id=>document.getElementById(id);
  const api=createApi(client,{now});
- const state={email:'',isHandler:false,data:{requests:[],files:[],handlers:[],people:[],invoices:[]},tab:'todo',q:'',selected:null,detail:{comments:[],history:[]},busy:false,draft:{},formMode:'create'};
+ const EMPTY=()=>({requests:[],files:[],handlers:[],people:[],invoices:[]});
+ const state={active:false,loaded:false,loading:false,error:'',email:'',isHandler:false,data:EMPTY(),tab:'todo',quick:'',q:'',
+  selected:null,detail:{comments:[],history:[]},detailLoading:false,pending:null,detailError:'',detailNote:'',busy:false,form:null,editTarget:null,pendingOpen:null,ready:Promise.resolve()};
  let generation=0;
- const say=t=>{$('lg-message').textContent=t||'';};
- const ctx=()=>({email:state.email,isHandler:state.isHandler,nowMs:now(),files:state.data.files,people:state.data.people,invoices:state.data.invoices,...state.detail});
- function setBusy(v){state.busy=v;for(const b of ($('lg-detail').querySelectorAll?.('button')||[]))b.disabled=v;const sb=$('lg-form').querySelector?.('button[type=submit]');if(sb)sb.disabled=v;}
+ const say=t=>{if(t)onMessage(t);};
  const current=()=>state.data.requests.find(r=>r.id===state.selected);
+ const ctx=()=>({email:state.email,isHandler:state.isHandler,nowMs:now(),files:state.data.files,people:state.data.people,handlers:state.data.handlers,invoices:state.data.invoices});
+ const buttons=el=>el?.querySelectorAll?.('button')||[];
+ function setBusy(v){state.busy=v;for(const id of ['lg-detail','lg-form'])for(const b of buttons($(id)))b.disabled=v;}
+ const dlgOpen=d=>{if(d&&!d.open){try{d.showModal();}catch(_){d.setAttribute?.('open','');}}};
+ const dlgClose=d=>{if(d?.open){try{d.close();}catch(_){d.removeAttribute?.('open');}}};
 
- function drawTabs(){for(const b of ($('lg-tabs').querySelectorAll?.('button')||[]))b.setAttribute?.('aria-selected',String(b.dataset?.tab===state.tab));}
- function drawList(){drawTabs();
-  const rows=M.search(M.filterTab(state.data.requests,state.tab,{email:state.email,nowMs:now()}),state.q);
-  $('lg-list').innerHTML=renderList(rows,ctx());
+ function paint(){
+  if(!state.active)return;
+  const k=$('lg-kpis'),t=$('lg-tabs'),nowMs=now();
+  if(k)k.innerHTML=state.loaded?renderKpis(summarize(state.data.requests,nowMs),state.quick||(state.tab==='todo'?'todo':'')):'';
+  if(t){const c={};for(const key of Object.keys(TAB_LABELS))c[key]=M.filterTab(state.data.requests,key,{email:state.email,nowMs}).length;t.innerHTML=renderTabs(state.quick?'':state.tab,state.loaded?c:null);}
+  drawList();
  }
- function drawDetail(){const r=current();$('lg-detail').innerHTML=r?renderDetail(r,ctx()):'';if(state.busy)setBusy(true);}
- async function openDetail(id){
-  state.selected=id;state.detail={comments:[],history:[]};
-  const g=generation,r0=current();
-  if(r0?.invoice_id&&!state.data.invoices.some(i=>i.id===r0.invoice_id)){
-   try{const inv=await api.loadInvoice(r0.invoice_id);if(g!==generation||state.selected!==id)return;if(inv)state.data.invoices=[...state.data.invoices,inv];}catch(e){say(M.errorMessage(e));}
+ function drawList(){
+  const host=$('lg-list');if(!state.active||!host)return;
+  if(state.error){host.innerHTML=`<div class="card"><div class="lg-empty"><p class="lg-error" role="alert">${esc(state.error)}</p><button type="button" class="btn" data-act="refresh">다시 불러오기</button></div></div>`;return;}
+  if(!state.loaded){host.innerHTML='<div class="card"><p class="lg-empty lg-muted" role="status">물류 요청을 불러오는 중…</p></div>';return;}
+  const view=state.quick||state.tab;
+  const rows=listView(state.data.requests,{tab:state.tab,quick:state.quick,q:state.q,email:state.email,nowMs:now()});
+  host.innerHTML=`<div class="card"><div class="card-hd"><h3>${esc(QUICK_LABELS[state.quick]||TAB_LABELS[state.tab])} <span class="lg-count">${rows.length}건</span></h3>${state.quick?'<button type="button" class="btn btn-sm" data-act="clear-quick">필터 해제</button>':''}</div>`
+   +renderList(rows,{...ctx(),view,q:state.q})+`</div>`;
+ }
+ function drawDetail(){
+  const d=$('lg-detail'),r=current();if(!d||!r)return;
+  d.innerHTML=renderDetail(r,{...ctx(),...state.detail,loading:state.detailLoading,pending:state.pending,error:state.detailError,note:state.detailNote});
+  if(state.busy)setBusy(true);
+ }
+ function focusPending(){try{$('lg-detail')?.querySelector?.('[data-autofocus]')?.focus?.();}catch(_){}}
+ function closeDetail(){state.selected=null;state.pending=null;state.detailError='';state.detailNote='';state.detail={comments:[],history:[]};const d=$('lg-detail');dlgClose(d);if(d)d.innerHTML='';}
+ function closeForm(){state.form=null;state.editTarget=null;const f=$('lg-form');dlgClose(f);if(f)f.innerHTML='';}
+
+ async function openDetail(id,{keep=false}={}){
+  if(!state.active)return;
+  const same=state.selected===id;
+  state.selected=id;
+  if(!keep||!same){state.pending=null;state.detailError='';state.detailNote='';}
+  const r0=current();
+  if(!r0){closeDetail();say('요청을 찾지 못했어요. 닫힌 지 180일이 지났거나 지워진 요청일 수 있어요.');return;}
+  state.detail={comments:[],history:[]};state.detailLoading=true;
+  const g=generation;
+  drawDetail();dlgOpen($('lg-detail'));
+  if(r0.invoice_id&&!state.data.invoices.some(i=>i.id===r0.invoice_id)){
+   try{const inv=await api.loadInvoice(r0.invoice_id);if(g!==generation||state.selected!==id)return;if(inv){state.data.invoices=[...state.data.invoices,inv];drawDetail();}}
+   catch(e){if(g!==generation||state.selected!==id)return;state.detailError='연결 주문을 불러오지 못했어요: '+(e?.message||e);}
   }
-  drawDetail();
-  try{const d=await api.loadDetail(id);if(g!==generation||state.selected!==id)return;state.detail=d;drawDetail();}catch(e){say(M.errorMessage(e));}
+  try{const d=await api.loadDetail(id);if(g!==generation||state.selected!==id)return;state.detail=d;}
+  catch(e){if(g!==generation||state.selected!==id)return;state.detailError='댓글과 이력을 불러오지 못했어요: '+(e?.message||e);}
+  state.detailLoading=false;drawDetail();
  }
- async function reload(){
-  const g=++generation;
-  const data=await api.loadAll();if(g!==generation)return;
-  state.data=data;state.isHandler=M.isHandler(state.email,data.handlers);
-  $('lg-me').textContent=state.email+(state.isHandler?' · 물류 담당':'');
-  drawList();if(state.selected){if(!current())say('요청을 찾지 못했어요.');await openDetail(state.selected);}
+
+ async function load(){
+  const g=++generation;state.loading=true;state.error='';paint();
+  try{
+   const {data,error}=await client.auth.getSession();if(g!==generation)return;if(error)throw error;
+   const email=String(data?.session?.user?.email||'').toLowerCase();
+   if(!email)throw new Error('로그인 정보를 확인하지 못했어요. 다시 로그인해 주세요.');
+   const d=await api.loadAll();if(g!==generation)return;
+   state.email=email;state.data=d;state.isHandler=M.isHandler(email,d.handlers);state.loaded=true;
+  }catch(e){if(g!==generation)return;state.error='물류 요청을 불러오지 못했어요. '+(e?.message||e);}
+  state.loading=false;paint();
+  if(!state.active)return;
+  if(state.selected&&state.loaded)await openDetail(state.selected,{keep:true});
+  if(state.pendingOpen&&state.loaded){const id=state.pendingOpen;state.pendingOpen=null;await openDetail(id);}
  }
- async function changeStatus(id,to){
-  if(state.busy)return;const r=state.data.requests.find(x=>x.id===id);if(!r)return;
+ function reload(){return state.ready=load();}
+
+ function chooseStatus(to){
+  const r=current();if(!r||state.busy)return;
+  if(to==='shipped'||to==='canceled'||needsNote(r.status_code,to)){state.pending={kind:'status',to};state.detailError='';drawDetail();focusPending();return;}
+  return saveStatus(r,to,{});
+ }
+ async function saveStatus(r,to,fields){
+  if(state.busy)return;
   const owner=state.email===String(r.requester_email||'').toLowerCase();
-  const patch={status_code:to};
-  if(to==='shipped'){
-   const result=prompt('송장번호·배차정보·BL을 적어 주세요.',r.result_text||'');if(result==null)return;
-   const day=prompt('출고일(YYYY-MM-DD)',M.kstToday(now()));if(day==null)return;
-   Object.assign(patch,{result_text:result.trim(),shipped_on:day.trim()});
-  }
-  if(to==='on_hold'||(r.status_code==='shipped'&&to==='preparing')||to==='canceled'){
-   const note=prompt(to==='canceled'?'취소 사유(선택)':'사유를 적어 주세요.','');if(note==null)return;patch.status_note_text=note.trim();
-  }
+  const patch={status_code:to,...fields};
   const check=M.checkTransition({isHandler:state.isHandler,isOwner:owner,from:r.status_code,to,fields:{...r,...patch}});
-  if(!check.ok){say(check.reason);return;}
-  setBusy(true);say('저장 중…');
-  try{await api.update(id,r.status_code,patch);say('저장했어요.');await reload();}
-  catch(e){say(M.errorMessage(e));}
+  if(!check.ok){state.detailError=check.reason;drawDetail();return;}
+  setBusy(true);
+  try{await api.update(r.id,r.status_code,patch);state.pending=null;state.detailError='';state.detailNote=`${M.STATUSES[to]}(으)로 바꿨어요.`;say(state.detailNote);await reload();}
+  catch(e){state.detailError=M.errorMessage(e);drawDetail();}
   finally{setBusy(false);}
  }
- async function editResult(id){
-  if(state.busy)return;const r=current();if(!r||r.id!==id)return;
-  const result=prompt('결과(송장·배차·BL)',r.result_text||'');if(result==null)return;
-  const fee=prompt('퀵비(원, 없으면 비움)',r.quick_fee_krw??'');if(fee==null)return;
-  if(fee.trim()!==''&&!/^[0-9]+$/.test(fee.trim().replace(/,/g,''))){say('퀵비는 숫자로 적어 주세요.');return;}
-  const patch={result_text:result.trim(),quick_fee_krw:fee.trim()===''?null:Number(fee.replace(/,/g,'').trim())};
+ function readForm(form){const d={};for(const el of form.querySelectorAll('[name]'))if(el.type!=='file')d[el.name]=el.value;return d;}
+ const fail=msg=>{state.detailError=msg;drawDetail();};
+ function submitStatus(form){
+  const r=current(),p=state.pending;if(!r||!p||p.kind!=='status'||state.busy)return;
+  const v=readForm(form),fields={};
+  if(p.to==='shipped'){
+   fields.result_text=String(v.result_text||'').trim();fields.shipped_on=String(v.shipped_on||'').trim();
+   if(!fields.result_text)return fail('결과(송장·배차·BL)를 적어 주세요.');
+   if(!M.isDate(fields.shipped_on))return fail('출고일을 골라 주세요.');
+  }
+  if(needsNote(r.status_code,p.to)||p.to==='canceled')fields.status_note_text=String(v.status_note_text||'').trim();
+  return saveStatus(r,p.to,fields);
+ }
+ async function submitResult(form){
+  const r=current();if(!r||state.pending?.kind!=='result'||state.busy)return;
+  const v=readForm(form);
+  const result=String(v.result_text||'').trim(),fee=String(v.quick_fee_krw??'').replace(/,/g,'').trim();
+  if(r.status_code==='shipped'&&!result)return fail('출고완료 요청은 결과를 비울 수 없어요.');
+  if(fee&&!/^[0-9]+$/.test(fee))return fail('퀵비는 숫자로 적어 주세요.');
+  const patch={result_text:result,quick_fee_krw:fee?Number(fee):null};
   if(M.needsOverseas(r)){
-   const etd=prompt('ETD(YYYY-MM-DD, 없으면 비움)',r.etd_on||'');if(etd==null)return;if(etd.trim()&&!M.isDate(etd.trim())){say('ETD는 YYYY-MM-DD 형식으로 적어 주세요.');return;}patch.etd_on=etd.trim()||null;
-   const pk=prompt('패킹리스트: waiting(대기)/done(작성완료)/replied(거래처회신), 없으면 비움',r.packing_code||'');if(pk==null)return;if(pk.trim()&&!['waiting','done','replied'].includes(pk.trim())){say('패킹리스트는 waiting, done, replied 중 하나로 적어 주세요.');return;}patch.packing_code=pk.trim()||null;
+   const etd=String(v.etd_on||'').trim(),pk=String(v.packing_code||'').trim();
+   if(etd&&!M.isDate(etd))return fail('ETD는 YYYY-MM-DD 형식으로 적어 주세요.');
+   if(pk&&!M.PACKING[pk])return fail('패킹리스트 상태를 다시 골라 주세요.');
+   patch.etd_on=etd||null;patch.packing_code=pk||null;
   }
   setBusy(true);
-  try{await api.update(id,r.status_code,patch);say('저장했어요.');await reload();}catch(e){say(M.errorMessage(e));}finally{setBusy(false);}
+  try{await api.update(r.id,r.status_code,patch);state.pending=null;state.detailError='';state.detailNote='결과를 저장했어요.';say(state.detailNote);await reload();}
+  catch(e){fail(M.errorMessage(e));}
+  finally{setBusy(false);}
  }
- function readForm(form){const d={};for(const el of form.querySelectorAll('[name]'))if(el.type!=='file')d[el.name]=el.value;return d;}
- function drawForm(){$('lg-form').innerHTML=renderForm(state.draft,{invoices:state.data.invoices,mode:state.formMode,isHandler:state.isHandler});$('lg-form').hidden=false;}
- function closeForm(){state.draft={};state.formMode='create';state.editTarget=null;$('lg-form').hidden=true;}
+
+ function openForm(mode,draft){
+  state.form={mode};
+  const f=$('lg-form');if(!f)return;
+  f.innerHTML=renderForm(draft,{invoices:state.data.invoices,mode,isHandler:state.isHandler});dlgOpen(f);
+  try{f.querySelector?.('select,input')?.focus?.();}catch(_){}
+ }
+ function openNew(){if(!state.loaded)return;state.editTarget=null;openForm('create',{team_code:'',want_date:''});}
+ function openEdit(){const r=current();if(!r)return;state.editTarget={id:r.id,status_code:r.status_code};openForm('edit',{...r});}
+ const formError=t=>{const el=$('lg-form-error');if(el)el.textContent=t||'';};
  const SUMMARY=['type_code','title_text','team_code','counterparty_text','want_date','ship_mode_code','qty_summary_text','note_text','invoice_id'];
  async function submitEdit(form){
-  if(state.busy)return;const r=state.editTarget;if(!r)return; // 폼을 연 요청과 그때의 상태 — 그 사이 다른 요청을 골라도 바뀌지 않는다
-  const draft=readForm(form);const errors=M.validateDraft(draft);
-  const errEl=form.querySelector('.lg-error');if(errors.length){if(errEl)errEl.textContent=errors.join(' ');return;}
+  if(state.busy)return;const t=state.editTarget;if(!t)return; // 폼을 연 요청과 그때의 상태 — 그 사이 다른 요청을 골라도 바뀌지 않는다
+  const draft=readForm(form),errors=M.validateDraft(draft);
+  if(errors.length)return formError(errors.join(' '));
   const row=M.toInsertRow(draft),patch={};
   for(const k of SUMMARY)patch[k]=row[k];
   if(state.isHandler)for(const k of ['packing_code','etd_on','forwarder_text'])patch[k]=row[k];
-  setBusy(true);say('수정 내용을 저장하는 중…');
-  try{await api.update(r.id,r.status_code,patch);closeForm();say('저장했어요.');await reload();}
-  catch(e){if(errEl)errEl.textContent=M.errorMessage(e);say('');}
+  setBusy(true);formError('');
+  try{await api.update(t.id,t.status_code,patch);closeForm();state.detailNote='요약을 저장했어요.';say(state.detailNote);await reload();}
+  catch(e){formError(M.errorMessage(e));}
   finally{setBusy(false);}
  }
- async function submitForm(form){
-  if(state.busy)return;const draft=readForm(form);const errors=M.validateDraft(draft);
-  const errEl=form.querySelector('.lg-error');if(errors.length){if(errEl)errEl.textContent=errors.join(' ');return;}
-  setBusy(true);say('요청을 올리는 중…');
+ async function submitCreate(form){
+  if(state.busy)return;
+  const draft=readForm(form),errors=M.validateDraft(draft);
+  if(errors.length)return formError(errors.join(' '));
+  setBusy(true);formError('');
   let row=null;
   try{
    row=await api.create(draft);const failed=[];
-   const input=form.querySelector('input[type=file]');
-   for(const f of Array.from(input?.files||[])){try{await api.uploadFile(row.id,f,'request');}catch(e){failed.push(f.name);}}
-   closeForm();state.tab='mine';state.selected=row.id;
-   say(failed.length?`요청은 올라갔고, ${failed.join(', ')} 파일은 올리지 못했어요. 상세에서 다시 올려 주세요.`:'요청을 올렸어요. 슬랙에도 곧 알림이 가요.');
+   for(const f of Array.from($('lg-f-files')?.files||[])){try{await api.uploadFile(row.id,f,'request');}catch(e){failed.push(f.name);}}
+   closeForm();state.tab='mine';state.quick='';state.selected=row.id;state.pending=null;state.detailError='';
+   state.detailNote=failed.length?`요청은 올라갔고, ${failed.join(', ')} 파일은 올리지 못했어요. 아래 첨부에서 다시 올려 주세요.`:'요청을 올렸어요. 슬랙에도 곧 알림이 가요.';
+   say(state.detailNote);
    await reload();
-  }catch(e){if(row)say('요청은 올라갔어요. 목록을 새로고침해 주세요. ('+M.errorMessage(e)+')');else{if(errEl)errEl.textContent=M.errorMessage(e);say('');}}
+  }catch(e){if(row)say('요청은 올라갔어요. 목록을 새로고침해 주세요. ('+M.errorMessage(e)+')');else formError(M.errorMessage(e));}
   finally{setBusy(false);}
  }
 
- $('lg-list').addEventListener('click',ev=>{const tr=ev.target.closest?.('tr[data-id]');if(tr)openDetail(tr.dataset.id);});
- $('lg-detail').addEventListener('click',async ev=>{
-  const t=ev.target;const r=current();if(!r)return;
-  if(t.dataset?.to){changeStatus(r.id,t.dataset.to);return;}
-  if(t.dataset?.act==='edit-result'){editResult(r.id);return;}
-  if(t.dataset?.act==='edit-summary'){state.formMode='edit';state.editTarget={id:r.id,status_code:r.status_code};state.draft={...r};drawForm();return;}
-  if(t.dataset?.file){ev.preventDefault();const f=state.data.files.find(x=>x.id===t.dataset.file);if(f){
-   const w=open('about:blank'); // 클릭 안에서 먼저 창을 열어야 Safari가 팝업으로 막지 않는다
-   try{const u=await api.fileUrl(f.storage_path);if(!u)throw new Error('UNCONFIRMED');
-    if(!w){say('팝업이 막혀 파일을 열지 못했어요. 팝업을 허용해 주세요.');return;}
-    try{w.opener=null;}catch(_){} w.location.href=u;
-   }catch(e){try{w?.close();}catch(_){} say(M.errorMessage(e));}
-  }}
- });
- $('lg-detail').addEventListener('change',async ev=>{
-  const t=ev.target;const r=current();if(!r||t.dataset?.act!=='file'||!t.files?.[0])return;
-  const kind=t.closest('.lg-upload')?.querySelector('[data-act=file-kind]')?.value||'etc';
-  if(state.busy)return;setBusy(true);
-  try{await api.uploadFile(r.id,t.files[0],kind);say('파일을 올렸어요.');await reload();}catch(e){say(M.errorMessage(e));}finally{try{t.value='';}catch(_){}setBusy(false);}
- });
- $('lg-detail').addEventListener('submit',async ev=>{
-  ev.preventDefault();const r=current();const input=ev.target.querySelector('[name=body]');const body=(input?.value||'').trim();
-  if(!r||!body||state.busy)return;setBusy(true);
-  try{await api.addComment(r.id,body);input.value='';await openDetail(r.id);}catch(e){say(M.errorMessage(e));}finally{setBusy(false);}
- });
- $('lg-form').addEventListener('change',ev=>{if(['type_code','ship_mode_code'].includes(ev.target.name)){state.draft=readForm($('lg-form').querySelector('form')||$('lg-form'));drawForm();}});
- $('lg-form').addEventListener('submit',ev=>{ev.preventDefault();return ev.target.dataset?.act==='edit'?submitEdit(ev.target):submitForm(ev.target);});
- $('lg-form').addEventListener('click',ev=>{if(ev.target.dataset?.act==='cancel-edit'){closeForm();$('lg-form').innerHTML='';}});
- $('lg-new').addEventListener('click',()=>{state.formMode='create';state.editTarget=null;state.draft={team_code:'',want_date:''};drawForm();});
- $('lg-search').addEventListener('input',ev=>{state.q=ev.target.value;drawList();});
- $('lg-tabs').addEventListener('click',ev=>{const tab=ev.target.dataset?.tab;if(tab){state.tab=tab;drawList();}});
- $('lg-google').addEventListener('click',async()=>{try{const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.href,queryParams:{hd:'entropymakeup.com'}}});if(error)say(M.errorMessage(error));}catch(e){say(M.errorMessage(e));}});
-
- let first=true;
- async function start(){
-  const g=++generation;let session=null;
+ async function openFile(fid){
+  const f=state.data.files.find(x=>x.id===fid);if(!f)return;
+  const w=open('about:blank'); // 클릭 안에서 먼저 창을 열어야 Safari가 팝업으로 막지 않는다
   try{
-   const {data,error}=await client.auth.getSession();if(g!==generation)return;if(error)throw error;
-   session=data?.session;
-  }catch(e){$('lg-login').hidden=false;$('lg-app').hidden=true;say('로그인을 확인하지 못했어요. '+M.errorMessage(e));return;}
-  if(!session){$('lg-login').hidden=false;$('lg-app').hidden=true;return;}
-  state.email=String(session.user?.email||'').toLowerCase();
-  $('lg-login').hidden=true;$('lg-app').hidden=false;
-  if(first){first=false;const id=new URLSearchParams(location.search||'').get('id');if(id)state.selected=id;}
-  drawTabs();
-  try{await reload();}catch(e){say(M.errorMessage(e));}
+   const u=await api.fileUrl(f.storage_path);if(!u)throw new Error('UNCONFIRMED');
+   if(!w){fail('팝업이 막혀 파일을 열지 못했어요. 팝업을 허용해 주세요.');return;}
+   try{w.opener=null;}catch(_){} w.location.href=u;
+  }catch(e){try{w?.close();}catch(_){} fail(M.errorMessage(e));}
  }
- client.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT'){generation++;state.email='';state.isHandler=false;state.data={requests:[],files:[],handlers:[],people:[],invoices:[]};state.selected=null;state.detail={comments:[],history:[]};state.draft={};state.formMode='create';state.busy=false;state.tab='todo';state.q='';$('lg-list').innerHTML='';$('lg-detail').innerHTML='';$('lg-form').innerHTML='';$('lg-form').hidden=true;$('lg-me').textContent='';say('');$('lg-login').hidden=false;$('lg-app').hidden=true;}else if(ev==='SIGNED_IN')setTimeout(start,0);});
- const ready=start();
- return {ready,state,reload,changeStatus,openDetail};
+ async function deleteFile(fid){
+  const f=state.data.files.find(x=>x.id===fid);if(!f||state.busy)return;
+  if(!confirm(`'${f.name_text}' 파일을 지울까요? 되돌릴 수 없어요.`))return;
+  setBusy(true);
+  try{await api.removeFile(f);state.detailError='';state.detailNote='파일을 지웠어요.';say(state.detailNote);await reload();}
+  catch(e){fail(M.errorMessage(e));}
+  finally{setBusy(false);}
+ }
+ async function uploadFile(input){
+  const r=current(),file=input.files?.[0];if(!r||!file)return;
+  if(state.busy){try{input.value='';}catch(_){}return;}
+  const kind=$('lg-file-kind')?.value||'etc';
+  setBusy(true);
+  try{await api.uploadFile(r.id,file,kind);state.detailError='';state.detailNote='파일을 올렸어요.';say(state.detailNote);await reload();}
+  catch(e){fail(M.errorMessage(e));}
+  finally{try{input.value='';}catch(_){}setBusy(false);}
+ }
+ async function addComment(){
+  const r=current(),input=$('lg-comment-body'),body=String(input?.value||'').trim();
+  if(!r||!body||state.busy)return;
+  setBusy(true);
+  try{await api.addComment(r.id,body);if(input)input.value='';state.detailError='';state.detailNote='';await openDetail(r.id,{keep:true});}
+  catch(e){fail(M.errorMessage(e));}
+  finally{setBusy(false);}
+ }
+ async function deleteComment(cid){
+  const r=current();if(!r||state.busy)return;
+  if(!confirm('이 댓글을 지울까요? 되돌릴 수 없어요.'))return;
+  setBusy(true);
+  try{await api.deleteComment(cid);state.detailError='';state.detailNote='댓글을 지웠어요.';await openDetail(r.id,{keep:true});}
+  catch(e){fail(M.errorMessage(e));}
+  finally{setBusy(false);}
+ }
+
+ function onClick(e){
+  const at=s=>e.target?.closest?.(s);let el;
+  if((el=at('[data-kpi]'))){const k=el.dataset.kpi;if(k==='todo'){state.tab='todo';state.quick='';}else state.quick=state.quick===k?'':k;paint();return;}
+  if((el=at('[data-tab]'))){state.tab=el.dataset.tab;state.quick='';paint();return;}
+  if((el=at('[data-act]'))){
+   const act=el.dataset.act;
+   if(act==='new')return openNew();
+   if(act==='refresh')return reload();
+   if(act==='clear-quick'){state.quick='';paint();return;}
+   if(act==='close-detail')return closeDetail();
+   if(act==='close-form')return closeForm();
+   if(act==='pending-cancel'){state.pending=null;state.detailError='';drawDetail();return;}
+   if(act==='edit-summary')return openEdit();
+   if(act==='edit-result'){if(state.busy)return;state.pending={kind:'result'};state.detailError='';drawDetail();focusPending();return;}
+   return;
+  }
+  if((el=at('[data-to]')))return chooseStatus(el.dataset.to);
+  if((el=at('[data-file-del]')))return deleteFile(el.dataset.fileDel);
+  if((el=at('[data-file]'))){e.preventDefault?.();return openFile(el.dataset.file);}
+  if((el=at('[data-comment-del]')))return deleteComment(el.dataset.commentDel);
+  if((el=at('[data-open]')))return openDetail(el.dataset.open);
+ }
+ function onChange(e){
+  const t=e.target;
+  if(t?.dataset?.act==='file')return uploadFile(t);
+  if(t?.name==='type_code'||t?.name==='ship_mode_code'){
+   const fs=$('lg-f-overseas');if(fs)fs.hidden=!M.needsOverseas({type_code:$('lg-f-type_code')?.value,ship_mode_code:$('lg-f-ship_mode_code')?.value});
+  }
+ }
+ function onInput(e){if(e.target?.id==='lg-search'){state.q=e.target.value;drawList();}}
+ function onSubmit(e){
+  e.preventDefault?.();
+  const form=e.target,kind=form?.dataset?.form;
+  if(kind==='create')return submitCreate(form);
+  if(kind==='edit')return submitEdit(form);
+  if(kind==='status')return submitStatus(form);
+  if(kind==='result')return submitResult(form);
+  if(kind==='comment')return addComment();
+ }
+
+ function show(){
+  state.active=true;
+  $('topbar-actions').innerHTML='<button type="button" class="btn btn-primary" id="lg-new"><i class="ti ti-plus"></i> 새 요청</button><button type="button" class="btn" id="lg-refresh"><i class="ti ti-refresh"></i> 새로고침</button>';
+  $('content').innerHTML='<section class="lg"><div class="kpi-grid lg-kpis" id="lg-kpis"></div>'
+   +'<div class="lg-bar"><nav class="tab-bar lg-tabs" id="lg-tabs" role="tablist" aria-label="물류 요청 보기"></nav><input type="search" id="lg-search" class="lg-search" placeholder="제목·거래처·송장 검색" aria-label="물류 요청 검색"></div>'
+   +'<div id="lg-list"></div>'
+   +'<dialog class="lg-dialog" id="lg-detail" aria-labelledby="lg-detail-title"></dialog><dialog class="lg-dialog lg-form-dialog" id="lg-form" aria-label="물류 요청 입력"></dialog></section>';
+  const search=$('lg-search');if(search)search.value=state.q;
+  $('lg-new').onclick=()=>openNew();
+  $('lg-refresh').onclick=()=>reload();
+  const c=$('content');c.onclick=onClick;c.onchange=onChange;c.oninput=onInput;c.onsubmit=onSubmit;
+  const d=$('lg-detail'),f=$('lg-form');
+  d.oncancel=e=>{e.preventDefault?.();if(!state.form)closeDetail();};
+  f.oncancel=e=>{e.preventDefault?.();closeForm();};
+  for(const el of [d,f]){el.onkeydown=e=>e.stopPropagation?.();el.onpaste=e=>e.stopPropagation?.();}
+  paint();
+  return reload();
+ }
+ function hide(){
+  if(!state.active)return;
+  state.active=false;closeForm();closeDetail();state.pendingOpen=null;
+  const c=$('content');if(c){c.onclick=null;c.onchange=null;c.oninput=null;c.onsubmit=null;}
+ }
+ // 슬랙 링크(logistics.html?id=…)가 넘겨 준 index.html?logistics=<id>를 읽고 주소에서 지운다. 없으면 null, id 없이 왔으면 ''.
+ function takeUrlRequest(){
+  let p;try{p=new URLSearchParams(location?.search||'');}catch(_){return null;}
+  if(!p.has('logistics'))return null;
+  const v=p.get('logistics')||'';p.delete('logistics');
+  try{const qs=p.toString();history?.replaceState?.(history.state??null,'',(location.pathname||'')+(qs?'?'+qs:'')+(location.hash||''));}catch(_){}
+  return v==='1'?'':v;
+ }
+ function openRequest(id){
+  if(!id)return state.ready;
+  if(!state.active||state.loading||!state.loaded){state.pendingOpen=id;return state.ready;}
+  return openDetail(id);
+ }
+ client.auth?.onAuthStateChange?.((ev,session)=>{
+  if(ev==='SIGNED_OUT'){hide();generation++;Object.assign(state,{loaded:false,loading:false,error:'',email:'',isHandler:false,data:EMPTY(),tab:'todo',quick:'',q:'',busy:false});}
+  else if(ev==='SIGNED_IN'&&state.active&&String(session?.user?.email||'').toLowerCase()!==state.email)reload();
+ });
+ return {show,hide,reload,openRequest,takeUrlRequest,state,changeStatus:chooseStatus,openDetail};
 }
+
+return {createApi,kstWeek,summarize,listView,renderKpis,renderTabs,renderList,renderDetail,renderForm,mountTab};
 });
