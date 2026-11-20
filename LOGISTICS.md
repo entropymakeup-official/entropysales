@@ -1,6 +1,6 @@
 # 물류 요청
 
-회사 전체의 출고·샘플·퀵·시딩·CS·회송 요청을 받는 별도 페이지(`logistics.html`)입니다. 설계: `docs/superpowers/specs/2026-11-19-logistics-dashboard-design.md`
+회사 전체의 출고·샘플·퀵·시딩·CS·회송 요청을 받는 화면입니다. 2026-11-20부터 영업 대시보드(`index.html`)의 "물류 요청" 탭으로 옮겼습니다(`logistics.js`의 `mountTab`, `logistics.css`). `logistics.html`은 이미 보낸 슬랙 링크(`logistics.html?id=<요청 id>`)를 `index.html?logistics=<요청 id>`로 넘겨 주는 이동 페이지일 뿐이며, 대시보드는 로그인 뒤 그 값을 읽어 물류 요청 탭과 해당 요청 상세를 열고 주소에서 지웁니다. 설계: `docs/superpowers/specs/2026-11-19-logistics-dashboard-design.md`
 
 ## 동작 기준
 
@@ -36,7 +36,7 @@ update public.logistics_handlers set mention_on_new = false where email = 'name@
 update public.logistics_handlers set is_active = false where email = 'name@entropymakeup.com';
 ```
 
-5. 정적 파일 배포
+5. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, logistics.css, logistics.html(이동 페이지). 바꾼 파일은 index.html의 버전 쿼리도 함께 올립니다.
 
 ## 슬랙 앱 등록 (사용자 또는 슬랙 관리자)
 

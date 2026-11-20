@@ -257,6 +257,7 @@ function go(page){
   if(page!=='contacts'){globalThis.contactImporter?.close();globalThis.contactRegister?.hide();}
   if(page!=='contracts')globalThis.contractRegister?.hide();
   if(page!=='tasks')globalThis.teamTasks?.hide();
+  if(page!=='logistics')globalThis.logistics?.hide();
   globalThis.invoiceSheetStatus?.show(page);
   if(page==='inventory'){
     globalThis.inventoryHistory?.hide();
@@ -271,11 +272,19 @@ function go(page){
   document.getElementById('page-title').textContent=page==='productmaster'?'제품 마스터':titles[page]||page;
   if(page==='productmaster'){globalThis.productMaster?.show();return;}
   if(page==='tasks'){document.getElementById('page-title').textContent='업무 목록';globalThis.teamTasks?.show();return;}
+  if(page==='logistics'){document.getElementById('page-title').textContent='물류 요청';globalThis.logistics?.show();return;}
   ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,consign:renderConsignPage,customers:renderCustomers,contacts:()=>globalThis.contactRegister?.show(),contracts:renderContracts,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
 let _contractCustomer='';
 function renderContracts(){globalThis.contractRegister?.show(_contractCustomer);_contractCustomer='';}
 function openCustomerContracts(id){_contractCustomer=id;cm('m-cust');go('contracts');}
+// 로그인 후 첫 화면. 슬랙 물류 알림 링크(logistics.html → index.html?logistics=<id>)로 왔으면 물류 요청 탭과 그 요청을 연다.
+function goStartPage(){
+  const id=globalThis.logistics?.takeUrlRequest?.();
+  if(id==null){go('dash');return;}
+  go('logistics');
+  if(id)globalThis.logistics.openRequest(id);
+}
 
 
 
@@ -3983,7 +3992,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
       _appLoaded = true;
       showMainApp(session.user);
       if(!await loadAll())return;
-      go('dash');
+      goStartPage();
       keepAlive();
     }
   } else if(event === 'SIGNED_OUT'){
@@ -4020,7 +4029,7 @@ function keepAlive(){
   _appLoaded = true;
   showMainApp(session.user);
   if(!await loadAll())return;
-  go('dash');
+  goStartPage();
   keepAlive();
 })();
 
