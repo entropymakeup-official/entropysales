@@ -92,7 +92,7 @@ begin
    if r.event_code<>'created' and r.parent_ts is not null then v_body := v_body || jsonb_build_object('thread_ts',r.parent_ts); end if;
    update public.logistics_slack_outbox set state_code='sending', attempts=attempts+1, sent_at=now(),
     net_request_id=net.http_post(url:='https://slack.com/api/chat.postMessage', body:=v_body,
-     headers:=jsonb_build_object('Content-Type','application/json; charset=utf-8','Authorization','Bearer '||v_token), timeout_milliseconds:=10000)
+     headers:=jsonb_build_object('Content-Type','application/json','Authorization','Bearer '||v_token), timeout_milliseconds:=10000)
     where id=r.id;
   exception when others then
    update public.logistics_slack_outbox set attempts=attempts+1, last_error_text=left(SQLERRM,300),
