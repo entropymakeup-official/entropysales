@@ -485,16 +485,19 @@ test('대시보드: 메뉴는 go(\'logistics\') 탭이고, 스크립트·스타�
  const index=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
  assert.ok(index.includes(`<div class="ni" onclick="go('logistics')" id="nav-logistics"><i class="ti ti-truck"></i>물류 요청</div>`));
  assert.ok(!index.includes('href="logistics.html"'));
- assert.ok(index.includes('<link rel="stylesheet" href="logistics.css?v=20261120-logistics-tab-1">'));
- const iModel=index.indexOf('<script src="logistics-model.js?v=20261120-logistics-tab-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261120-logistics-tab-1"></script>');
+ assert.ok(index.includes('<link rel="stylesheet" href="logistics.css?v=20261120-fassto-1">'));
+ const iModel=index.indexOf('<script src="logistics-model.js?v=20261120-fassto-1"></script>'),iForms=index.indexOf('<script src="fassto-forms.js?v=20261120-fassto-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261120-fassto-1"></script>');
+ const iXlsx=index.indexOf('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>');
  const iApp=index.indexOf('<script src="app.js?v='),iMount=index.indexOf('globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m)});');
- assert.ok(iModel>0&&iModel<iPage&&iPage<iApp&&iApp<iMount);
+ assert.ok(iXlsx>0&&iXlsx<iModel&&iModel<iForms&&iForms<iPage&&iPage<iApp&&iApp<iMount);
+ assert.equal((index.match(/xlsx[^"]*\.js/g)||[]).length,1); // 브라우저 엑셀 라이브러리는 기존 SheetJS 0.18.5 하나뿐
  const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
  assert.ok(app.includes("if(page!=='logistics')globalThis.logistics?.hide();"));
  assert.ok(app.includes("if(page==='logistics'){document.getElementById('page-title').textContent='물류 요청';globalThis.logistics?.show();return;}"));
  assert.equal((app.match(/if\(!await loadAll\(\)\)return;\n\s*goStartPage\(\);/g)||[]).length,2);
  const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
- assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js/);
+ assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js && node --check fassto-forms\.js && node --check tools\/fassto-stock-json\.cjs/);
+ assert.equal(pkg.devDependencies.xlsx,'0.18.5');
  assert.ok(fs.existsSync(path.join(__dirname,'../LOGISTICS.md')));
 });
 
