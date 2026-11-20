@@ -5,8 +5,11 @@ begin;
 create table if not exists public.logistics_handlers (
  email text primary key check (email ~ '^[a-z0-9._%+-]+@entropymakeup\.com$'),
  display_name text not null check (length(btrim(display_name)) between 1 and 40),
- is_active boolean not null default true
+ is_active boolean not null default true,
+ mention_on_new boolean not null default true
 );
+-- 담당자 권한은 두고 새 요청 슬랙 멘션만 끌 수 있게 한다(2026-11-20 추가, 이미 설치된 DB용).
+alter table public.logistics_handlers add column if not exists mention_on_new boolean not null default true;
 create table if not exists public.logistics_people (
  email text primary key check (email ~ '^[a-z0-9._%+-]+@entropymakeup\.com$'),
  display_name text not null check (length(btrim(display_name)) between 1 and 40),

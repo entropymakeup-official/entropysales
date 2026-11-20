@@ -28,7 +28,7 @@ declare
  v_handlers text;
 begin
  if p_event = 'created' then
-  select string_agg(approval_private.logistics_slack_who(h.email), ' ' order by h.email) into v_handlers from public.logistics_handlers h where h.is_active;
+  select string_agg(approval_private.logistics_slack_who(h.email), ' ' order by h.email) into v_handlers from public.logistics_handlers h where h.is_active and h.mention_on_new;
   return format(E'*[%s] %s*\n희망 %s · %s\n요청 %s → %s\n%s', v_type, v_title, v_want, v_mode, v_req, coalesce(v_handlers,'물류 담당'), v_link);
  elsif p_event = 'shipped' then
   return format(E'출고완료 %s · %s\n%s', coalesce(to_char((p_payload->>'shipped_on')::date,'FMMM/FMDD'),''), approval_private.logistics_slack_escape(p_payload->>'result_text'), v_req);
