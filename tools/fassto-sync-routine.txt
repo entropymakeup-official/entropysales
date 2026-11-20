@@ -1,0 +1,14 @@
+[파스토 목록 갱신 - 평일 08:30 KST 예약 작업]
+작업 폴더: entropysales-dashboard 저장소(main 최신). 절차는 LOGISTICS.md의 "파스토 목록 갱신"과 같다.
+
+1. 브라우저로 https://fms.fassto.ai 상품별재고현황 화면을 열어 엑셀로 내려받는다.
+   로그인이 풀려 있으면 아무것도 바꾸지 말고 "FMS 로그인이 필요해요. 로그인해 주시면 다시 갱신할게요."라고 사용자에게 알리고 끝낸다.
+   비밀번호·인증번호는 입력하지 않는다.
+2. node tools/fassto-stock-json.cjs "<내려받은 파일>" --sql > "<스크래치 폴더>/fassto-stock.sql"
+   - 필수 열을 못 찾았다는 오류면 실행하지 말고 오류 문구를 사용자에게 알린다.
+   - 상품코드·바코드가 숫자 칸이거나 수량·날짜가 잘못됐다며 거부하면 아무것도 바꾸지 말고 그 문구를 사용자에게 알린다.
+   - 로트 행이 지난번 row_count의 절반보다 적으면 실행하지 말고 두 숫자를 사용자에게 보여 확인받는다.
+3. 운영 Supabase에서 그 파일의 select 문 하나만 실행한다(Supabase MCP execute_sql, postgres 권한. anon·authenticated는 실행할 수 없다). 다른 SQL은 실행하지 않는다.
+4. select synced_at, row_count from public.logistics_fassto_sync order by synced_at desc limit 1; 로 확인하고
+   "파스토 목록 갱신: 로트 N행, 상품 M종"을 한 줄로 남긴다.
+5. 내려받은 파일과 SQL 파일을 지운다. 저장소에는 아무것도 커밋하지 않는다.

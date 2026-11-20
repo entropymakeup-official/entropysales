@@ -887,3 +887,15 @@ test('mountTab: 요약 수정을 저장하면 지난 파스토 내려받기 오�
  assert.match(t.d.els['lg-detail'].innerHTML,/요약을 저장했어요/);
  assert.ok(!t.d.els['lg-detail'].innerHTML.includes('전화 칸이 비어 있어요')&&!t.d.els['lg-detail'].innerHTML.includes('내려받지 않았어요'));
 });
+
+test('운영 문서: 설치 순서에 파스토 SQL, 목록 갱신 절차와 예약 작업 지시문이 있다',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const doc=fs.readFileSync(path.join(__dirname,'../LOGISTICS.md'),'utf8');
+ assert.ok(doc.includes('4. `sql/logistics-fassto.sql`'));
+ assert.ok(doc.includes('### 파스토 목록 갱신 (Claude, 브라우저)'));
+ assert.ok(doc.includes('node tools/fassto-stock-json.cjs'));
+ const routine=fs.readFileSync(path.join(__dirname,'../tools/fassto-sync-routine.txt'),'utf8');
+ assert.ok(routine.includes('평일 08:30 KST')&&routine.includes('비밀번호·인증번호는 입력하지 않는다'));
+ const dev=fs.readFileSync(path.join(__dirname,'../DEVELOPMENT.md'),'utf8');
+ assert.ok(dev.includes('sql/logistics-slack.sql → sql/logistics-fassto.sql'));
+});
