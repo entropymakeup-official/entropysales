@@ -24,7 +24,7 @@ declare
  v_want text := coalesce(to_char((p_payload->>'want_date')::date,'FMMM/FMDD'),'미정');
  v_title text := approval_private.logistics_slack_escape(p_payload->>'title_text');
  v_req text := approval_private.logistics_slack_who(p_payload->>'requester_email');
- v_link text := 'https://entropymakeup-official.github.io/entropysales/logistics.html?id='||p_request::text;
+ v_link text := '<https://entropymakeup-official.github.io/entropysales/logistics.html?id='||p_request::text||'|요청 상세 보기>';
  v_handlers text;
 begin
  if p_event = 'created' then

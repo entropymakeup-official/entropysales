@@ -53,7 +53,8 @@ test('새 요청은 채널에 새 글로 보내고 ts를 저장한다',async()=>
   assert.match(c.body.text,/\[B2B출고\] 예스스타일 &lt;Air&gt; &amp; 11월/);
   assert.match(c.body.text,/희망 11\/24 · Air/);
   assert.match(c.body.text,/요청 <@UREQ0001> → <@UHND0001>/);
-  assert.match(c.body.text,new RegExp(`logistics\\.html\\?id=${r.id}`));
+  // 주소를 그대로 보이지 않고 "요청 상세 보기" 문구 링크로 넣는다 (<url|문구>)
+  assert.match(c.body.text,new RegExp(`<https://entropymakeup-official\\.github\\.io/entropysales/logistics\\.html\\?id=${r.id}\\|요청 상세 보기>`));
   await t.flush(); // 응답 전에는 다시 보내지 않는다
   assert.equal((await t.calls()).length,1);
   await t.respond(c.id,{ok:true,ts:'1795000000.000100'});
