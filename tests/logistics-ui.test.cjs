@@ -249,6 +249,21 @@ test('mount: 요약 수정은 폼을 채우고, 담당자는 해외 칸까지 �
  assert.equal(d.els['lg-form'].hidden,true);
 });
 
+test('mount: 요약 수정 폼을 연 뒤 다른 요청을 골라도 폼을 연 요청에 저장한다',async()=>{
+ const patches=[];
+ const base={type_code:'b2b',counterparty_text:'c',ship_mode_code:'air',team_code:'global',requester_email:'req@entropymakeup.com',created_at:'2026-11-19T00:00:00Z'};
+ const rows=[{...base,id:'r1',title_text:'A',status_code:'accepted'},{...base,id:'r2',title_text:'B',status_code:'preparing'}];
+ const {d,client}=editDom(rows,q=>{patches.push(q);return {data:[{id:'r1'}],error:null};});
+ const page=P.mount({document:d.document,client,location:{href:'x',search:'?id=r1'},now:()=>NOW});
+ await page.ready;
+ await d.els['lg-detail'].listeners.click({target:{dataset:{act:'edit-summary'}}});
+ await page.openDetail('r2');
+ const vals={type_code:'b2b',title_text:'A 수정',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'air',qty_summary_text:'',note_text:'',invoice_id:'',packing_code:'',etd_on:'',forwarder_text:''};
+ await d.els['lg-form'].listeners.submit({preventDefault(){},target:fakeForm(vals,'edit')});
+ assert.equal(patches.length,1);
+ assert.deepEqual(patches[0].ops.filter(o=>o[0]==='eq'),[['eq','id','r1'],['eq','status_code','accepted']]);
+});
+
 test('mount: 연결 주문이 목록에 없으면 상세를 열 때 따로 불러온다',async()=>{
  const rows=[{id:'r1',type_code:'quick',title_text:'퀵',counterparty_text:'c',status_code:'requested',ship_mode_code:'quick',team_code:'global',requester_email:'req@entropymakeup.com',invoice_id:'inv9',created_at:'2026-11-19T00:00:00Z'}];
  const {d,client}=editDom(rows,()=>({data:[],error:null}),[]);

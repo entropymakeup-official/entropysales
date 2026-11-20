@@ -204,10 +204,10 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
  }
  function readForm(form){const d={};for(const el of form.querySelectorAll('[name]'))if(el.type!=='file')d[el.name]=el.value;return d;}
  function drawForm(){$('lg-form').innerHTML=renderForm(state.draft,{invoices:state.data.invoices,mode:state.formMode,isHandler:state.isHandler});$('lg-form').hidden=false;}
- function closeForm(){state.draft={};state.formMode='create';$('lg-form').hidden=true;}
+ function closeForm(){state.draft={};state.formMode='create';state.editTarget=null;$('lg-form').hidden=true;}
  const SUMMARY=['type_code','title_text','team_code','counterparty_text','want_date','ship_mode_code','qty_summary_text','note_text','invoice_id'];
  async function submitEdit(form){
-  if(state.busy)return;const r=current();if(!r)return;
+  if(state.busy)return;const r=state.editTarget;if(!r)return; // 폼을 연 요청과 그때의 상태 — 그 사이 다른 요청을 골라도 바뀌지 않는다
   const draft=readForm(form);const errors=M.validateDraft(draft);
   const errEl=form.querySelector('.lg-error');if(errors.length){if(errEl)errEl.textContent=errors.join(' ');return;}
   const row=M.toInsertRow(draft),patch={};
@@ -239,7 +239,7 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
   const t=ev.target;const r=current();if(!r)return;
   if(t.dataset?.to){changeStatus(r.id,t.dataset.to);return;}
   if(t.dataset?.act==='edit-result'){editResult(r.id);return;}
-  if(t.dataset?.act==='edit-summary'){state.formMode='edit';state.draft={...r};drawForm();return;}
+  if(t.dataset?.act==='edit-summary'){state.formMode='edit';state.editTarget={id:r.id,status_code:r.status_code};state.draft={...r};drawForm();return;}
   if(t.dataset?.file){ev.preventDefault();const f=state.data.files.find(x=>x.id===t.dataset.file);if(f){
    const w=open('about:blank'); // 클릭 안에서 먼저 창을 열어야 Safari가 팝업으로 막지 않는다
    try{const u=await api.fileUrl(f.storage_path);if(!u)throw new Error('UNCONFIRMED');
@@ -262,7 +262,7 @@ function mount({document,client,now=()=>Date.now(),confirm=(m)=>root.confirm(m),
  $('lg-form').addEventListener('change',ev=>{if(['type_code','ship_mode_code'].includes(ev.target.name)){state.draft=readForm($('lg-form').querySelector('form')||$('lg-form'));drawForm();}});
  $('lg-form').addEventListener('submit',ev=>{ev.preventDefault();return ev.target.dataset?.act==='edit'?submitEdit(ev.target):submitForm(ev.target);});
  $('lg-form').addEventListener('click',ev=>{if(ev.target.dataset?.act==='cancel-edit'){closeForm();$('lg-form').innerHTML='';}});
- $('lg-new').addEventListener('click',()=>{state.formMode='create';state.draft={team_code:'',want_date:''};drawForm();});
+ $('lg-new').addEventListener('click',()=>{state.formMode='create';state.editTarget=null;state.draft={team_code:'',want_date:''};drawForm();});
  $('lg-search').addEventListener('input',ev=>{state.q=ev.target.value;drawList();});
  $('lg-tabs').addEventListener('click',ev=>{const tab=ev.target.dataset?.tab;if(tab){state.tab=tab;drawList();}});
  $('lg-google').addEventListener('click',async()=>{try{const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.href,queryParams:{hd:'entropymakeup.com'}}});if(error)say(M.errorMessage(error));}catch(e){say(M.errorMessage(e));}});
