@@ -16,8 +16,11 @@ async function setup({secrets=true}={}){
  create schema net;
  create table net._http_response(id bigint primary key,status_code integer,content text,error_msg text,timed_out boolean);
  create table net.calls(id bigserial primary key,url text,body jsonb,headers jsonb);
+ -- 운영 pg_net 0.20.3처럼 Content-Type이 정확히 application/json이 아니면 거절한다.
  create function net.http_post(url text,body jsonb default '{}',params jsonb default '{}',headers jsonb default '{}',timeout_milliseconds integer default 5000) returns bigint
-  language sql as $$insert into net.calls(url,body,headers) values (url,body,headers) returning id$$;
+  language plpgsql as $$declare n bigint;begin
+   if headers->>'Content-Type' is distinct from 'application/json' then raise exception 'Content-Type header must be "application/json"'; end if;
+   insert into net.calls(url,body,headers) values (url,body,headers) returning id into n;return n;end$$;
  create schema vault;create table vault.decrypted_secrets(name text primary key,decrypted_secret text);
  create schema cron;create table cron.job(jobid bigserial primary key,jobname text,schedule text,command text);
  create function cron.schedule(n text,s text,c text) returns bigint language sql as $$insert into cron.job(jobname,schedule,command) values (n,s,c) returning jobid$$;
