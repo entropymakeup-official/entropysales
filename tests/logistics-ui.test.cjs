@@ -866,3 +866,21 @@ test('mountTab: 엑셀 도구(XLSX)가 없으면 던지지 않고 한국어로 �
  t.d.els['lg-form'].onkeydown({key:'Enter',target:{id:'lg-f-title_text'},preventDefault(){prevented++;},stopPropagation(){stopped++;}});
  assert.deepEqual([prevented,stopped],[1,2]);
 });
+
+test('mountTab: 요약 수정을 저장하면 지난 파스토 내려받기 오류 목록은 지워진다',async()=>{
+ let recipient={request_id:'r1',name_text:'홍길동',phone_text:'',address1_text:'가짜시 가짜로 1'};
+ const t=setup({rows:[R('r1',{ship_mode_code:'parcel',requester_email:'req@entropymakeup.com'})],email:'req@entropymakeup.com',xlsx:require('xlsx'),saveWorkbook:()=>{},
+  handler:q=>{const s=stockHandler(q);if(s)return s;
+   if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert'){recipient={...recipient,...q.ops[0][1]};return {data:[{request_id:'r1'}],error:null};}
+   if(q.table==='logistics_request_recipients')return {data:[recipient],error:null};
+   if(q.table==='logistics_request_items')return {data:[{product_code:'0012345',product_name_text:'가짜 립',qty:2,lot_text:'',expires_on:null,line_no:1}],error:null};
+   return null;}});
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{act:'fassto-download'});
+ assert.match(t.d.els['lg-detail'].innerHTML,/전화 칸이 비어 있어요/);
+ click(t.d,{act:'edit-summary'});
+ await submit(t.d,{type_code:'quick',title_text:'요청 r1',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'parcel',qty_summary_text:'',note_text:'',invoice_id:'',
+  r_name_text:'홍길동',r_phone_text:'010-0000-0000',r_address1_text:'가짜시 가짜로 1',item_qty_0:'2'},'edit');
+ assert.match(t.d.els['lg-detail'].innerHTML,/요약을 저장했어요/);
+ assert.ok(!t.d.els['lg-detail'].innerHTML.includes('전화 칸이 비어 있어요')&&!t.d.els['lg-detail'].innerHTML.includes('내려받지 않았어요'));
+});

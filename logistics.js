@@ -419,6 +419,7 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   const [det,rec,its]=await Promise.allSettled([api.loadDetail(id),canSee?api.loadRecipient(id):Promise.resolve(null),api.loadItems(id)]);
   if(g!==generation||state.selected!==id)return;
   if(det.status==='fulfilled')state.detail=det.value;else state.detailError='댓글과 이력을 불러오지 못했어요: '+(det.reason?.message||det.reason);
+  state.fasstoErrors=[]; // 받는 곳·품목을 다시 불러왔으니 지난 내려받기 오류는 낡았다
   if(rec.status==='fulfilled'&&its.status==='fulfilled')state.fassto={loaded:true,loading:false,recipient:rec.value,items:its.value||[],error:''};
   else{const e=rec.status==='rejected'?rec.reason:its.reason;state.fassto={...NO_FASSTO(),error:'받는 곳과 품목을 불러오지 못했어요: '+(e?.message||e)};}
   state.detailLoading=false;drawDetail();
