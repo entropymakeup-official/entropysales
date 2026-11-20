@@ -61,6 +61,22 @@ test('새 요청은 채널에 새 글로 보내고 ts를 저장한다',async()=>
  }finally{await t.db.close();}
 });
 
+test('멘션을 끈 담당자는 새 요청 알림에서 빠지지만 담당자 권한은 그대로다',async()=>{
+ const t=await setup();
+ try{
+  await t.system();
+  await t.db.exec(`insert into logistics_handlers(email,display_name,mention_on_new) values ('boss@entropymakeup.com','대표',false);
+   insert into logistics_people(email,display_name,slack_user_id) values ('boss@entropymakeup.com','대표','UBOSS001');`);
+  await t.create();
+  await t.flush();
+  const [c]=await t.calls();
+  assert.match(c.body.text,/→ <@UHND0001>\n/);
+  assert.doesNotMatch(c.body.text,/UBOSS001/);
+  const n=(await t.db.query(`select count(*)::int n from logistics_handlers where is_active`)).rows[0].n;
+  assert.equal(n,2);
+ }finally{await t.db.close();}
+});
+
 test('출고완료·보류는 원래 글의 스레드 답글로 보내고, 원글이 끝나기 전에는 기다린다',async()=>{
  const t=await setup();
  try{

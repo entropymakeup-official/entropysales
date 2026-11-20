@@ -24,6 +24,12 @@ insert into public.logistics_handlers(email, display_name) values ('name@entropy
 insert into public.logistics_people(email, display_name, slack_user_id) values ('name@entropymakeup.com', '이름', 'U0123456789');
 ```
 
+새 요청 알림 멘션만 빼기(담당자 권한은 그대로):
+
+```sql
+update public.logistics_handlers set mention_on_new = false where email = 'name@entropymakeup.com';
+```
+
 퇴사·담당 변경 시에만 실행:
 
 ```sql
