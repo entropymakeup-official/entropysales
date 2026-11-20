@@ -2,6 +2,7 @@
 'use strict';
 // 영업 대시보드의 물류 요청 탭. 데이터 계층(createApi), 계산·HTML 렌더링(summarize·render*), 탭 연결(mountTab). 규칙은 logistics-model.js.
 const M=root.LogisticsModel||(typeof require==='function'?require('./logistics-model.js'):null);
+const F=root.FasstoForms||(typeof require==='function'?require('./fassto-forms.js'):null);
 const {esc}=M;
 const BUCKET='logistics-docs',T='logistics_requests';
 const opt=(map,sel)=>Object.entries(map).map(([k,v])=>`<option value="${esc(k)}"${k===sel?' selected':''}>${esc(v)}</option>`).join('');
@@ -73,6 +74,33 @@ function createApi(client,{uuid,now=()=>Date.now()}={}){
   async deleteComment(id){
    const rows=await need(client.from('logistics_request_comments').delete().eq('id',id).select());
    if(!Array.isArray(rows)||rows.length!==1)throw new Error('STALE');
+  },
+  // 파스토 상품 목록. select가 1000행에서 잘리므로 1000행씩 나눠 받는다.
+  async loadStock(){
+   const rows=[];
+   for(let from=0;from<20000;from+=1000){
+    const page=(await need(client.from('logistics_fassto_stock').select('product_code,barcode,product_name,kind_text,lot_text,expires_on,available_qty').order('id').range(from,from+999)))||[];
+    rows.push(...page);if(page.length<1000)break;
+   }
+   const sync=await need(client.from('logistics_fassto_sync').select('synced_at,source_text,row_count').order('synced_at',{ascending:false}).limit(1));
+   return {rows,sync:Array.isArray(sync)?sync[0]||null:null};
+  },
+  // 볼 권한이 없으면 RLS가 빈 결과를 준다(null). 볼 수 없음과 입력 안 됨은 화면이 요청자·담당자 여부로 나눈다.
+  async loadRecipient(id){
+   const rows=await need(client.from('logistics_request_recipients').select('*').eq('request_id',id));
+   return Array.isArray(rows)?rows[0]||null:null;
+  },
+  async loadItems(id){return (await need(client.from('logistics_request_items').select('*').eq('request_id',id).order('line_no')))||[];},
+  // 요청자는 담당자 칸을 빼고 보낸다: F.toRecipientRow(values,{isHandler}) 가 만든 행만 넘길 것.
+  async saveRecipient(id,row){
+   const rows=await need(client.from('logistics_request_recipients').upsert({...row,request_id:id},{onConflict:'request_id'}).select());
+   if(!Array.isArray(rows)||rows.length!==1)throw new Error('UNCONFIRMED');return rows[0];
+  },
+  // 품목은 통째로 바꾼다(DB 함수 하나 = 한 트랜잭션). 돌려준 줄 수가 보낸 줄 수와 같아야 성공이다.
+  async saveItems(id,items){
+   const rows=F.toItemRows(items);
+   const n=await need(client.rpc('logistics_replace_items',{p_request:id,p_items:rows}));
+   if(Number(n)!==rows.length)throw new Error('UNCONFIRMED');return rows.length;
   }
  };
 }

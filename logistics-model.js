@@ -22,6 +22,9 @@ const ERRORS={
  LOGISTICS_NOTE_REQUIRED:'보류나 되돌리기에는 사유가 필요해요.',
  LOGISTICS_FILE_LIMIT:'첨부는 요청당 10개까지예요.',
  LOGISTICS_LOGIN_REQUIRED:'회사 계정으로 로그인해 주세요.',
+ LOGISTICS_HANDLER_ONLY:'운송사·Incoterms·발송인은 물류 담당자만 정할 수 있어요.',
+ LOGISTICS_ITEM_LIMIT:'품목은 요청당 50줄까지예요.',
+ LOGISTICS_ITEM_BAD:'품목을 확인해 주세요. 상품코드는 문자, 수량은 1 이상이어야 해요.',
  STALE:'다른 사람이 먼저 바꿨어요. 새로고침한 뒤 다시 해 주세요.',
  UNCONFIRMED:'저장 결과를 확인하지 못했어요. 새로고침해서 저장됐는지 확인해 주세요.'
 };
@@ -102,7 +105,10 @@ function safeFileName(name){
 function errorMessage(err){
  const msg=String(err?.message||err||'');
  const code=Object.keys(ERRORS).find(k=>msg.includes(k));
- return code?ERRORS[code]:'저장하지 못했어요: '+msg;
+ if(code)return ERRORS[code];
+ // 품목 값이 DB 형식 검사에서 먼저 걸리면 원문(영어) 대신 읽기 쉬운 문구로 보여 준다.
+ if(/invalid input syntax|out of range|violates check constraint|numeric field overflow/i.test(msg))return '입력값을 확인해 주세요. 숫자·날짜 형식이나 허용 범위가 맞지 않아요.';
+ return '저장하지 못했어요: '+msg;
 }
 
 return {TYPES,TEAMS,SHIP_MODES,STATUSES,PACKING,FILE_KINDS,OPEN,CLOSED,LIMITS,esc,kstToday,isDate,isHandler,transitionAllowed,checkTransition,allowedNext,

@@ -91,3 +91,17 @@ test('파일 이름·이스케이프·오류 문구',()=>{
  assert.equal(M.errorMessage(new Error('STALE')),'다른 사람이 먼저 바꿨어요. 새로고침한 뒤 다시 해 주세요.');
  assert.equal(M.errorMessage({message:'boom'}),'저장하지 못했어요: boom');
 });
+
+test('파스토 오류 코드도 한국어 문구로 바꾼다',()=>{
+ assert.equal(M.errorMessage({message:'LOGISTICS_HANDLER_ONLY'}),'운송사·Incoterms·발송인은 물류 담당자만 정할 수 있어요.');
+ assert.equal(M.errorMessage({message:'LOGISTICS_ITEM_LIMIT'}),'품목은 요청당 50줄까지예요.');
+ assert.equal(M.errorMessage(new Error('LOGISTICS_ITEM_BAD')),'품목을 확인해 주세요. 상품코드는 문자, 수량은 1 이상이어야 해요.');
+});
+
+test('DB가 돌려준 입력값 오류(정수·날짜·check)는 읽기 쉬운 문구로 바꾼다',()=>{
+ const want='입력값을 확인해 주세요. 숫자·날짜 형식이나 허용 범위가 맞지 않아요.';
+ assert.equal(M.errorMessage({message:'invalid input syntax for type integer: "abc"'}),want);
+ assert.equal(M.errorMessage({message:'date/time field value out of range: "2026-13-40"'}),want);
+ assert.equal(M.errorMessage({message:'new row for relation "logistics_request_items" violates check constraint "x"'}),want);
+ assert.equal(M.errorMessage({message:'boom'}),'저장하지 못했어요: boom');
+});

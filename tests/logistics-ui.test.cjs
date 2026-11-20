@@ -7,7 +7,7 @@ const NOW=Date.UTC(2026,10,20,1);
 function fakeClient(handler){
  const calls=[];
  const builder=(table)=>{const q={table,ops:[]};const chain={};
-  for(const m of ['select','insert','update','delete','eq','order','limit','in','gte'])chain[m]=(...a)=>{q.ops.push([m,...a]);return chain;};
+  for(const m of ['select','insert','update','upsert','delete','eq','order','limit','range','in','gte'])chain[m]=(...a)=>{q.ops.push([m,...a]);return chain;};
   chain.single=()=>{q.ops.push(['single']);return chain;};
   chain.then=(res,rej)=>{calls.push(q);return Promise.resolve(handler(q)).then(res,rej);};
   return chain;};
@@ -15,7 +15,8 @@ function fakeClient(handler){
   upload:async(p,f,o)=>{calls.push({table:'storage:'+bucket,ops:[['upload',p,o]]});return handler({table:'storage:'+bucket,ops:[['upload',p]]});},
   remove:async ps=>{calls.push({table:'storage:'+bucket,ops:[['remove',ps]]});return handler({table:'storage:'+bucket,ops:[['remove',ps]]});},
   createSignedUrl:async(p,s)=>handler({table:'storage:'+bucket,ops:[['sign',p,s]]})})};
- return {client:{from:builder,storage},calls};
+ const rpc=(fn,args)=>{const q={table:'rpc:'+fn,ops:[['rpc',args]]};calls.push(q);return Promise.resolve(handler(q));};
+ return {client:{from:builder,storage,rpc},calls};
 }
 const draft={type_code:'quick',title_text:'퀵',team_code:'global',counterparty_text:'비주그룹',want_date:'2026-11-20',ship_mode_code:'quick'};
 
@@ -624,4 +625,48 @@ test('mountTab: STALE이면 최신 행을 다시 불러와 창을 새로 그리�
  assert.match(e.d.els['lg-form-error'].textContent,/다른 사람이 먼저 바꿨어요/);assert.equal(e.d.els['lg-form'].open,true);
  await submit(e.d,vals,'edit');
  assert.deepEqual(e.updates[1].ops.filter(o=>o[0]==='eq'),[['eq','id','r2'],['eq','status_code','preparing']]);
+});
+
+// ── 파스토 양식 ──
+const STOCK=[{product_code:'0012345',barcode:'8800000000001',product_name:'가짜 립',kind_text:'본품',lot_text:'L1',expires_on:'2028-01-31',available_qty:120},
+ {product_code:'0012345',barcode:'8800000000001',product_name:'가짜 립',kind_text:'본품',lot_text:'L2',expires_on:'2028-06-30',available_qty:30},
+ {product_code:'A-9',barcode:'',product_name:'가짜 쇼핑백',kind_text:'부자재',lot_text:'',expires_on:null,available_qty:5}];
+const SYNC=[{synced_at:'2026-11-20T00:05:00Z',source_text:'fms-browser',row_count:3}];
+const stockHandler=q=>q.table==='logistics_fassto_stock'?{data:STOCK,error:null}:q.table==='logistics_fassto_sync'?{data:SYNC,error:null}:null;
+const G=require('../fassto-forms.js').groupStock(STOCK);
+
+test('createApi: 파스토 목록은 1000행씩 받고, 받는 곳은 upsert 1행, 품목은 RPC 줄 수를 확인한다',async()=>{
+ const page=n=>Array.from({length:n},(_,i)=>({product_code:'P'+i,available_qty:1}));
+ const {client,calls}=fakeClient(q=>{
+  if(q.table==='logistics_fassto_stock'){const r=q.ops.find(o=>o[0]==='range');return {data:r[1]===0?page(1000):page(3),error:null};}
+  if(q.table==='logistics_fassto_sync')return {data:SYNC,error:null};
+  if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert')return {data:[{request_id:'r1'}],error:null};
+  if(q.table==='logistics_request_recipients')return {data:[],error:null};
+  if(q.table==='rpc:logistics_replace_items')return {data:q.ops[0][1].p_items.length,error:null};
+  return {data:[],error:null};});
+ const api=P.createApi(client);
+ const s=await api.loadStock();
+ assert.equal(s.rows.length,1003);
+ assert.deepEqual(calls.filter(c=>c.table==='logistics_fassto_stock').map(c=>c.ops.find(o=>o[0]==='range').slice(1)),[[0,999],[1000,1999]]);
+ assert.equal(s.sync.synced_at,'2026-11-20T00:05:00Z');
+ assert.equal(await api.loadRecipient('r1'),null);
+ await api.saveRecipient('r1',{name_text:'A'});
+ const up=calls.find(c=>c.ops[0][0]==='upsert');
+ assert.deepEqual(up.ops[0].slice(1),[{name_text:'A',request_id:'r1'},{onConflict:'request_id'}]);
+ assert.equal(await api.saveItems('r1',[{product_code:'007',qty:'2'}]),1);
+ const rpc=calls.find(c=>c.table==='rpc:logistics_replace_items');
+ assert.deepEqual(rpc.ops[0][1].p_items[0],{product_code:'007',product_name_text:'',qty:2,lot_text:'',expires_on:null,en_name_text:'',weight_kg:null,unit_price:null,hs_code_text:''});
+ const bad=fakeClient(q=>q.table.startsWith('rpc:')?{data:0,error:null}:{data:[],error:null});
+ await assert.rejects(()=>P.createApi(bad.client).saveItems('r1',[{product_code:'X',qty:1}]),/UNCONFIRMED/);
+ await assert.rejects(()=>P.createApi(bad.client).saveRecipient('r1',{}),/UNCONFIRMED/);
+});
+
+test('요청자 저장 행에는 담당자 전용 칸이 들어가지 않는다(DB 트리거 LOGISTICS_HANDLER_ONLY 방지)',async()=>{
+ const F=require('../fassto-forms.js');
+ const vals={name_text:'A',courier_text:'FEDEX',incoterms_code:'DAP',sender_name_text:'X'};
+ const {client,calls}=fakeClient(q=>q.ops[0][0]==='upsert'?{data:[{request_id:'r1'}],error:null}:{data:[],error:null});
+ await P.createApi(client).saveRecipient('r1',F.toRecipientRow(vals,{isHandler:false}));
+ const sent=calls.find(c=>c.ops[0][0]==='upsert').ops[0][1];
+ for(const k of F.HANDLER_KEYS)assert.equal(k in sent,false,k);
+ assert.equal(sent.name_text,'A');
 });
