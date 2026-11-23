@@ -3,16 +3,16 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const source=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
 const row=(patch={},index=1)=>Object.defineProperty({'바코드':'00123','발주일':'2026-09-10','수량':2,'단가':12.5,'유형':'Paid',...patch},'__rowNum__',{value:index});
-function setup(rows,{customer={name:'Test'},products=[]}={}){
+function setup(rows,{customer={name:'Test'},products=[],retailPrices=[]}={}){
  const messages=[],opened=[];let previews=0;
  const nodes={'raw-upload-cust':{value:'Test'},'raw-upload-errors':{innerHTML:'',hidden:true}};
- const c={window:{},_savingRawUpload:false,_customers:[customer],_products:products,
+ const c={window:{},_savingRawUpload:false,_customers:[customer],_products:products,_customerRetailPrices:retailPrices,CustomerPrices:require('../customer-prices.js'),
   document:{getElementById:id=>nodes[id]||null},toast:m=>messages.push(m),om:m=>opened.push(m),
   esc:s=>String(s??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x])),
   FileReader:class{readAsBinaryString(){this.onload({target:{result:'fake workbook bytes'}});}},
   XLSX:{read:()=>({SheetNames:['Sheet1'],Sheets:{Sheet1:{}}}),utils:{sheet_to_json:()=>rows}}
  };
- c.InvoiceAmounts=require('../invoice-amounts.js');vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function handleRawUpload(input)'),source.indexOf('function discardRawUpload')),c);vm.runInContext(require('./helpers/approvals.cjs').code('isShipModeHeader'),c);
+ c.InvoiceAmounts=require('../invoice-amounts.js');vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function handleRawUpload(input)'),source.indexOf('function discardRawUpload')),c);vm.runInContext(require('./helpers/approvals.cjs').code('isShipModeHeader'),c);vm.runInContext(require('./helpers/approvals.cjs').code('customerSupplyPrice'),c);
  c._showRawPreviewModal=()=>{previews++;};
  return {c,nodes,messages,opened,run:()=>c.handleRawUpload({files:[{}],value:'file'}),previews:()=>previews};
 }
@@ -73,4 +73,24 @@ test('Excel formula errors cannot become optional blank prices or disappear as e
   s.c.XLSX.read=()=>({SheetNames:['Sheet1'],Sheets:{Sheet1:{C3:{t:'e',v:7},'!ref':'A1:C3'}}});s.run();
   assert.equal(s.previews(),0);assert.match(s.nodes['raw-upload-errors'].innerHTML,/3행/);assert.match(s.nodes['raw-upload-errors'].innerHTML,/C3/);
  }
+});
+
+test('customer base retail price overrides RSP for that customer only and drives the price alert',()=>{
+ const CR={id:'cr',name:'Test',supply_rate:35},STC={id:'stc',name:'Test',supply_rate:32};
+ const products=[{barcode:'00123',name:'참 틴트',price:18000},{barcode:'00999',name:'Other',price:10000}];
+ const retailPrices=[{id:'p1',customer_id:'cr',barcode:'00123',retail_price:21000,note:'11/03 가격표'}];
+ // Excel 7,350 matches the contract price list: no mismatch alert, stored price is 7,350.
+ const ok=setup([row({'단가':7350}),row({'바코드':'00999','단가':3500},2)],{customer:CR,products,retailPrices});ok.run();
+ const items=ok.c.window._rawUploadData[0].items;
+ assert.deepEqual(Array.from(items,i=>i.price),[7350,3500]);
+ assert.equal(items[0]._priceBasis,'customer');assert.equal(items[1]._priceBasis,'rsp');
+ assert.equal(ok.c.window._rawPriceAlerts.length,0);
+ // A wrong Excel price (RSP-based 6,300) is flagged against the contract price and replaced.
+ const bad=setup([row({'단가':6300})],{customer:CR,products,retailPrices});bad.run();
+ assert.equal(bad.c.window._rawUploadData[0].items[0].price,7350);
+ const alert=bad.c.window._rawPriceAlerts[0];
+ assert.equal(alert.calcPrice,7350);assert.equal(alert.retailPrice,21000);assert.equal(alert.basis,'customer');assert.equal(alert.rsp,18000);
+ // Another customer with no override keeps RSP × its own rate (18,000 × 32% = 5,760).
+ const other=setup([row({'단가':''})],{customer:STC,products,retailPrices});other.run();
+ assert.equal(other.c.window._rawUploadData[0].items[0].price,5760);
 });

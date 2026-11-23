@@ -105,6 +105,8 @@ const SUPPLIER = {name:'㈜브랜드지놈',addr:'서울특별시 용산구 독�
 
 // ─── 캐시 ───
 let _customers=[], _products=[], _invoices=[], _items=[], _stocks=[], _docs=[], _schedules=[];
+// 거래처별 기준 소비자가(계약상 수정 국내 소비자가). 표가 아직 없으면 빈 배열로 두고 RSP 기준으로 계산합니다.
+let _customerRetailPrices=[];
 let _editInv=null, _editCust=null, _editProd=null;
 let _uploadData=null;
 
@@ -181,7 +183,7 @@ function resetApplicationData(){
   if(typeof goStartPage==='function')goStartPage.done=false;
   resetDashboardTaxLedger();
   resetDashboardConsignment();
-  _customers=[];_products=[];_invoices=[];_items=[];_stocks=[];_docs=[];_schedules=[];_taxRecords=[];
+  _customers=[];_products=[];_invoices=[];_items=[];_stocks=[];_docs=[];_schedules=[];_taxRecords=[];_customerRetailPrices=[];
   _dashSnapshot=null;_dashPeriod=null;_consignFilter=null;
   const content=document.getElementById('content');
   if(content)content.innerHTML=loading();
@@ -202,7 +204,7 @@ async function loadAll(){
 
 async function _loadAllInner(generation=_loadAllGeneration){
   // 모든 쿼리 동시에 병렬 실행 (세금계산서 확인금액 원장·면세점 정산 원장은 별도 상태로 읽고 주문 매출에 합산하지 않음)
-  const [c,p,inv,s,d,sch,goal,tr]=await Promise.all([
+  const [c,p,inv,s,d,sch,goal,tr,crp]=await Promise.all([
     sb.from('customers').select('*').order('name'),
     sb.from('products').select('*').order('name'),
     sb.from('invoices').select('*').order('order_date',{ascending:false}),
@@ -211,6 +213,7 @@ async function _loadAllInner(generation=_loadAllGeneration){
     sb.from('schedules').select('*').order('date'),
     sb.from('app_settings').select('value').eq('key','revenue_goal').maybeSingle(),
     sb.from('tax_records').select('*'),
+    sb.from('customer_retail_prices').select('*').order('barcode'),
     loadDashboardTaxLedger(),
     loadDashboardConsignment()
   ]);
@@ -237,6 +240,7 @@ async function _loadAllInner(generation=_loadAllGeneration){
     localStorage.setItem('revenue_goal',_revenueGoal);
   }
   _taxRecords=tr.data||[];
+  _customerRetailPrices=crp?.error?[]:(crp?.data||[]);
   _items=loadedItems;
   return true;
 }
@@ -1905,6 +1909,15 @@ function xgKeydownGlobal(e){
   }
 }
 
+// 공급가 = (거래처 기준 소비자가가 있으면 그 값, 없으면 RSP 판매가) × 거래처 공급률
+function customerSupplyPrice(custObj,barcode,prod){
+  return CustomerPrices.supplyPrice({customer:custObj,product:prod,barcode,rows:_customerRetailPrices});
+}
+function supplyRateLabel(r){
+  if(!r?.rate)return '';
+  return r.source==='customer'?`(${r.rate}% · 거래처 기준가)`:`(${r.rate}%)`;
+}
+
 function xgParseBarcode(tr){
   const bc=tr.querySelector('[data-col="0"] input')?.value.trim();
   const nameEl=tr.querySelector('[data-col="1"] input');
@@ -1914,14 +1927,17 @@ function xgParseBarcode(tr){
   const prod=(_products||[]).find(p=>String(p.barcode||'').trim()===bc);
   if(prod){
     if(nameEl){nameEl.value=prod.name;nameEl.readOnly=true;nameEl.style.color='var(--text)';}
-    if(retailEl)retailEl.textContent=prod.price?fmt(prod.price):'-';
     const cust=document.getElementById('rm-cust')?.value;
     const custObj=(_customers||[]).find(c=>c.name===cust);
-    const rate=parseFloat(custObj?.supply_rate)||null;
+    const supply=customerSupplyPrice(custObj,bc,prod);
+    if(retailEl){
+      retailEl.textContent=supply.retail?fmt(supply.retail):'-';
+      retailEl.title=supply.source==='customer'?`거래처 기준 소비자가 (RSP ${fmt(supply.rsp)})`:'';
+    }
     if(priceEl){
-      priceEl.value=rate&&prod.price?Math.round(prod.price*(rate/100)):'';
+      priceEl.value=supply.price!==null?supply.price:'';
       const rateSpan=priceEl.closest('td')?.querySelector('.xg-rate');
-      if(rateSpan)rateSpan.textContent=rate?`(${rate}%)`:'';
+      if(rateSpan)rateSpan.textContent=supplyRateLabel(supply);
     }
   } else {
     if(nameEl){nameEl.value='';nameEl.readOnly=false;nameEl.placeholder='미매핑 — 직접 입력';nameEl.style.color='var(--red)';}
@@ -2071,15 +2087,15 @@ function rmParseBarcode(input){
     nameInput.value=prod.name;
     nameInput.style.color='var(--text1)';
     nameInput.setAttribute('readonly','');
-    // 판매가 표시
-    if(retailEl)retailEl.textContent=prod.price?fmt(prod.price):'-';
-    // 공급률 적용
+    // 공급률 적용 (거래처 기준 소비자가 우선)
     const cust=document.getElementById('rm-cust')?.value;
     const custObj=(_customers||[]).find(c=>c.name===cust);
-    const supplyRate=custObj?.supply_rate||null;
-    if(supplyRate&&prod.price){
-      supplyInput.value=Math.round(prod.price*supplyRate/100);
-      if(rateEl)rateEl.textContent=`(${supplyRate}%)`;
+    const supply=customerSupplyPrice(custObj,barcode,prod);
+    // 판매가 표시
+    if(retailEl)retailEl.textContent=supply.retail?fmt(supply.retail):'-';
+    if(supply.price!==null){
+      supplyInput.value=supply.price;
+      if(rateEl)rateEl.textContent=supplyRateLabel(supply);
     } else if(prod.price){
       supplyInput.value=prod.price;
       if(rateEl)rateEl.textContent='';
@@ -2314,9 +2330,9 @@ function handleRawUpload(input){
       if(!fixedCust){toast('거래처를 먼저 선택해주세요.');om('m-raw-upload');return;}
       const fixedCustObj=(_customers||[]).find(c=>c.name===fixedCust);
 
-      // 바코드 → 판매가 매핑
+      // 바코드 → 제품 매핑
       const barcodeMap={};
-      (_products||[]).forEach(p=>{if(p.barcode)barcodeMap[String(p.barcode).trim()]={name:p.name,price:p.price||0};});
+      (_products||[]).forEach(p=>{if(p.barcode)barcodeMap[String(p.barcode).trim()]=p;});
 
       const invMap={};
       let unmappedBarcode=0;
@@ -2340,10 +2356,11 @@ function handleRawUpload(input){
         const prod=barcodeMap[barcode];
         const mappedName=prod?prod.name:(colMap.product?String(row[colMap.product]||'').trim():'');
 
-        // 공급가 계산: 판매가 × 공급률
-        const supplyRate=fixedCustObj?.supply_rate||null;
-        const retailPrice=prod?.price||0;
-        const calcPrice=supplyRate&&retailPrice?Math.round(retailPrice*supplyRate/100):null;
+        // 공급가 계산: (거래처 기준 소비자가 또는 RSP 판매가) × 공급률
+        const supply=customerSupplyPrice(fixedCustObj,barcode,prod||null);
+        const supplyRate=supply.rate;
+        const retailPrice=supply.retail;
+        const calcPrice=supply.price;
         const qty=parseRawUploadNumber(row[colMap.qty]);
         if(qty===null)error('수량을 올바른 숫자로 입력해 주세요. (예: 1,000 또는 2.5)');
         const rawPrice=colMap.price?row[colMap.price]:'';
@@ -2367,7 +2384,7 @@ function handleRawUpload(input){
         if(issues.length!==before)return;
 
         if(calcPrice!==null&&excelPrice>0&&excelPrice!==calcPrice){
-          priceAlerts.push({barcode,name:mappedName,customer:fixedCust,excelPrice,calcPrice,retailPrice,supplyRate});
+          priceAlerts.push({barcode,name:mappedName,customer:fixedCust,excelPrice,calcPrice,retailPrice,supplyRate,basis:supply.source,rsp:supply.rsp});
         }
 
         // 같은 주문으로 묶인 행의 비고는 중복을 빼고 순서대로 이어 붙입니다.
@@ -2380,7 +2397,7 @@ function handleRawUpload(input){
           qty,
           price:finalPrice,
           shipMode,
-          _mapped:!!prod,_calcPrice:calcPrice,_excelPrice:excelPrice,_supplyRate:supplyRate
+          _mapped:!!prod,_calcPrice:calcPrice,_excelPrice:excelPrice,_supplyRate:supplyRate,_priceBasis:supply.source
         });
       });
 
@@ -2457,13 +2474,13 @@ function _showRawPreviewModal(unmappedBarcode){
   if(priceWarnEl){
     if(priceAlerts.length){
       priceWarnEl.innerHTML=`
-        <div class="sdiv" style="margin-top:12px;color:var(--orange,#f59e0b)">⚠ 단가 불일치 ${priceAlerts.length}건 — 공급률 기준 계산가로 자동 적용됩니다. 다른 경우 확인해주세요.</div>
+        <div class="sdiv" style="margin-top:12px;color:var(--orange,#f59e0b)">⚠ 단가 불일치 ${priceAlerts.length}건 — 기준가 × 공급률 계산가로 자동 적용됩니다. 거래처 계약 가격표와 다르면 거래처 관리에서 기준 소비자가를 등록해 주세요.</div>
         <div style="max-height:140px;overflow-y:auto;border:0.5px solid var(--orange,#f59e0b);border-radius:var(--radius);font-size:11px">
           <table style="width:100%;border-collapse:collapse">
             <thead><tr style="background:var(--bg3)">
               <th style="padding:5px 8px;text-align:left">제품명</th>
               <th style="padding:5px 8px;text-align:left">거래처</th>
-              <th style="padding:5px 8px;text-align:right">판매가</th>
+              <th style="padding:5px 8px;text-align:right">기준가</th>
               <th style="padding:5px 8px;text-align:right">공급률</th>
               <th style="padding:5px 8px;text-align:right;color:var(--green)">계산 공급가</th>
               <th style="padding:5px 8px;text-align:right;color:var(--red)">엑셀 입력가</th>
@@ -2471,7 +2488,7 @@ function _showRawPreviewModal(unmappedBarcode){
             <tbody>${priceAlerts.map(a=>`<tr style="border-top:0.5px solid var(--border)">
               <td style="padding:5px 8px">${esc(a.name)}</td>
               <td style="padding:5px 8px;color:var(--text2)">${esc(a.customer)}</td>
-              <td style="padding:5px 8px;text-align:right">${fmt(a.retailPrice)}</td>
+              <td style="padding:5px 8px;text-align:right" title="${a.basis==='customer'?'거래처 기준 소비자가 (RSP '+fmt(a.rsp)+')':'RSP 판매가'}">${fmt(a.retailPrice)}${a.basis==='customer'?' <span style="font-size:10px;color:var(--text3)">거래처</span>':''}</td>
               <td style="padding:5px 8px;text-align:right">${a.supplyRate}%</td>
               <td style="padding:5px 8px;text-align:right;color:var(--green);font-weight:600">${fmt(a.calcPrice)}</td>
               <td style="padding:5px 8px;text-align:right;color:var(--red)">${fmt(a.excelPrice)}</td>
@@ -3112,9 +3129,71 @@ function exportCust(){
   }
 }
 
-function openNewCust(){_editCust=null;['c-name','c-code','c-addr','c-biz','c-ceo','c-contact','c-phone','c-email','c-biz-type','c-note','c-supply-rate'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('c-mgr').value='liah';document.getElementById('c-tax').value='영세';document.getElementById('c-country').value='';document.getElementById('c-status').value='거래중';document.getElementById('m-cust-title').textContent='거래처 등록';om('m-cust');}
-function editCust(id){const c=_customers.find(x=>x.id===id);if(!c)return;_editCust=JSON.parse(JSON.stringify(c));document.getElementById('c-name').value=c.name;document.getElementById('c-code').value=c.code||'';document.getElementById('c-mgr').value=c.mgr||'liah';document.getElementById('c-country').value=c.country||'';document.getElementById('c-tax').value=c.tax||'영세';document.getElementById('c-biz').value=c.biz||'';document.getElementById('c-addr').value=c.addr||'';document.getElementById('c-ceo').value=c.ceo||'';document.getElementById('c-contact').value=c.contact||'';document.getElementById('c-phone').value=c.phone||'';document.getElementById('c-email').value=c.email||'';document.getElementById('c-biz-type').value=c.biz_type||'';document.getElementById('c-note').value=c.note||'';document.getElementById('c-status').value=c.status||'거래중';document.getElementById('c-supply-rate').value=c.supply_rate||'';document.getElementById('m-cust-title').textContent='거래처 수정';om('m-cust');}
-async function saveCust(){const name=document.getElementById('c-name').value.trim();if(!name){alert('업체명 필수');return;}const obj={name,code:document.getElementById('c-code').value,mgr:document.getElementById('c-mgr').value,country:document.getElementById('c-country').value,tax:document.getElementById('c-tax').value,biz:document.getElementById('c-biz').value,addr:document.getElementById('c-addr').value,ceo:document.getElementById('c-ceo').value,contact:document.getElementById('c-contact').value,phone:document.getElementById('c-phone').value,email:document.getElementById('c-email').value,biz_type:document.getElementById('c-biz-type').value,note:document.getElementById('c-note').value,status:document.getElementById('c-status').value,supply_rate:parseFloat(document.getElementById('c-supply-rate').value)||null};if(await requestRow('customers',_editCust?'update':'insert',_editCust?{id:_editCust.id}:{},obj,_editCust)){cm('m-cust');renderCustomers();}
+function openNewCust(){_editCust=null;['c-name','c-code','c-addr','c-biz','c-ceo','c-contact','c-phone','c-email','c-biz-type','c-note','c-supply-rate'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('c-mgr').value='liah';document.getElementById('c-tax').value='영세';document.getElementById('c-country').value='';document.getElementById('c-status').value='거래중';document.getElementById('m-cust-title').textContent='거래처 등록';renderCustRetailEditor(null);om('m-cust');}
+function editCust(id){const c=_customers.find(x=>x.id===id);if(!c)return;_editCust=JSON.parse(JSON.stringify(c));document.getElementById('c-name').value=c.name;document.getElementById('c-code').value=c.code||'';document.getElementById('c-mgr').value=c.mgr||'liah';document.getElementById('c-country').value=c.country||'';document.getElementById('c-tax').value=c.tax||'영세';document.getElementById('c-biz').value=c.biz||'';document.getElementById('c-addr').value=c.addr||'';document.getElementById('c-ceo').value=c.ceo||'';document.getElementById('c-contact').value=c.contact||'';document.getElementById('c-phone').value=c.phone||'';document.getElementById('c-email').value=c.email||'';document.getElementById('c-biz-type').value=c.biz_type||'';document.getElementById('c-note').value=c.note||'';document.getElementById('c-status').value=c.status||'거래중';document.getElementById('c-supply-rate').value=c.supply_rate||'';document.getElementById('m-cust-title').textContent='거래처 수정';renderCustRetailEditor(c.id);om('m-cust');}
+async function saveCust(){
+  const name=document.getElementById('c-name').value.trim();if(!name){alert('업체명 필수');return;}
+  const obj={name,code:document.getElementById('c-code').value,mgr:document.getElementById('c-mgr').value,country:document.getElementById('c-country').value,tax:document.getElementById('c-tax').value,biz:document.getElementById('c-biz').value,addr:document.getElementById('c-addr').value,ceo:document.getElementById('c-ceo').value,contact:document.getElementById('c-contact').value,phone:document.getElementById('c-phone').value,email:document.getElementById('c-email').value,biz_type:document.getElementById('c-biz-type').value,note:document.getElementById('c-note').value,status:document.getElementById('c-status').value,supply_rate:parseFloat(document.getElementById('c-supply-rate').value)||null};
+  if(!_editCust){if(await requestRow('customers','insert',{},obj,null)){cm('m-cust');renderCustomers();}return;}
+  // 거래처 정보와 기준 소비자가 변경을 하나의 변경요청으로 묶습니다.
+  const plan=custRetailChanges(_editCust.id);
+  if(plan.errors.length){alert(plan.errors.join('\n'));return;}
+  if(!plan.changes.length){if(await requestRow('customers','update',{id:_editCust.id},obj,_editCust)){cm('m-cust');renderCustomers();}return;}
+  const custChanged=Object.keys(obj).some(k=>k==='supply_rate'?(obj[k]===null?_editCust[k]!=null:Number(_editCust[k])!==obj[k]):String(_editCust[k]??'')!==String(obj[k]??''));
+  try{
+    const ops=[];
+    if(custChanged)ops.push(await rowChange('customers','update',{id:_editCust.id},obj,_editCust));
+    for(const change of plan.changes)ops.push(await rowChange(...change));
+    if(await queueChanges(ops)){cm('m-cust');renderCustomers();}
+  }catch(error){toast('요청 실패: '+error.message);}
+}
+
+// ─── 거래처 기준 소비자가 편집 (계약상 수정 국내 소비자가) ───
+let _custRetailDraft=[], _custRetailCustomerId=null;
+function renderCustRetailEditor(customerId){
+  if(customerId!==undefined){
+    _custRetailCustomerId=customerId;
+    _custRetailDraft=customerId?(_customerRetailPrices||[]).filter(r=>r.customer_id===customerId).map(r=>({id:r.id,barcode:r.barcode,retail_price:r.retail_price,note:r.note||''})):[];
+  }
+  const host=document.getElementById('c-retail-prices');
+  if(!host)return;
+  if(!_custRetailCustomerId){host.innerHTML='<div style="font-size:11px;color:var(--text3)">거래처 등록이 승인된 뒤 수정 화면에서 입력할 수 있습니다.</div>';return;}
+  const productOf=bc=>(_products||[]).find(x=>String(x.barcode||'').trim()===String(bc||'').trim());
+  const rows=_custRetailDraft.map((r,i)=>{const p=productOf(r.barcode);return `<tr>
+    <td><input value="${esc(r.barcode)}" style="width:120px" oninput="custRetailSet(${i},'barcode',this.value)" onchange="renderCustRetailEditor()"/></td>
+    <td style="font-size:11px;color:${p?'var(--text2)':'var(--red)'}">${esc(p?p.name:(r.barcode?'제품 목록에 없는 바코드':''))}</td>
+    <td style="text-align:right;font-size:11px;color:var(--text3)">${p?.price?fmt(p.price):'-'}</td>
+    <td><input type="number" min="0" value="${esc(r.retail_price)}" style="width:90px" oninput="custRetailSet(${i},'retail_price',this.value)"/></td>
+    <td><input value="${esc(r.note)}" placeholder="예: 11/03 가격표" style="width:140px" oninput="custRetailSet(${i},'note',this.value)"/></td>
+    <td><button class="btn btn-sm" type="button" onclick="custRetailRemove(${i})" title="삭제"><i class="ti ti-trash"></i></button></td>
+  </tr>`;}).join('');
+  host.innerHTML=`<div style="font-size:11px;color:var(--text3);margin-bottom:6px">계약상 RSP와 다른 소비자가로 오퍼한 제품만 입력합니다. 입력한 제품은 발주 입력·RAW 업로드에서 <b>기준 소비자가 × 공급률</b>로 단가를 계산하고, 나머지 제품은 RSP 판매가 기준 그대로입니다.</div>
+    <div style="max-height:220px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:var(--bg3)"><th style="text-align:left;padding:4px">바코드</th><th style="text-align:left;padding:4px">제품명</th><th style="text-align:right;padding:4px">RSP</th><th style="text-align:left;padding:4px">기준 소비자가</th><th style="text-align:left;padding:4px">근거 메모</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="6" style="padding:6px;color:var(--text3)">등록된 기준 소비자가가 없습니다. 모든 제품을 RSP 기준으로 계산합니다.</td></tr>'}</tbody>
+    </table></div>
+    <div style="display:flex;gap:6px;margin-top:6px;align-items:flex-start;flex-wrap:wrap">
+      <button class="btn btn-sm" type="button" onclick="custRetailAdd()"><i class="ti ti-plus"></i> 행 추가</button>
+      <textarea id="c-retail-paste" rows="2" placeholder="엑셀에서 붙여넣기: 바코드 [탭] 기준 소비자가 [탭] 메모" style="flex:1;min-width:220px;font-size:11px"></textarea>
+      <button class="btn btn-sm" type="button" onclick="custRetailPaste()">붙여넣기 반영</button>
+    </div>`;
+}
+function custRetailSet(i,key,value){if(_custRetailDraft[i])_custRetailDraft[i][key]=value;}
+function custRetailAdd(){_custRetailDraft.push({barcode:'',retail_price:'',note:''});renderCustRetailEditor();}
+function custRetailRemove(i){_custRetailDraft.splice(i,1);renderCustRetailEditor();}
+function custRetailPaste(){
+  const el=document.getElementById('c-retail-paste');
+  const parsed=CustomerPrices.parsePaste(el?.value||'');
+  if(parsed.errors.length){alert(parsed.errors.join('\n'));return;}
+  // 같은 바코드는 붙여넣은 값으로 덮어씁니다.
+  parsed.rows.forEach(row=>{const hit=_custRetailDraft.find(r=>String(r.barcode).trim()===row.barcode);if(hit){hit.retail_price=row.retail_price;if(row.note)hit.note=row.note;}else _custRetailDraft.push(row);});
+  if(el)el.value='';
+  renderCustRetailEditor();
+  toast(`${parsed.rows.length}개 행을 반영했습니다. 변경 요청 제출을 눌러야 저장됩니다.`);
+}
+function custRetailChanges(customerId){
+  if(customerId!==_custRetailCustomerId)return {errors:[],changes:[]};
+  return CustomerPrices.planChanges({customerId,before:_customerRetailPrices,draft:_custRetailDraft});
 }
 
 // ─── CALENDAR ───
