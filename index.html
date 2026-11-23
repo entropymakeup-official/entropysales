@@ -201,6 +201,8 @@
       <div class="fg"><label>담당자 이메일</label><input id="c-email"/></div>
       <div class="fg"><label>비고</label><input id="c-note"/></div>
     </div>
+    <div class="sdiv">거래처 기준 소비자가 <span style="font-weight:400;font-size:11px;color:var(--text3)">(선택 · 계약상 수정 국내 소비자가)</span></div>
+    <div id="c-retail-prices"></div>
   </div>
   <div class="mft">
     <button class="btn" onclick="cm('m-cust')">취소</button>
@@ -657,6 +659,7 @@
 <script src="change-requests.js?v=20261028-change-summary-1"></script>
 <script src="drive-documents.js?v=20261103-new-invoice-docs-1"></script>
 <script src="invoice-amounts.js?v=20261027-ship-mode-1"></script>
+<script src="customer-prices.js?v=20261123-customer-retail-1"></script>
 <script src="dashboard-model.js?v=20261113-ship-month-1"></script>
 <script src="tax-ledger.js?v=20261002-tax-ledger-1"></script>
 <script src="consignment-settlement.js?v=20261109-consign-5"></script>
@@ -679,7 +682,7 @@
 <script src="logistics.js?v=20261123-standalone-1"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=8c27c09efabe"></script>
+  <script src="app.js?v=892cd028dae6"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 <script>globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m),pageUrl:'logistics.html'});</script>

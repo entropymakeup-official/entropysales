@@ -13,7 +13,7 @@
     const api=summaryApi();if(!api)return '';
     return api.render(operations,{invoiceNo:id=>state?.invoiceNos?.[id]});
   }
-  Object.assign(labels,{contacts:'연락처',company:'업체명',person:'담당자 이름',person_en:'영문 이름',duty:'담당 업무',department:'부서',mobile:'휴대전화',fax:'팩스',messenger:'메신저',website:'웹사이트',tags:'태그'});
+  Object.assign(labels,{contacts:'연락처',company:'업체명',person:'담당자 이름',person_en:'영문 이름',duty:'담당 업무',department:'부서',mobile:'휴대전화',fax:'팩스',messenger:'메신저',website:'웹사이트',tags:'태그',customer_retail_prices:'거래처 기준 소비자가',retail_price:'기준 소비자가'});
   Object.assign(labels,{contracts:'계약서',contract_type:'계약유형',counterparty_contact:'거래처 담당자',start_date:'계약 시작일',end_date:'계약 종료일',notice_date:'갱신거절 통보기한',auto_renewal:'자동갱신',renewal_terms:'갱신 조건',previous_contract_id:'이전 계약',territory:'대상 국가',channels:'판매채널',exclusive:'독점 여부',price_terms:'공급가격 기준',minimum_order:'최소발주',incoterms:'인도조건',annual_commitment:'연간 구매약정',exclusivity_terms:'독점 유지 조건',payment_type:'수금 방식',deposit_pct:'선금 비율 (%)',balance_pct:'잔금 비율 (%)',deposit_due:'선금 지급 기준·기한',balance_due:'잔금·후불 지급 기준·기한',bank_fee:'송금수수료 부담',payment_terms:'수금 특약',foc_status:'FOC 유무',foc_terms:'FOC 제공 조건',foc_products:'FOC 대상 제품',foc_limit:'FOC 한도',document_id:'계약서 서명본',amendment_document_id:'부속합의서',special_terms:'주요 특약'});
   const statusLabels={pending:'승인 대기',approved:'승인 완료',rejected:'반려'};
   Object.assign(labels,{no:'주문번호',mgr:'담당자',pay_date:'입금일',product_details:'제품 상세',before_items:'함께 삭제되는 주문 품목',before_drive_documents:'함께 삭제되는 연결 문서'});
@@ -67,6 +67,7 @@
     const value={...op.before,...op.values,...op.invoice};
     if(op.table==='contacts')return {customer:value.company||'',title:`${value.company||'업체 미확인'} · ${value.person||'담당자 미확인'}${ops.length>1?` 외 ${ops.length-1}건`:''}`,kind:'연락처',count:ops.length};
     const customer=state.customerNames?.[value.customer_id]||value.customer||'';
+    if(op.table==='customer_retail_prices')return {customer,title:`기준 소비자가 ${value.barcode||'바코드 미확인'} · ${Number(value.retail_price).toLocaleString('ko-KR')}원${ops.length>1?` 외 ${ops.length-1}건`:''}`,kind:'거래처 기준 소비자가',count:ops.length};
     const title=value.name||value.no||value.invoice_no||value.title||r.reason||'변경 요청';
     return {customer,title:typeof title==='string'?title:valueText(title),kind:op.action==='invoice'?'주문':field(op.table||''),count:ops.length};
   }
