@@ -7,7 +7,7 @@ const NOW=Date.UTC(2026,10,20,1);
 function fakeClient(handler){
  const calls=[];
  const builder=(table)=>{const q={table,ops:[]};const chain={};
-  for(const m of ['select','insert','update','delete','eq','order','limit','in','gte'])chain[m]=(...a)=>{q.ops.push([m,...a]);return chain;};
+  for(const m of ['select','insert','update','upsert','delete','eq','order','limit','range','in','gte'])chain[m]=(...a)=>{q.ops.push([m,...a]);return chain;};
   chain.single=()=>{q.ops.push(['single']);return chain;};
   chain.then=(res,rej)=>{calls.push(q);return Promise.resolve(handler(q)).then(res,rej);};
   return chain;};
@@ -15,7 +15,8 @@ function fakeClient(handler){
   upload:async(p,f,o)=>{calls.push({table:'storage:'+bucket,ops:[['upload',p,o]]});return handler({table:'storage:'+bucket,ops:[['upload',p]]});},
   remove:async ps=>{calls.push({table:'storage:'+bucket,ops:[['remove',ps]]});return handler({table:'storage:'+bucket,ops:[['remove',ps]]});},
   createSignedUrl:async(p,s)=>handler({table:'storage:'+bucket,ops:[['sign',p,s]]})})};
- return {client:{from:builder,storage},calls};
+ const rpc=(fn,args)=>{const q={table:'rpc:'+fn,ops:[['rpc',args]]};calls.push(q);return Promise.resolve(handler(q));};
+ return {client:{from:builder,storage,rpc},calls};
 }
 const draft={type_code:'quick',title_text:'퀵',team_code:'global',counterparty_text:'비주그룹',want_date:'2026-11-20',ship_mode_code:'quick'};
 
@@ -229,7 +230,7 @@ const click=(d,dataset)=>d.els.content.onclick({target:node(dataset),preventDefa
 const fakeForm=(vals,form)=>({dataset:{form},querySelector:()=>null,querySelectorAll:()=>Object.entries(vals).map(([name,value])=>({name,value,type:'text'}))});
 const submit=(d,vals,form)=>d.els.content.onsubmit({preventDefault(){},target:fakeForm(vals,form)});
 
-function setup({rows=[],email='handler@entropymakeup.com',onUpdate=()=>({data:[{id:'x'}],error:null}),invoices=[],files=[],handler,confirm=()=>true,open,location,history}={}){
+function setup({rows=[],email='handler@entropymakeup.com',onUpdate=()=>({data:[{id:'x'}],error:null}),invoices=[],files=[],handler,confirm=()=>true,open,location,history,xlsx,saveWorkbook}={}){
  const d=fakeDom(),messages=[],updates=[];let authCb=null;
  const {client,calls}=fakeClient(q=>{
   if(handler){const v=handler(q);if(v)return v;}
@@ -240,7 +241,7 @@ function setup({rows=[],email='handler@entropymakeup.com',onUpdate=()=>({data:[{
   if(q.table==='logistics_request_files')return {data:files,error:null};
   return {data:[],error:null};});
  client.auth={getSession:async()=>({data:{session:email?{user:{email}}:null},error:null}),onAuthStateChange:cb=>{authCb=cb;}};
- const page=P.mountTab({document:d.document,client,onMessage:m=>messages.push(m),now:()=>NOW,confirm,open,location,history});
+ const page=P.mountTab({document:d.document,client,onMessage:m=>messages.push(m),now:()=>NOW,confirm,open,location,history,xlsx,saveWorkbook});
  return {d,page,client,calls,messages,updates,auth:(...a)=>authCb(...a)};
 }
 
@@ -484,16 +485,19 @@ test('대시보드: 메뉴는 go(\'logistics\') 탭이고, 스크립트·스타�
  const index=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
  assert.ok(index.includes(`<div class="ni" onclick="go('logistics')" id="nav-logistics"><i class="ti ti-truck"></i>물류 요청</div>`));
  assert.ok(!index.includes('href="logistics.html"'));
- assert.ok(index.includes('<link rel="stylesheet" href="logistics.css?v=20261120-logistics-tab-1">'));
- const iModel=index.indexOf('<script src="logistics-model.js?v=20261120-logistics-tab-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261120-logistics-tab-1"></script>');
+ assert.ok(index.includes('<link rel="stylesheet" href="logistics.css?v=20261120-fassto-1">'));
+ const iModel=index.indexOf('<script src="logistics-model.js?v=20261120-fassto-1"></script>'),iForms=index.indexOf('<script src="fassto-forms.js?v=20261120-fassto-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261120-fassto-1"></script>');
+ const iXlsx=index.indexOf('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>');
  const iApp=index.indexOf('<script src="app.js?v='),iMount=index.indexOf('globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m)});');
- assert.ok(iModel>0&&iModel<iPage&&iPage<iApp&&iApp<iMount);
+ assert.ok(iXlsx>0&&iXlsx<iModel&&iModel<iForms&&iForms<iPage&&iPage<iApp&&iApp<iMount);
+ assert.equal((index.match(/xlsx[^"]*\.js/g)||[]).length,1); // 브라우저 엑셀 라이브러리는 기존 SheetJS 0.18.5 하나뿐
  const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
  assert.ok(app.includes("if(page!=='logistics')globalThis.logistics?.hide();"));
  assert.ok(app.includes("if(page==='logistics'){document.getElementById('page-title').textContent='물류 요청';globalThis.logistics?.show();return;}"));
  assert.equal((app.match(/if\(!await loadAll\(\)\)return;\n\s*goStartPage\(\);/g)||[]).length,2);
  const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
- assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js/);
+ assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js && node --check fassto-forms\.js && node --check tools\/fassto-stock-json\.cjs/);
+ assert.equal(pkg.devDependencies.xlsx,'0.18.5');
  assert.ok(fs.existsSync(path.join(__dirname,'../LOGISTICS.md')));
 });
 
@@ -624,4 +628,299 @@ test('mountTab: STALE이면 최신 행을 다시 불러와 창을 새로 그리�
  assert.match(e.d.els['lg-form-error'].textContent,/다른 사람이 먼저 바꿨어요/);assert.equal(e.d.els['lg-form'].open,true);
  await submit(e.d,vals,'edit');
  assert.deepEqual(e.updates[1].ops.filter(o=>o[0]==='eq'),[['eq','id','r2'],['eq','status_code','preparing']]);
+});
+
+// ── 파스토 양식 ──
+const STOCK=[{product_code:'0012345',barcode:'8800000000001',product_name:'가짜 립',kind_text:'본품',lot_text:'L1',expires_on:'2028-01-31',available_qty:120},
+ {product_code:'0012345',barcode:'8800000000001',product_name:'가짜 립',kind_text:'본품',lot_text:'L2',expires_on:'2028-06-30',available_qty:30},
+ {product_code:'A-9',barcode:'',product_name:'가짜 쇼핑백',kind_text:'부자재',lot_text:'',expires_on:null,available_qty:5}];
+const SYNC=[{synced_at:'2026-11-20T00:05:00Z',source_text:'fms-browser',row_count:3}];
+const stockHandler=q=>q.table==='logistics_fassto_stock'?{data:STOCK,error:null}:q.table==='logistics_fassto_sync'?{data:SYNC,error:null}:null;
+const G=require('../fassto-forms.js').groupStock(STOCK);
+
+test('createApi: 파스토 목록은 1000행씩 받고, 받는 곳은 upsert 1행, 품목은 RPC 줄 수를 확인한다',async()=>{
+ const page=n=>Array.from({length:n},(_,i)=>({product_code:'P'+i,available_qty:1}));
+ const {client,calls}=fakeClient(q=>{
+  if(q.table==='logistics_fassto_stock'){const r=q.ops.find(o=>o[0]==='range');return {data:r[1]===0?page(1000):page(3),error:null};}
+  if(q.table==='logistics_fassto_sync')return {data:SYNC,error:null};
+  if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert')return {data:[{request_id:'r1'}],error:null};
+  if(q.table==='logistics_request_recipients')return {data:[],error:null};
+  if(q.table==='rpc:logistics_replace_items')return {data:q.ops[0][1].p_items.length,error:null};
+  return {data:[],error:null};});
+ const api=P.createApi(client);
+ const s=await api.loadStock();
+ assert.equal(s.rows.length,1003);
+ assert.deepEqual(calls.filter(c=>c.table==='logistics_fassto_stock').map(c=>c.ops.find(o=>o[0]==='range').slice(1)),[[0,999],[1000,1999]]);
+ assert.equal(s.sync.synced_at,'2026-11-20T00:05:00Z');
+ assert.equal(await api.loadRecipient('r1'),null);
+ await api.saveRecipient('r1',{name_text:'A'});
+ const up=calls.find(c=>c.ops[0][0]==='upsert');
+ assert.deepEqual(up.ops[0].slice(1),[{name_text:'A',request_id:'r1'},{onConflict:'request_id'}]);
+ assert.equal(await api.saveItems('r1',[{product_code:'007',qty:'2'}]),1);
+ const rpc=calls.find(c=>c.table==='rpc:logistics_replace_items');
+ assert.deepEqual(rpc.ops[0][1].p_items[0],{product_code:'007',product_name_text:'',qty:2,lot_text:'',expires_on:null,en_name_text:'',weight_kg:null,unit_price:null,hs_code_text:''});
+ const bad=fakeClient(q=>q.table.startsWith('rpc:')?{data:0,error:null}:{data:[],error:null});
+ await assert.rejects(()=>P.createApi(bad.client).saveItems('r1',[{product_code:'X',qty:1}]),/UNCONFIRMED/);
+ await assert.rejects(()=>P.createApi(bad.client).saveRecipient('r1',{}),/UNCONFIRMED/);
+});
+
+test('요청자 저장 행에는 담당자 전용 칸이 들어가지 않는다(DB 트리거 LOGISTICS_HANDLER_ONLY 방지)',async()=>{
+ const F=require('../fassto-forms.js');
+ const vals={name_text:'A',courier_text:'FEDEX',incoterms_code:'DAP',sender_name_text:'X'};
+ const {client,calls}=fakeClient(q=>q.ops[0][0]==='upsert'?{data:[{request_id:'r1'}],error:null}:{data:[],error:null});
+ await P.createApi(client).saveRecipient('r1',F.toRecipientRow(vals,{isHandler:false}));
+ const sent=calls.find(c=>c.ops[0][0]==='upsert').ops[0][1];
+ for(const k of F.HANDLER_KEYS)assert.equal(k in sent,false,k);
+ assert.equal(sent.name_text,'A');
+});
+
+test('입력 폼: 운송 방식별 받는 곳 칸과 안내, 운송사·Incoterms는 담당자에게만',()=>{
+ const base={invoices:[],groups:G,stock:{sync:SYNC[0],groups:G},nowMs:NOW,fassto:{recipient:{},items:[],q:''}};
+ const parcel=P.renderForm({ship_mode_code:'parcel'},base);
+ assert.ok(parcel.includes('파스토 택배신청 양식으로 만들어요.'));
+ for(const n of ['r_name_text','r_phone_text','r_postal_text','r_address1_text','r_address2_text'])assert.ok(parcel.includes(`name="${n}"`),n);
+ assert.ok(!parcel.includes('name="r_country_code"')&&!parcel.includes('name="r_courier_text"'));
+ assert.ok(parcel.includes('파스토 목록: 11/20 09:05 기준 (상품 2종)'));
+ const ov=P.renderForm({ship_mode_code:'express'},base);
+ for(const n of ['r_email_text','r_country_code','r_state_text','r_city_text','r_district_text','r_tax_id_text','r_currency_code'])assert.ok(ov.includes(`name="${n}"`),n);
+ assert.ok(!ov.includes('name="r_courier_text"')&&ov.includes('운송사·Incoterms·발송인은 물류 담당자가 정해요.'));
+ const ovh=P.renderForm({ship_mode_code:'express'},{...base,isHandler:true});
+ assert.ok(ovh.includes('name="r_courier_text"')&&ovh.includes('name="r_incoterms_code"')&&ovh.includes('name="r_sender_email_text"'));
+ const veh=P.renderForm({ship_mode_code:'direct'},base);
+ assert.ok(veh.includes('파스토 차량배송신청(상품) 양식으로 만들어요.')&&veh.includes('차량배송은 받는 곳 칸이 없어요')&&!veh.includes('name="r_name_text"'));
+ assert.ok(P.renderForm({ship_mode_code:'quick'},base).includes('이 운송 방식은 파스토 양식 없이 처리해요.'));
+ assert.ok(!P.renderForm({ship_mode_code:''},base).includes('lg-hint'));
+ assert.ok(P.renderForm({ship_mode_code:'parcel'},{...base,mode:'edit',fassto:null}).includes('받는 곳·품목을 불러오지 못해 이번에는 고칠 수 없어요.'));
+ const old=P.renderFasstoFields('parcel',{recipient:{},items:[],q:''},{groups:G,stock:{sync:{synced_at:'2026-11-17T00:00:00Z'},groups:G},nowMs:NOW});
+ assert.ok(old.includes('lg-stock warn')&&old.includes('재고 정보가 오래됐어요'));
+ const lines=P.renderItems([{product_code:'0012345',product_name_text:'가짜 립',qty:200,lot_text:'L2'}],{form:'overseas',groups:G});
+ assert.ok(lines.includes('name="item_qty_0"')&&lines.includes('name="item_unit_price_0"')&&lines.includes('<option value="L2" selected>'));
+ assert.ok(lines.includes('출고 가능 30개보다 많아요.'));
+ assert.ok(P.renderItems([{product_code:'ZZ',qty:1}],{form:'parcel',groups:G}).includes('파스토 목록에 없는 상품이에요.'));
+});
+
+test('상세 렌더링: 받는 곳은 요청자·담당자만, 입력 안 됨과 볼 수 없음을 나누고, 내려받기 버튼과 빠진 칸 목록',()=>{
+ const r=R('r1',{ship_mode_code:'parcel',fassto_order_no:'LG20261120_001'});
+ const fx={loaded:true,loading:false,recipient:null,items:[{product_code:'ZZ',product_name_text:'없는 상품',qty:1,lot_text:''}],error:''};
+ const other=P.renderDetail(r,{email:'other@entropymakeup.com',isHandler:false,nowMs:NOW,fassto:{...fx,recipient:null},groups:G});
+ assert.ok(other.includes('요청자와 물류 담당자만 볼 수 있어요.')&&!other.includes('data-act="fassto-download"'));
+ const owner=P.renderDetail(r,{email:'req@entropymakeup.com',isHandler:false,nowMs:NOW,fassto:fx,groups:G});
+ assert.ok(owner.includes('입력 안 됨')&&owner.includes('data-act="fassto-download"')&&owner.includes('주문번호 LG20261120_001'));
+ assert.ok(owner.includes('파스토 목록에 없는 상품이에요.'));
+ const full=P.renderDetail({...r,ship_mode_code:'express'},{email:'h@x',isHandler:true,nowMs:NOW,groups:G,fassto:{...fx,recipient:{name_text:'<b>Buyer</b>',country_code:'CH',courier_text:''}},fasstoErrors:['받는 곳: 전화 칸이 비어 있어요.']});
+ assert.ok(full.includes('&lt;b&gt;Buyer&lt;/b&gt;')&&full.includes('담당자가 정해요')&&full.includes('ENTROPY (Brand Genome Co., Ltd.)'));
+ assert.match(full,/내려받지 않았어요\. 아래 칸을 채워 주세요\.<\/p><ul><li>받는 곳: 전화 칸이 비어 있어요\.<\/li>/);
+ assert.equal(P.renderDetail(R('q1'),{email:'req@entropymakeup.com',nowMs:NOW,fassto:{loaded:true,items:[]}}).includes('파스토 양식'),false); // 퀵은 칸 자체가 없다
+});
+
+test('mountTab: 물류 탭 위에 파스토 목록 갱신 시각을 보이고, 못 불러와도 목록은 연다',async()=>{
+ const t=setup({rows:[R('a')],handler:stockHandler});
+ await t.page.show();
+ assert.match(t.d.els['lg-stock-line'].innerHTML,/<p class="lg-stock" role="status">파스토 목록: 11\/20 09:05 기준 \(상품 2종\)<\/p>/);
+ const bad=setup({rows:[R('a')],handler:q=>q.table==='logistics_fassto_stock'?{data:null,error:{message:'boom'}}:null});
+ await bad.page.show();
+ assert.ok(bad.d.els['lg-list'].innerHTML.includes('요청 a'));
+ assert.match(bad.d.els['lg-stock-line'].innerHTML,/lg-stock warn.*파스토 목록을 불러오지 못했어요: boom/);
+});
+
+test('mountTab: 새 요청에서 택배를 고르면 받는 곳·품목 칸이 나오고, 검색해 넣은 품목과 받는 곳을 요청 → 받는 곳 → 품목 순서로 저장한다',async()=>{
+ const rows=[];const order=[];
+ const t=setup({rows,handler:q=>{
+  const s=stockHandler(q);if(s)return s;
+  if(q.table==='logistics_requests'&&q.ops[0][0]==='insert'){order.push('request');rows.push(R('new1',{requester_email:'handler@entropymakeup.com',ship_mode_code:'parcel'}));return {data:{id:'new1'},error:null};}
+  if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert'){order.push('recipient');return {data:[{request_id:'new1'}],error:null};}
+  if(q.table==='rpc:logistics_replace_items'){order.push('items');return {data:q.ops[0][1].p_items.length,error:null};}
+  return null;}});
+ await t.page.show();
+ click(t.d,{act:'new'});
+ assert.ok(!t.d.els['lg-form'].innerHTML.includes('name="r_name_text"')); // 운송 방식을 고르기 전
+ t.d.els.content.onchange({target:{name:'ship_mode_code',value:'parcel',dataset:{}}});
+ assert.ok(t.d.els['lg-f-fassto'].innerHTML.includes('name="r_name_text"'));
+ t.d.els.content.oninput({target:{id:'lg-item-q',value:'8800',dataset:{}}});
+ assert.ok(t.d.els['lg-item-results'].innerHTML.includes('data-item-add="0012345"'));
+ click(t.d,{itemAdd:'0012345'});
+ assert.ok(t.d.els['lg-item-lines'].innerHTML.includes('name="item_qty_0"'));
+ assert.equal(t.d.els['lg-item-results'].innerHTML,'');
+ t.d.els.content.oninput({target:{name:'item_qty_0',value:'151',dataset:{itemField:'qty',line:'0'}}});
+ assert.equal(t.d.els['lg-item-warn-0'].textContent,'출고 가능 150개보다 많아요.'); // 경고만, 막지 않는다
+ t.d.els.content.onchange({target:{name:'item_lot_0',value:'L2',dataset:{itemField:'lot',line:'0'}}});
+ assert.deepEqual([t.page.state.formFassto.items[0].lot_text,t.page.state.formFassto.items[0].expires_on],['L2','2028-06-30']);
+ await submit(t.d,{type_code:'sample',title_text:'샘플',team_code:'global',counterparty_text:'가짜 바이어',want_date:'',ship_mode_code:'parcel',qty_summary_text:'',note_text:'',invoice_id:'',
+  r_name_text:'홍길동',r_phone_text:'010-0000-0000',r_postal_text:'',r_address1_text:'가짜시 가짜로 1',r_address2_text:'',item_qty_0:'2',item_lot_0:'L2'},'create');
+ assert.deepEqual(order,['request','recipient','items']);
+ const up=t.calls.find(c=>c.table==='logistics_request_recipients'&&c.ops[0][0]==='upsert');
+ assert.equal(up.ops[0][1].name_text,'홍길동');assert.ok(!('courier_text' in up.ops[0][1]));
+ const rpc=t.calls.find(c=>c.table==='rpc:logistics_replace_items').ops[0][1];
+ assert.deepEqual([rpc.p_request,rpc.p_items[0].product_code,rpc.p_items[0].qty,rpc.p_items[0].lot_text,rpc.p_items[0].expires_on],['new1','0012345',2,'L2','2028-06-30']);
+ assert.match(t.messages.at(-1),/요청을 올렸어요/);
+});
+
+test('mountTab: 품목 저장이 실패해도 요청은 올라갔다고 알리고, 형식이 틀리면 아무것도 보내지 않는다',async()=>{
+ const rows=[];
+ const t=setup({rows,handler:q=>{
+  const s=stockHandler(q);if(s)return s;
+  if(q.table==='logistics_requests'&&q.ops[0][0]==='insert'){rows.push(R('new1',{requester_email:'handler@entropymakeup.com',ship_mode_code:'direct'}));return {data:{id:'new1'},error:null};}
+  if(q.table==='rpc:logistics_replace_items')return {data:null,error:{message:'LOGISTICS_ITEM_BAD'}};
+  return null;}});
+ await t.page.show();click(t.d,{act:'new'});
+ t.d.els.content.onchange({target:{name:'ship_mode_code',value:'direct',dataset:{}}});
+ t.d.els.content.oninput({target:{id:'lg-item-q',value:'쇼핑',dataset:{}}});click(t.d,{itemAdd:'A-9'});
+ const vals={type_code:'b2b',title_text:'직납',team_code:'domestic',counterparty_text:'가짜 매장',want_date:'',ship_mode_code:'direct',qty_summary_text:'',note_text:'',invoice_id:''};
+ await submit(t.d,{...vals,item_qty_0:'0'},'create');
+ assert.match(t.d.els['lg-form-error'].textContent,/1번째 품목의 수량을 1 이상의 정수로 적어 주세요/);
+ assert.ok(!t.calls.some(c=>c.table==='logistics_requests'&&c.ops[0][0]==='insert'));
+ await submit(t.d,{...vals,item_qty_0:'3'},'create');
+ assert.match(t.messages.at(-1),/요청은 올라갔고 품목은 저장하지 못했어요\. 상세에서 다시 입력해 주세요\./);
+ assert.equal(t.d.els['lg-detail'].open,true);
+});
+
+test('mountTab: 상세의 파스토 양식 내려받기는 빠진 칸이 있으면 창 안에 목록만 보이고, 통과하면 양식 파일을 저장한다',async()=>{
+ const saved=[];let recipient={request_id:'r1',name_text:'홍길동',phone_text:'',address1_text:'가짜시 가짜로 1'};
+ const t=setup({rows:[R('r1',{ship_mode_code:'parcel',fassto_order_no:'LG20261120_001',requester_email:'req@entropymakeup.com'})],xlsx:require('xlsx'),saveWorkbook:(wb,name)=>saved.push([wb,name]),
+  handler:q=>{const s=stockHandler(q);if(s)return s;
+   if(q.table==='logistics_request_recipients')return {data:[recipient],error:null};
+   if(q.table==='logistics_request_items')return {data:[{product_code:'0012345',product_name_text:'가짜 립',qty:2,lot_text:'',expires_on:null,line_no:1}],error:null};
+   return null;}});
+ await t.page.show();await t.page.openDetail('r1');
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('data-act="fassto-download"'));
+ click(t.d,{act:'fassto-download'});
+ assert.equal(saved.length,0);
+ assert.match(t.d.els['lg-detail'].innerHTML,/<li>받는 곳: 전화 칸이 비어 있어요\.<\/li>/);
+ recipient={...recipient,phone_text:'010-0000-0000'};
+ await t.page.openDetail('r1');
+ click(t.d,{act:'fassto-download'});
+ assert.equal(saved.length,1);
+ assert.equal(saved[0][1],'파스토_택배신청_LG20261120_001.xlsx');
+ assert.deepEqual(saved[0][0].SheetNames,['파스토제공-택배신청']);
+ assert.equal(saved[0][0].Sheets['파스토제공-택배신청'].I5.v,'0012345');
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('파스토 양식을 내려받았어요.'));
+ assert.ok(!t.d.els['lg-detail'].innerHTML.includes('내려받지 않았어요'));
+});
+
+test('mountTab: 다른 직원은 받는 곳을 부르지 않고, 요약 수정은 담당자만 운송사를 보내며 바뀌지 않은 품목은 다시 저장하지 않는다',async()=>{
+ const rows=[R('r1',{ship_mode_code:'express',requester_email:'req@entropymakeup.com'})];
+ const rec={request_id:'r1',name_text:'Buyer',country_code:'CH',currency_code:'USD',courier_text:'',incoterms_code:'',sender_name_text:'',sender_phone_text:'',sender_address_text:'',sender_email_text:''};
+ const h=q=>{const s=stockHandler(q);if(s)return s;
+  if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert')return {data:[{request_id:'r1'}],error:null};
+  if(q.table==='logistics_request_recipients')return {data:[rec],error:null};
+  if(q.table==='logistics_request_items')return {data:[{product_code:'0012345',product_name_text:'가짜 립',qty:2,lot_text:'',unit_price:10,line_no:1}],error:null};
+  if(q.table==='rpc:logistics_replace_items')return {data:q.ops[0][1].p_items.length,error:null};
+  return null;};
+ const other=setup({rows,email:'other@entropymakeup.com',handler:h});
+ await other.page.show();await other.page.openDetail('r1');
+ assert.ok(!other.calls.some(c=>c.table==='logistics_request_recipients'));
+ assert.ok(other.d.els['lg-detail'].innerHTML.includes('요청자와 물류 담당자만 볼 수 있어요.'));
+ const t=setup({rows,handler:h}); // 담당자
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{act:'edit-summary'});
+ assert.ok(t.d.els['lg-form'].innerHTML.includes('name="r_courier_text"'));
+ const summary={type_code:'quick',title_text:'요청 r1',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'express',qty_summary_text:'',note_text:'',invoice_id:''};
+ await submit(t.d,{...summary,r_courier_text:'FEDEX',r_incoterms_code:'DAP',item_qty_0:'2',item_unit_price_0:'10'},'edit');
+ const up=t.calls.filter(c=>c.table==='logistics_request_recipients'&&c.ops[0][0]==='upsert');
+ assert.equal(up.length,1);assert.deepEqual([up[0].ops[0][1].courier_text,up[0].ops[0][1].incoterms_code],['FEDEX','DAP']);
+ assert.ok(!t.calls.some(c=>c.table==='rpc:logistics_replace_items')); // 품목은 그대로라 보내지 않는다
+ const owner=setup({rows,email:'req@entropymakeup.com',handler:h});
+ await owner.page.show();await owner.page.openDetail('r1');
+ click(owner.d,{act:'edit-summary'});
+ assert.ok(!owner.d.els['lg-form'].innerHTML.includes('name="r_courier_text"'));
+ await submit(owner.d,{...summary,r_name_text:'New Buyer',item_qty_0:'3',item_unit_price_0:'10'},'edit');
+ const up2=owner.calls.find(c=>c.table==='logistics_request_recipients'&&c.ops[0][0]==='upsert').ops[0][1];
+ assert.equal(up2.name_text,'New Buyer');assert.ok(!('courier_text' in up2));
+ assert.equal(owner.calls.find(c=>c.table==='rpc:logistics_replace_items').ops[0][1].p_items[0].qty,3);
+});
+
+test('mountTab: 받는 곳·품목을 부르는 동안에는 "입력 안 됨"·"품목이 없어요"를 보이지 않는다',async()=>{
+ let release;const gate=new Promise(r=>{release=r;});
+ const t=setup({rows:[R('r1',{ship_mode_code:'parcel',requester_email:'req@entropymakeup.com'})],email:'handler@entropymakeup.com',
+  handler:q=>{const s=stockHandler(q);if(s)return s;
+   if(q.table==='logistics_request_recipients')return gate.then(()=>({data:[],error:null}));
+   if(q.table==='logistics_request_items')return gate.then(()=>({data:[],error:null}));
+   return null;}});
+ await t.page.show();
+ const p=t.page.openDetail('r1');
+ await new Promise(r=>setImmediate(r));
+ const html=t.d.els['lg-detail'].innerHTML;
+ assert.ok(html.includes('불러오는 중'));
+ assert.ok(!html.includes('입력 안 됨')&&!html.includes('품목이 없어요')&&!html.includes('data-act="fassto-download"'));
+ release();await p;
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('입력 안 됨')&&t.d.els['lg-detail'].innerHTML.includes('품목이 없어요'));
+ assert.ok(P.renderFasstoSection(R('r1',{ship_mode_code:'parcel'}),{isHandler:true,fassto:{loaded:false,loading:false,items:[],error:''}}).includes('불러오는 중'));
+});
+
+test('파스토 목록이 비었거나 못 불러왔으면 품목마다 "목록에 없는 상품"이라고 하지 않는다',()=>{
+ assert.ok(!P.renderItems([{product_code:'ZZ',qty:1}],{form:'parcel',groups:[]}).includes('파스토 목록에 없는 상품이에요.'));
+ const sec=P.renderFasstoSection(R('r1',{ship_mode_code:'parcel'}),{isHandler:true,groups:[],fassto:{loaded:true,items:[{product_code:'ZZ',product_name_text:'x',qty:1}],recipient:null}});
+ assert.ok(!sec.includes('파스토 목록에 없는 상품이에요.'));
+});
+
+test('mountTab: 엑셀 도구(XLSX)가 없으면 던지지 않고 한국어로 알리며, 상품 찾기에서 Enter는 요청을 올리지 않는다',async()=>{
+ const saved=[];
+ const t=setup({rows:[R('r1',{ship_mode_code:'parcel',fassto_order_no:'LG20261120_001'})],
+  handler:q=>{const s=stockHandler(q);if(s)return s;
+   if(q.table==='logistics_request_recipients')return {data:[{request_id:'r1',name_text:'홍길동',phone_text:'010-0000-0000',address1_text:'가짜시 가짜로 1'}],error:null};
+   if(q.table==='logistics_request_items')return {data:[{product_code:'0012345',product_name_text:'가짜 립',qty:2,lot_text:'',expires_on:null,line_no:1}],error:null};
+   return null;}});
+ await t.page.show();await t.page.openDetail('r1');
+ assert.doesNotThrow(()=>click(t.d,{act:'fassto-download'}));
+ assert.equal(saved.length,0);
+ assert.match(t.d.els['lg-detail'].innerHTML,/엑셀 도구를 불러오지 못했어요/);
+ let prevented=0,stopped=0;
+ t.d.els['lg-form'].onkeydown({key:'Enter',target:{id:'lg-item-q'},preventDefault(){prevented++;},stopPropagation(){stopped++;}});
+ t.d.els['lg-form'].onkeydown({key:'Enter',target:{id:'lg-f-title_text'},preventDefault(){prevented++;},stopPropagation(){stopped++;}});
+ assert.deepEqual([prevented,stopped],[1,2]);
+});
+
+test('mountTab: 요약 수정을 저장하면 지난 파스토 내려받기 오류 목록은 지워진다',async()=>{
+ let recipient={request_id:'r1',name_text:'홍길동',phone_text:'',address1_text:'가짜시 가짜로 1'};
+ const t=setup({rows:[R('r1',{ship_mode_code:'parcel',requester_email:'req@entropymakeup.com'})],email:'req@entropymakeup.com',xlsx:require('xlsx'),saveWorkbook:()=>{},
+  handler:q=>{const s=stockHandler(q);if(s)return s;
+   if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert'){recipient={...recipient,...q.ops[0][1]};return {data:[{request_id:'r1'}],error:null};}
+   if(q.table==='logistics_request_recipients')return {data:[recipient],error:null};
+   if(q.table==='logistics_request_items')return {data:[{product_code:'0012345',product_name_text:'가짜 립',qty:2,lot_text:'',expires_on:null,line_no:1}],error:null};
+   return null;}});
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{act:'fassto-download'});
+ assert.match(t.d.els['lg-detail'].innerHTML,/전화 칸이 비어 있어요/);
+ click(t.d,{act:'edit-summary'});
+ await submit(t.d,{type_code:'quick',title_text:'요청 r1',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'parcel',qty_summary_text:'',note_text:'',invoice_id:'',
+  r_name_text:'홍길동',r_phone_text:'010-0000-0000',r_address1_text:'가짜시 가짜로 1',item_qty_0:'2'},'edit');
+ assert.match(t.d.els['lg-detail'].innerHTML,/요약을 저장했어요/);
+ assert.ok(!t.d.els['lg-detail'].innerHTML.includes('전화 칸이 비어 있어요')&&!t.d.els['lg-detail'].innerHTML.includes('내려받지 않았어요'));
+});
+
+test('운영 문서: 설치 순서에 파스토 SQL, 목록 갱신 절차와 예약 작업 지시문이 있다',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const doc=fs.readFileSync(path.join(__dirname,'../LOGISTICS.md'),'utf8');
+ assert.ok(doc.includes('4. `sql/logistics-fassto.sql`'));
+ assert.ok(doc.includes('### 파스토 목록 갱신 (Claude, 브라우저)'));
+ assert.ok(doc.includes('node tools/fassto-stock-json.cjs'));
+ const routine=fs.readFileSync(path.join(__dirname,'../tools/fassto-sync-routine.txt'),'utf8');
+ assert.ok(routine.includes('평일 08:30 KST')&&routine.includes('비밀번호·인증번호는 입력하지 않는다'));
+ const dev=fs.readFileSync(path.join(__dirname,'../DEVELOPMENT.md'),'utf8');
+ assert.ok(dev.includes('sql/logistics-slack.sql → sql/logistics-fassto.sql'));
+ const iPre=routine.indexOf('select row_count from public.logistics_fassto_sync'),iRun=routine.indexOf('select 문 하나만 실행');
+ assert.ok(iPre>0&&iRun>iPre); // 비우기 전에 지난 row_count를 읽는다
+ assert.ok(routine.includes('아무것도 실행하지 않고')&&routine.includes('npm ci')&&routine.includes('상품 M종'));
+ assert.ok(!routine.includes('count(distinct')); // M은 변환기 요약에서 가져온다
+ assert.ok(doc.split("(사용자 승인 후)").length-1>=3);
+ assert.ok(doc.indexOf('select row_count from public.logistics_fassto_sync')<doc.indexOf('select 문 하나만'));
+});
+
+test('mountTab: 요약은 저장됐는데 받는 곳·품목 저장이 실패하면 목록과 상세를 다시 불러오고, 창과 입력·오류는 그대로 둔다',async()=>{
+ const rows=[R('r1',{ship_mode_code:'express',requester_email:'req@entropymakeup.com'})];
+ const rec={request_id:'r1',name_text:'Buyer',country_code:'CH',currency_code:'USD',courier_text:'',incoterms_code:'',sender_name_text:'',sender_phone_text:'',sender_address_text:'',sender_email_text:''};
+ const t=setup({rows,email:'req@entropymakeup.com',
+  onUpdate:q=>{Object.assign(rows[0],q.ops[0][1]);return {data:[rows[0]],error:null};},
+  handler:q=>{const s=stockHandler(q);if(s)return s;
+   if(q.table==='logistics_request_recipients'&&q.ops[0][0]==='upsert')return {data:null,error:{message:'LOGISTICS_FORBIDDEN'}};
+   if(q.table==='logistics_request_recipients')return {data:[rec],error:null};
+   if(q.table==='logistics_request_items')return {data:[{product_code:'0012345',product_name_text:'가짜 립',qty:2,lot_text:'',unit_price:10,line_no:1}],error:null};
+   return null;}});
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{act:'edit-summary'});
+ await submit(t.d,{type_code:'quick',title_text:'새 제목 r1',team_code:'global',counterparty_text:'c',want_date:'',ship_mode_code:'express',qty_summary_text:'',note_text:'',invoice_id:'',r_name_text:'New Buyer',item_qty_0:'3',item_unit_price_0:'10'},'edit');
+ assert.match(t.d.els['lg-form-error'].textContent,/요약은 저장했지만 받는 곳·품목은 저장하지 못했어요/);
+ assert.ok(t.d.els['lg-list'].innerHTML.includes('새 제목 r1')); // 지난 요약이 아니라 저장된 요약
+ assert.ok(t.d.els['lg-detail'].innerHTML.includes('새 제목 r1'));
+ assert.ok(t.page.state.editTarget&&t.page.state.form); // 창과 입력은 그대로(닫지 않음)
 });

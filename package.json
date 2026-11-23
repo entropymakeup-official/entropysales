@@ -3,9 +3,10 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check app.js && node --check invoice-amounts.js && node --check dashboard-model.js && node --check dashboard-ui.js && node --check sheet-sync-status.js && node --check live-inventory.js && node --check inventory-history.js && node --check inventory-monthly.js && node --check drive-documents.js && node --check change-summary.js && node --check change-requests.js && node --check admin-approvals.js && node --check contracts.js && node --check contacts.js && node --check contacts-import.js && node --check product-master.js && node --check request-editor.js && node --check tax-ledger.js && node --check consignment-settlement.js && node --check team-tasks.js && node --check logistics-model.js && node --check logistics.js"
+    "check": "node --check app.js && node --check invoice-amounts.js && node --check dashboard-model.js && node --check dashboard-ui.js && node --check sheet-sync-status.js && node --check live-inventory.js && node --check inventory-history.js && node --check inventory-monthly.js && node --check drive-documents.js && node --check change-summary.js && node --check change-requests.js && node --check admin-approvals.js && node --check contracts.js && node --check contacts.js && node --check contacts-import.js && node --check product-master.js && node --check request-editor.js && node --check tax-ledger.js && node --check consignment-settlement.js && node --check team-tasks.js && node --check logistics-model.js && node --check logistics.js && node --check fassto-forms.js && node --check tools/fassto-stock-json.cjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8"
+    "@electric-sql/pglite": "0.5.8",
+    "xlsx": "0.18.5"
   }
 }

@@ -79,3 +79,19 @@
   .lg-form-grid{grid-template-columns:minmax(0,1fr)}
   .lg-dialog{padding:12px;max-height:calc(100vh - 16px)}
 }
+/* 파스토 양식(받는 곳·품목·목록 갱신 시각) */
+.lg-hint{margin:0;font-size:11px;color:var(--text2)}
+.lg-fassto{display:grid;gap:10px;margin-top:12px}
+.lg-fassto-box{border:1px solid var(--border2);border-radius:var(--radius);padding:10px;margin:0;min-width:0}
+.lg-fassto-box legend{font-size:11px;color:var(--text2);padding:0 4px}
+.lg-fassto-box legend small,.lg-items th small{color:var(--text3);font-weight:400}
+.lg-handler-only{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border2)}
+.lg-stock{margin:0;font-size:11px;color:var(--text2)}
+.lg-stock.warn{color:var(--amber);background:var(--amber-light);border-radius:var(--radius);padding:4px 8px;font-weight:600}
+.lg-stock-results{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;max-height:180px;overflow-y:auto}
+.lg-items{width:100%}
+.lg-items td,.lg-items th{vertical-align:top}
+.lg-items input,.lg-items select{width:100%;min-width:56px;font:inherit;font-size:12px;padding:4px 6px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg2);color:var(--text)}
+.lg-item-warn{color:var(--amber);font-size:11px}
+.lg-sec h4{font-size:11px;margin:10px 0 6px;color:var(--text2)}
+.lg-error ul{margin:4px 0 0;padding-left:1.2em}
