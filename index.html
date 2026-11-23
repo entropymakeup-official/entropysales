@@ -181,7 +181,7 @@
     <div class="frow c3">
       <div class="fg"><label>업체명 *</label><input id="c-name"/></div>
       <div class="fg"><label>코드</label><input id="c-code" placeholder="BL, OB..."/></div>
-      <div class="fg"><label>담당자 (내부)</label><select id="c-mgr"><option>liah</option><option>Grace</option><option>Raye</option><option>Chloe</option><option>Ethan</option></select></div>
+      <div class="fg"><label>담당자 (내부)</label><select id="c-mgr"><option>이상윤</option><option>liah</option><option>Grace</option><option>Raye</option><option>Chloe</option><option>Ethan</option></select></div>
     </div>
     <div class="frow c4">
       <div class="fg"><label>국가</label><input id="c-country"/></div>
@@ -199,7 +199,7 @@
     </div>
     <div class="frow">
       <div class="fg"><label>담당자 이메일</label><input id="c-email"/></div>
-      <div class="fg"><label>비고</label><input id="c-note"/></div>
+      <div class="fg"><label>비고</label><textarea id="c-note" rows="2"></textarea></div>
     </div>
     <div class="sdiv">거래처 기준 소비자가 <span style="font-weight:400;font-size:11px;color:var(--text3)">(선택 · 계약상 수정 국내 소비자가)</span></div>
     <div id="c-retail-prices"></div>
@@ -682,7 +682,7 @@
 <script src="logistics.js?v=20261123-standalone-1"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=892cd028dae6"></script>
+  <script src="app.js?v=f206afa42470"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 <script>globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m),pageUrl:'logistics.html'});</script>
