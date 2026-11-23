@@ -1,6 +1,12 @@
 # 물류 요청
 
-회사 전체의 출고·샘플·퀵·시딩·CS·회송 요청을 받는 화면입니다. 2026-11-20부터 영업 대시보드(`index.html`)의 "물류 요청" 탭으로 옮겼습니다(`logistics.js`의 `mountTab`, `logistics.css`). `logistics.html`은 이미 보낸 슬랙 링크(`logistics.html?id=<요청 id>`)를 `index.html?logistics=<요청 id>`로 넘겨 주는 이동 페이지일 뿐이며, 대시보드는 로그인 뒤 그 값을 읽어 물류 요청 탭과 해당 요청 상세를 열고 주소에서 지웁니다. 설계: `docs/superpowers/specs/2026-11-19-logistics-dashboard-design.md`
+회사 전체의 출고·샘플·퀵·시딩·CS·회송 요청을 받는 화면입니다. 2026-11-23부터 두 곳에서 같은 화면(`logistics.js`의 `mountTab`, `logistics.css`)을 씁니다.
+
+- **전사용 단독 페이지 `logistics.html`**: 다른 팀이 쓰는 주소입니다. 회사 구글 계정(entropymakeup.com)으로 로그인하고, 영업 데이터나 `app.js`는 불러오지 않습니다. 로그인·연결은 `logistics-standalone.js`가 맡습니다. 슬랙 알림의 "요청 상세 보기" 링크(`logistics.html?id=<요청 id>`)가 여기로 와서 그 요청을 열고 주소에서 `id`를 지웁니다. 머리띠에 해외영업 대시보드 링크가 있습니다.
+- **해외영업 대시보드(`index.html`)의 "물류 요청" 탭**: 상단에 "별도 페이지로 열기" 링크(`mountTab`의 `pageUrl`)가 있습니다. 예전 주소 `index.html?logistics=<요청 id>`도 계속 이 탭과 요청을 엽니다.
+- 같은 도메인이라 로그인 세션을 함께 씁니다. 구글 로그인 뒤 돌아올 주소로 `logistics.html`이 Supabase Auth 리디렉트 허용 목록에 있어야 합니다.
+
+설계: `docs/superpowers/specs/2026-11-19-logistics-dashboard-design.md`
 
 ## 동작 기준
 
@@ -39,7 +45,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 ```
 
 6. 첫 파스토 목록 갱신 (사용자 승인 후): 아래 "파스토 목록 갱신" 절차. 이 첫 수동 갱신이 성공하고 결과(5단계 확인)까지 맞는 것을 보기 전에는 8번 예약 작업을 등록하지 않습니다.
-7. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, fassto-forms.js, logistics.css, logistics.html(이동 페이지). 바꾼 파일은 index.html의 버전 쿼리도 함께 올립니다. (사용자 승인 후)
+7. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, fassto-forms.js, logistics-standalone.js, logistics.css, logistics.html(전사용 단독 페이지). 바꾼 파일은 index.html과 logistics.html 두 곳의 버전 쿼리를 함께 올립니다. (사용자 승인 후)
 8. 예약 작업 등록(6번의 첫 수동 갱신이 성공·확인된 뒤에만. 평일 08:30 KST, 지시문은 `tools/fassto-sync-routine.txt`) (사용자 승인 후)
 
 ## 파스토 양식 (2026-11-20)
@@ -54,7 +60,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 - 주문번호(`logistics_requests.fassto_order_no`)는 등록 때 DB가 `LG날짜_순번`(KST, 예 `LG20261120_003`)으로 정하고 바꾸지 않습니다.
 - 파스토는 주문번호를 다시 쓰지 못합니다. 이미 올린 파일을 고쳐 다시 올려야 하면 주문번호를 재사용하지 말고 물류 담당자에게 FMS에서 어떻게 처리할지 먼저 물어봅니다.
 - 해외택배신청 양식에는 로트·유통기한 칸이 없어 해외 발송에서는 고른 로트가 파일에 실리지 않습니다. 택배·차량배송 양식은 로트를 골랐는데 유통기한이 없으면 내려받기 전에 막습니다.
-- 해외 발송인 기본값은 `fassto-forms.js`의 `SENDER`입니다. 회사 정보로 정했습니다(전화 +82-70-8095-5682 회사 대표 번호, 이메일 info@entropymakeup.com 회사 공용 메일, 2026-11-23). 바꾸면 index.html의 `fassto-forms.js` 버전 쿼리를 올려 배포합니다.
+- 해외 발송인 기본값은 `fassto-forms.js`의 `SENDER`입니다. 회사 정보로 정했습니다(전화 +82-70-8095-5682 회사 대표 번호, 이메일 info@entropymakeup.com 회사 공용 메일, 2026-11-23). 바꾸면 index.html과 logistics.html의 `fassto-forms.js` 버전 쿼리를 올려 배포합니다.
 
 ### 파스토 목록 갱신 (Claude, 브라우저)
 

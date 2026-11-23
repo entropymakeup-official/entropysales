@@ -485,10 +485,10 @@ test('대시보드: 메뉴는 go(\'logistics\') 탭이고, 스크립트·스타�
  const index=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
  assert.ok(index.includes(`<div class="ni" onclick="go('logistics')" id="nav-logistics"><i class="ti ti-truck"></i>물류 요청</div>`));
  assert.ok(!index.includes('href="logistics.html"'));
- assert.ok(index.includes('<link rel="stylesheet" href="logistics.css?v=20261120-fassto-1">'));
- const iModel=index.indexOf('<script src="logistics-model.js?v=20261120-fassto-1"></script>'),iForms=index.indexOf('<script src="fassto-forms.js?v=20261120-fassto-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261120-fassto-1"></script>');
+ assert.ok(index.includes('<link rel="stylesheet" href="logistics.css?v=20261123-standalone-1">'));
+ const iModel=index.indexOf('<script src="logistics-model.js?v=20261123-standalone-1"></script>'),iForms=index.indexOf('<script src="fassto-forms.js?v=20261123-standalone-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261123-standalone-1"></script>');
  const iXlsx=index.indexOf('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>');
- const iApp=index.indexOf('<script src="app.js?v='),iMount=index.indexOf('globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m)});');
+ const iApp=index.indexOf('<script src="app.js?v='),iMount=index.indexOf("globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m),pageUrl:'logistics.html'});");
  assert.ok(iXlsx>0&&iXlsx<iModel&&iModel<iForms&&iForms<iPage&&iPage<iApp&&iApp<iMount);
  assert.equal((index.match(/xlsx[^"]*\.js/g)||[]).length,1); // 브라우저 엑셀 라이브러리는 기존 SheetJS 0.18.5 하나뿐
  const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
@@ -496,7 +496,7 @@ test('대시보드: 메뉴는 go(\'logistics\') 탭이고, 스크립트·스타�
  assert.ok(app.includes("if(page==='logistics'){document.getElementById('page-title').textContent='물류 요청';globalThis.logistics?.show();return;}"));
  assert.equal((app.match(/if\(!await loadAll\(\)\)return;\n\s*goStartPage\(\);/g)||[]).length,2);
  const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8'));
- assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js && node --check fassto-forms\.js && node --check tools\/fassto-stock-json\.cjs/);
+ assert.match(pkg.scripts.check,/node --check logistics-model\.js && node --check logistics\.js && node --check logistics-standalone\.js && node --check fassto-forms\.js && node --check tools\/fassto-stock-json\.cjs/);
  assert.equal(pkg.devDependencies.xlsx,'0.18.5');
  assert.ok(fs.existsSync(path.join(__dirname,'../LOGISTICS.md')));
 });
@@ -523,17 +523,7 @@ test('대시보드: 첫 화면 처리는 두 번 불려도 한 번만 한다 (�
  assert.match(app,/function resetApplicationData\(\)\{[^}]*goStartPage\.done=false/);
 });
 
-test('logistics.html은 슬랙 링크의 id를 대시보드 탭 주소로 넘긴다',()=>{
- const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
- const html=fs.readFileSync(path.join(__dirname,'../logistics.html'),'utf8');
- const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
- assert.ok(!/supabase|createClient/.test(html));
- const go=search=>{const to=[];const c={URLSearchParams,encodeURIComponent,location:{search,replace:u=>to.push(u)},document:{addEventListener(){}}};vm.createContext(c);vm.runInContext(script,c);return to;};
- assert.deepEqual(go('?id=11111111-2222-3333-4444-555555555555'),['index.html?logistics=11111111-2222-3333-4444-555555555555']);
- assert.deepEqual(go(''),['index.html?logistics=1']);
- assert.deepEqual(go('?id=a&b'),['index.html?logistics=a']);
- assert.ok(html.includes('href="index.html?logistics=1"'));
-});
+// logistics.html은 이제 전사용 단독 페이지다. 테스트는 tests/logistics-standalone.test.cjs.
 
 // ── 리뷰 반영 ──
 test('mountTab: 검사·저장이 실패해도 상태·결과 입력 칸과 쓰던 댓글을 지우지 않는다',async()=>{

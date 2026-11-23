@@ -95,3 +95,29 @@
 .lg-item-warn{color:var(--amber);font-size:11px}
 .lg-sec h4{font-size:11px;margin:10px 0 6px;color:var(--text2)}
 .lg-error ul{margin:4px 0 0;padding-left:1.2em}
+
+/* 전사용 단독 페이지(logistics.html): 사이드바 대신 남색 머리띠 한 줄, 그 아래는 대시보드와 같은 상단 바·본문 */
+.lg-page{display:flex;flex-direction:column;height:100vh}
+.lg-page[hidden],.lg-login[hidden]{display:none}
+.lg-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--sidebar-bg);color:#fff;padding:9px 18px;flex-shrink:0}
+.lg-page-brand{display:flex;align-items:center;gap:8px;font-size:13px;color:rgba(255,255,255,.75);min-width:0}
+.lg-page-brand b{color:#fff;font-weight:700;margin-right:4px}
+.lg-page-brand i{font-size:17px;color:var(--sidebar-text)}
+.lg-page-user{display:flex;align-items:center;gap:12px;font-size:11px;min-width:0}
+.lg-page-link{display:inline-flex;align-items:center;gap:5px;color:rgba(255,255,255,.6);text-decoration:none;white-space:nowrap}
+.lg-page-link:hover{color:#fff}
+.lg-page-email{color:rgba(255,255,255,.5);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-page-out{background:none;border:none;color:rgba(255,255,255,.6);cursor:pointer;font-size:16px;padding:2px;line-height:1}
+.lg-page-out:hover{color:#fff}
+.lg-page .main{flex:1;min-height:0}
+.lg-login{position:fixed;inset:0;background:var(--sidebar-bg);display:flex;align-items:center;justify-content:center;flex-direction:column;padding:16px;z-index:50}
+.lg-login-head{text-align:center;margin-bottom:32px}
+.lg-login-head h1{color:#fff;font-size:22px;font-weight:700;margin-bottom:4px}
+.lg-login-head p{color:rgba(255,255,255,.45);font-size:13px}
+.lg-login-card{background:rgba(255,255,255,.06);border:.5px solid rgba(255,255,255,.12);border-radius:16px;padding:28px 32px;width:360px;max-width:100%;box-sizing:border-box}
+.lg-login-help{color:rgba(255,255,255,.5);font-size:11px;margin-bottom:16px;text-align:center}
+.lg-login-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:#fff;color:#1a1a1a;border:none;border-radius:10px;padding:12px 20px;font-size:13px;font-weight:600;cursor:pointer}
+.lg-login-btn:disabled{opacity:.6;cursor:default}
+.lg-login-error{margin-top:12px;font-size:11px;color:#F87171;text-align:center}
+.lg-login-foot{color:rgba(255,255,255,.25);font-size:10px;margin-top:28px}
+@media(max-width:600px){.lg-page-head{padding:8px 16px}.lg-page-link span,.lg-page-email{display:none}.lg-page-brand b{display:none}}

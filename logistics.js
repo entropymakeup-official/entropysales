@@ -344,7 +344,7 @@ function renderForm(d,ctx){
 }
 
 // ── 대시보드 탭 ──
-function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m=>root.confirm(m),location=root.location,history=root.history,open=u=>root.open(u,'_blank'),xlsx=null,saveWorkbook=null}){
+function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m=>root.confirm(m),location=root.location,history=root.history,open=u=>root.open(u,'_blank'),xlsx=null,saveWorkbook=null,pageUrl=''}){
  const $=id=>document.getElementById(id);
  const api=createApi(client,{now});
  const EMPTY=()=>({requests:[],files:[],handlers:[],people:[],invoices:[]});
@@ -724,7 +724,8 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
 
  function show(){
   state.active=true;state.form=null;state.editTarget=null;state.renderedId=null;
-  $('topbar-actions').innerHTML='<button type="button" class="btn btn-primary" id="lg-new"><i class="ti ti-plus"></i> 새 요청</button><button type="button" class="btn" id="lg-refresh"><i class="ti ti-refresh"></i> 새로고침</button>';
+  $('topbar-actions').innerHTML='<button type="button" class="btn btn-primary" id="lg-new"><i class="ti ti-plus"></i> 새 요청</button><button type="button" class="btn" id="lg-refresh"><i class="ti ti-refresh"></i> 새로고침</button>'
+   +(pageUrl?`<a class="btn" id="lg-standalone" href="${esc(pageUrl)}" target="_blank" rel="noopener"><i class="ti ti-external-link"></i> 별도 페이지로 열기</a>`:'');
   $('content').innerHTML='<section class="lg"><div class="kpi-grid lg-kpis" id="lg-kpis"></div><div id="lg-stock-line"></div>'
    +'<div class="lg-bar"><nav class="tab-bar lg-tabs" id="lg-tabs" role="tablist" aria-label="물류 요청 보기"></nav><input type="search" id="lg-search" class="lg-search" placeholder="제목·거래처·송장 검색" aria-label="물류 요청 검색"></div>'
    +'<div id="lg-list"></div>'
