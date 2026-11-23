@@ -52,7 +52,7 @@ test('해외: 열 위치, 무게 기본 1, 브랜드 ENTROPY, 발송인 기본�
  const [a]=rows;
  assert.deepEqual([a[0],a[1],a[2],a[3],a[5],a[6]],['CH','FEDEX','LG20261120_003',F.SENDER.name_text,F.SENDER.phone_text,F.SENDER.address_text]);
  assert.deepEqual([a[7],a[9],a[10],a[11],a[13],a[15],a[16],a[17]],['Fake Buyer','08001','ZH','Zurich','Fakestrasse 1',3,'USD','0012345']);
- assert.deepEqual([a[18],a[20],a[21],a[22],a[25],a[26],a[27]],['Fake Lip',1,12.5,'ENTROPY','DAP','sylee@entropymakeup.com','buyer@example.com']);
+ assert.deepEqual([a[18],a[20],a[21],a[22],a[25],a[26],a[27]],['Fake Lip',1,12.5,'ENTROPY','DAP','info@entropymakeup.com','buyer@example.com']);
  assert.equal(rows[1][20],0.2);
  const own=F.buildRows('overseas',req,{...overseasTo,sender_name_text:'Other Sender',sender_email_text:'x@entropymakeup.com'},items)[0];
  assert.deepEqual([own[3],own[26],own[5]],['Other Sender','x@entropymakeup.com',F.SENDER.phone_text]);

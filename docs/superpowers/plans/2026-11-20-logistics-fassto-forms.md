@@ -652,7 +652,7 @@ test('해외: 열 위치, 무게 기본 1, 브랜드 ENTROPY, 발송인 기본�
  const [a]=rows;
  assert.deepEqual([a[0],a[1],a[2],a[3],a[5],a[6]],['CH','FEDEX','LG20261120_003',F.SENDER.name_text,F.SENDER.phone_text,F.SENDER.address_text]);
  assert.deepEqual([a[7],a[9],a[10],a[11],a[13],a[15],a[16],a[17]],['Fake Buyer','08001','ZH','Zurich','Fakestrasse 1',3,'USD','0012345']);
- assert.deepEqual([a[18],a[20],a[21],a[22],a[25],a[26],a[27]],['Fake Lip',1,12.5,'ENTROPY','DAP','sylee@entropymakeup.com','buyer@example.com']);
+ assert.deepEqual([a[18],a[20],a[21],a[22],a[25],a[26],a[27]],['Fake Lip',1,12.5,'ENTROPY','DAP','info@entropymakeup.com','buyer@example.com']);
  assert.equal(rows[1][20],0.2);
  const own=F.buildRows('overseas',req,{...overseasTo,sender_name_text:'Other Sender',sender_email_text:'x@entropymakeup.com'},items)[0];
  assert.deepEqual([own[3],own[26],own[5]],['Other Sender','x@entropymakeup.com',F.SENDER.phone_text]);
@@ -757,7 +757,7 @@ const FORMS={
  vehicle:{label:'차량배송신청(상품)',sheet:'파스토제공-차량배송신청(상품)',head:HEAD.vehicle,text:[0,2]}
 };
 // 발송인 기본값(해외). 사용자 확인 전까지 Seoul Alpes 건에 쓴 전화·이메일. 담당자가 요청별로 덮어쓸 수 있다.
-const SENDER={name_text:'ENTROPY (Brand Genome Co., Ltd.)',address_text:'4F, 94 Dokseodang-ro, Yongsan-gu, Seoul, Republic of Korea',phone_text:'+82-10-4089-9090',email_text:'sylee@entropymakeup.com'};
+const SENDER={name_text:'ENTROPY (Brand Genome Co., Ltd.)',address_text:'4F, 94 Dokseodang-ro, Yongsan-gu, Seoul, Republic of Korea',phone_text:'+82-70-8095-5682',email_text:'info@entropymakeup.com'};
 const BRAND='ENTROPY';
 const MODE_FORM={parcel:'parcel',express:'overseas',direct:'vehicle',air:'vehicle',ocean:'vehicle'};
 const TAX_ID_COUNTRIES=['CN','BR','MX','CL'];

@@ -33,7 +33,7 @@
 
 차량배송신청(상품): A 파스토 상품코드 · B 수량 · C 주문번호 · D 유통기한(지정 출고일 때) · E 공급가(비움) · F 판매가(비움) · G 배송구분("차량").
 
-발송인 기본값(해외): 이름 `ENTROPY (Brand Genome Co., Ltd.)`, 주소 `4F, 94 Dokseodang-ro, Yongsan-gu, Seoul, Republic of Korea`, 전화·이메일은 `fassto-forms.js`의 `SENDER` 상수(사용자 확인 전까지 Seoul Alpes 건에 쓴 `+82-10-4089-9090`, `sylee@entropymakeup.com`). 담당자는 요청별로 바꿀 수 있다.
+발송인 기본값(해외): 이름 `ENTROPY (Brand Genome Co., Ltd.)`, 주소 `4F, 94 Dokseodang-ro, Yongsan-gu, Seoul, Republic of Korea`, 전화 `+82-70-8095-5682`(회사 대표 번호), 이메일 `info@entropymakeup.com`(회사 공용 메일). `fassto-forms.js`의 `SENDER` 상수(2026-11-23 사용자 확정). 담당자는 요청별로 바꿀 수 있다.
 
 ## 3. 데이터
 

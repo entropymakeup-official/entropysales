@@ -25,7 +25,7 @@ const FORMS={
  vehicle:{label:'차량배송신청(상품)',sheet:'파스토제공-차량배송신청(상품)',head:HEAD.vehicle,text:[0,2]}
 };
 // 발송인 기본값(해외). 사용자 확인 전까지 Seoul Alpes 건에 쓴 전화·이메일. 담당자가 요청별로 덮어쓸 수 있다.
-const SENDER={name_text:'ENTROPY (Brand Genome Co., Ltd.)',address_text:'4F, 94 Dokseodang-ro, Yongsan-gu, Seoul, Republic of Korea',phone_text:'+82-10-4089-9090',email_text:'sylee@entropymakeup.com'};
+const SENDER={name_text:'ENTROPY (Brand Genome Co., Ltd.)',address_text:'4F, 94 Dokseodang-ro, Yongsan-gu, Seoul, Republic of Korea',phone_text:'+82-70-8095-5682',email_text:'info@entropymakeup.com'};
 const BRAND='ENTROPY';
 const MODE_FORM={parcel:'parcel',express:'overseas',direct:'vehicle',air:'vehicle',ocean:'vehicle'};
 const TAX_ID_COUNTRIES=['CN','BR','MX','CL'];

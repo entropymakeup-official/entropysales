@@ -54,7 +54,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 - 주문번호(`logistics_requests.fassto_order_no`)는 등록 때 DB가 `LG날짜_순번`(KST, 예 `LG20261120_003`)으로 정하고 바꾸지 않습니다.
 - 파스토는 주문번호를 다시 쓰지 못합니다. 이미 올린 파일을 고쳐 다시 올려야 하면 주문번호를 재사용하지 말고 물류 담당자에게 FMS에서 어떻게 처리할지 먼저 물어봅니다.
 - 해외택배신청 양식에는 로트·유통기한 칸이 없어 해외 발송에서는 고른 로트가 파일에 실리지 않습니다. 택배·차량배송 양식은 로트를 골랐는데 유통기한이 없으면 내려받기 전에 막습니다.
-- 해외 발송인 기본값은 `fassto-forms.js`의 `SENDER`입니다. 전화·이메일은 사용자 확인 전 임시값입니다. 바꾸면 index.html의 `fassto-forms.js` 버전 쿼리를 올려 배포합니다.
+- 해외 발송인 기본값은 `fassto-forms.js`의 `SENDER`입니다. 회사 정보로 정했습니다(전화 +82-70-8095-5682 회사 대표 번호, 이메일 info@entropymakeup.com 회사 공용 메일, 2026-11-23). 바꾸면 index.html의 `fassto-forms.js` 버전 쿼리를 올려 배포합니다.
 
 ### 파스토 목록 갱신 (Claude, 브라우저)
 
