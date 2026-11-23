@@ -36,7 +36,7 @@ function rawUpload(rows){
   toast:()=>{},om:()=>{},esc:s=>String(s),
   FileReader:class{readAsBinaryString(){this.onload({target:{result:''}});}},
   XLSX:{read:()=>({Workbook:{WBProps:{date1904:false}},SheetNames:['S'],Sheets:{S:{}}}),utils:{sheet_to_json:()=>rows}}};
- vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function handleRawUpload(input)'),source.indexOf('function discardRawUpload')),c);vm.runInContext(code('isShipModeHeader'),c);
+ c.CustomerPrices=require('../customer-prices.js');c._customerRetailPrices=[];vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function handleRawUpload(input)'),source.indexOf('function discardRawUpload')),c);vm.runInContext(code('isShipModeHeader'),c);vm.runInContext(code('customerSupplyPrice'),c);
  c._showRawPreviewModal=()=>previews++;c.handleRawUpload({files:[{}]});
  return {groups:c.window._rawUploadData,errors:errors.innerHTML,previews};
 }
