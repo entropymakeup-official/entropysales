@@ -1139,7 +1139,7 @@ function invoicePaymentMarkup(inv,rev){
   if(inv.status==='Closed')return `<span class="badge bg-gray" title="유상 금액이 없어 정산 대상이 아닌 주문(무상 종결)">무상 종결</span>${verificationMarkup(inv.pay_verified_by,inv.pay_verified_at)}`;
   // 유상 금액이 없는 주문(FOC·샘플만 나간 건)은 입금 대상이 아니므로 품목 유형으로 표시한다.
   if(rev<=0){
-    const names={FOC:'FOC',Sample:'샘플',GWP:'GWP',Replacement:'교체품',Lost:'분실'};
+    const names={FOC:'FOC',Sample:'샘플',GWP:'GWP',Replacement:'교체품',Lost:'미출고'};
     const types=SALES_TYPES.filter(t=>t!=='Paid'&&getInvItems(inv.id).some(i=>i.sales_type===t)).map(t=>names[t]);
     return types.length?`<span class="badge bg-gray" title="유상 품목이 없어 입금 대상이 아닙니다">${types.join('·')}</span>`:'<span style="color:var(--text3)">-</span>';
   }
