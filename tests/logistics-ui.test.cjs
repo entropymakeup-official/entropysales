@@ -885,7 +885,10 @@ test('운영 문서: 설치 순서에 파스토 SQL, 목록 갱신 절차와 예
  assert.ok(doc.includes('### 파스토 목록 갱신 (Claude, 브라우저)'));
  assert.ok(doc.includes('node tools/fassto-stock-json.cjs'));
  const routine=fs.readFileSync(path.join(__dirname,'../tools/fassto-sync-routine.txt'),'utf8');
- assert.ok(routine.includes('평일 08:30 KST')&&routine.includes('비밀번호·인증번호는 입력하지 않는다'));
+ assert.ok(routine.includes('평일 08:30·11:30·14:30 KST')&&routine.includes('비밀번호·인증번호는 입력하지 않는다'));
+ // 하루 한 번만 갱신: 오늘 기록이 있으면 아무것도 하지 않고, 로그인 풀림 알림은 본인 DM으로 1차·3차에만
+ const iSkip=routine.indexOf('오늘 이미 갱신함');assert.ok(iSkip>0&&iSkip<routine.indexOf('1. 브라우저로'));
+ assert.ok(routine.includes('본인 DM으로만')&&routine.includes('11시 전(1차)')&&routine.includes('DM 없음')&&routine.includes('14시 이후(3차)'));
  const dev=fs.readFileSync(path.join(__dirname,'../DEVELOPMENT.md'),'utf8');
  assert.ok(dev.includes('sql/logistics-slack.sql → sql/logistics-fassto.sql'));
  const iPre=routine.indexOf('select row_count from public.logistics_fassto_sync'),iRun=routine.indexOf('select 문 하나만 실행');

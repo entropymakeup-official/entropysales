@@ -46,7 +46,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 
 6. 첫 파스토 목록 갱신 (사용자 승인 후): 아래 "파스토 목록 갱신" 절차. 이 첫 수동 갱신이 성공하고 결과(5단계 확인)까지 맞는 것을 보기 전에는 8번 예약 작업을 등록하지 않습니다.
 7. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, fassto-forms.js, logistics-standalone.js, logistics.css, logistics.html(전사용 단독 페이지). 바꾼 파일은 index.html과 logistics.html 두 곳의 버전 쿼리를 함께 올립니다. (사용자 승인 후)
-8. 예약 작업 등록(6번의 첫 수동 갱신이 성공·확인된 뒤에만. 평일 08:30 KST, 지시문은 `tools/fassto-sync-routine.txt`) (사용자 승인 후)
+8. 예약 작업 등록(6번의 첫 수동 갱신이 성공·확인된 뒤에만. 평일 08:30·11:30·14:30 KST, 하루 한 번만 갱신, 지시문은 `tools/fassto-sync-routine.txt`) (사용자 승인 후)
 
 ## 파스토 양식 (2026-11-20)
 
@@ -66,7 +66,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 
 사용자가 "파스토 목록 갱신해줘"라고 하거나 예약 작업이 돌면 아래를 그대로 합니다.
 
-1. 브라우저에서 `https://fms.fassto.ai`의 상품별재고현황 화면을 열고 엑셀로 내려받습니다. 내려받은 열(2026-11-19 확인): 상품코드, 상품바코드, 상품명, 상품구분, 유통기한, LOT번호, 출고 가능 수량(그 밖의 열도 있음). 로그인이 풀려 있으면 아무것도 바꾸지 않고 사용자에게 "FMS 로그인이 필요해요"라고 알린 뒤 멈춥니다. 비밀번호·인증번호는 입력하지 않습니다.
+1. 브라우저에서 `https://fms.fassto.ai`의 상품별재고현황 화면을 열고 엑셀로 내려받습니다. 내려받은 열(2026-11-19 확인): 상품코드, 상품바코드, 상품명, 상품구분, 유통기한, LOT번호, 출고 가능 수량(그 밖의 열도 있음). 로그인이 풀려 있으면 아무것도 바꾸지 않고 멈춥니다. 예약 작업은 그날 첫 시도에서 사용자 본인 DM으로 로그인을 부탁하고, 마지막 시도까지 안 되면 "오늘은 갱신 못 함"을 DM으로 알립니다. 비밀번호·인증번호는 입력하지 않습니다.
 2. 저장소 폴더에서 변환합니다(요약은 화면에, SQL은 파일로).
 
    먼저 이전 `fassto-stock.sql`을 지웁니다(옛 파일을 실행하지 않도록). 아래 어느 단계에서든 멈추면 그 파일을 다시 지웁니다.
@@ -94,7 +94,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 
 6. 내려받은 엑셀과 SQL 파일은 저장소에 넣지 않고 지웁니다.
 
-예약 작업(평일 08:30 KST)은 `tools/fassto-sync-routine.txt`의 지시문을 그대로 씁니다. 나중에 파스토 API를 받으면 같은 함수를 Edge Function이나 pg_cron이 `'fassto-api'`로 부르게 바꿉니다. 표와 화면은 그대로입니다.
+예약 작업(평일 08:30·11:30·14:30 KST, 그날 이미 갱신했으면 건너뜀)은 `tools/fassto-sync-routine.txt`의 지시문을 그대로 씁니다. FMS 로그인 화면에는 "아이디 저장"만 있고 로그인 유지가 없어 로그인이 매일 풀립니다(2026-11-24·25 아침 실패). 그래서 하루 세 번 시도하고 로그인을 DM으로 부탁합니다. 근본 해결은 파스토 Open API(김윤래님께 신청 부탁, 2026-11-25)입니다. 나중에 파스토 API를 받으면 같은 함수를 Edge Function이나 pg_cron이 `'fassto-api'`로 부르게 바꿉니다. 표와 화면은 그대로입니다.
 
 ## 슬랙 앱 등록 (사용자 또는 슬랙 관리자)
 
