@@ -55,3 +55,17 @@ test('guard catches real-looking values and lets synthetic ones through',()=>{
  const hit=findings('x',[j('010-','2345-6789'),j('010','23456789'),j('123-45-','67890'),j('dean@','partner.kr'),'iVBORw0KGgo'+'A'.repeat(200)].join(' '));
  assert.deepEqual(hit.map(h=>h.split(' ')[1]),['휴대폰','휴대폰','사업자번호','PNG','외부']);
 });
+
+test('GitHub Pages publishes only the root html, js and css files',()=>{
+ const cfg=fs.readFileSync(path.join(root,'_config.yml'),'utf8');
+ const ex=[...cfg.matchAll(/^\s*-\s*"?([^"\n]+?)"?\s*$/gm)].map(m=>m[1]);
+ const excluded=f=>{
+  const top=f.split('/')[0];
+  if(/^[._]/.test(top)||ex.includes(top)||ex.includes(f))return true;
+  return ex.some(p=>p.startsWith('*.')&&!f.includes('/')&&f.endsWith(p.slice(1)));
+ };
+ const published=trackedFiles().filter(f=>!excluded(f));
+ const unexpected=published.filter(f=>f.includes('/')||!/\.(html|js|css)$/.test(f));
+ assert.deepEqual(unexpected,[],'사이트에 필요 없는 파일은 _config.yml exclude에 추가하세요');
+ assert.ok(published.includes('index.html')&&published.includes('app.js'));
+});
