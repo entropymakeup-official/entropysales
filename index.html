@@ -357,6 +357,26 @@
 </div>
 </div>
 
+<!-- 거래명세서 공급자 정보 모달: 값은 저장소가 아니라 app_settings.supplier_profile(로그인 사용자만 읽기)에 변경 요청으로 저장 -->
+<div class="modal-bg" id="m-supplier">
+<div class="modal" style="width:440px">
+  <div class="mhd"><h2>거래명세서 공급자 정보</h2><button class="btn btn-sm" onclick="cm('m-supplier')"><i class="ti ti-x"></i></button></div>
+  <div class="mbody">
+    <div class="frow c1"><div class="fg"><label>상호</label><input id="sp-name"/></div></div>
+    <div class="frow c1"><div class="fg"><label>주소</label><input id="sp-addr"/></div></div>
+    <div class="frow"><div class="fg"><label>대표자명</label><input id="sp-ceo"/></div><div class="fg"><label>업태</label><input id="sp-biz-type"/></div></div>
+    <div class="frow"><div class="fg"><label>기본 담당자</label><input id="sp-default-contact"/></div><div class="fg"><label>기본 연락처</label><input id="sp-default-phone"/></div></div>
+    <div class="frow c1"><div class="fg"><label>담당자별 연락처 (한 줄에 "담당자=번호")</label><textarea id="sp-phones" rows="5" placeholder="grace=전화번호"></textarea><small style="font-size:10px;color:var(--text3);margin-top:3px;display:block">주문 담당자 이름과 같으면 그 번호, 없으면 기본 연락처가 찍힙니다.</small></div></div>
+    <div class="frow c1"><div class="fg"><label>직인 이미지 (PNG, 200KB 이하)</label><input id="sp-stamp" type="file" accept="image/png" onchange="readSupplierStamp(this)"/><img id="sp-stamp-preview" alt="직인 미리보기" style="display:none;width:68px;height:68px;object-fit:contain;margin-top:6px"/></div></div>
+    <small style="font-size:10px;color:var(--text3);display:block">이 정보는 공개 저장소에 두지 않고, 승인 후 회사 로그인 사용자만 볼 수 있게 저장됩니다.</small>
+  </div>
+  <div class="mft">
+    <button class="btn" onclick="cm('m-supplier')">취소</button>
+    <button class="btn btn-primary" onclick="saveSupplierProfile()"><i class="ti ti-check"></i> 변경 요청 제출</button>
+  </div>
+</div>
+</div>
+
 <!-- 목표 매출 설정 모달 -->
 <div class="modal-bg" id="m-goal">
 <div class="modal" style="width:360px">
@@ -604,6 +624,7 @@
   <div class="mft">
     <button class="btn btn-red" id="view-del-btn" style="margin-right:auto"><i class="ti ti-trash"></i> 삭제</button>
     <button class="btn" onclick="cm('m-inv-view')">닫기</button>
+    <button class="btn" onclick="openSupplierProfile()" title="거래명세서에 찍히는 회사 정보·직인·담당자 연락처">공급자 정보</button>
     <button class="btn btn-green" id="view-dl-btn"><i class="ti ti-download"></i> 거래명세서</button>
     <button class="btn" id="view-amount-btn">증빙 금액</button>
     <button class="btn btn-primary" id="view-edit-btn"><i class="ti ti-pencil"></i> 수정</button>
@@ -655,7 +676,7 @@
 </div>
 </div>
 
-<script src="change-summary.js?v=20261103-new-invoice-docs-1"></script>
+<script src="change-summary.js?v=20261126-supplier-profile-1"></script>
 <script src="change-requests.js?v=20261028-change-summary-1"></script>
 <script src="drive-documents.js?v=20261103-new-invoice-docs-1"></script>
 <script src="invoice-amounts.js?v=20261027-ship-mode-1"></script>
@@ -682,7 +703,7 @@
 <script src="logistics.js?v=20261123-standalone-1"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=a5a01da62955"></script>
+  <script src="app.js?v=b0a225241c67"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 <script>globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m),pageUrl:'logistics.html'});</script>
