@@ -27,7 +27,7 @@ async function setup({storage=false}={}){
  const login=async n=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.session_id',$1,false)",[id(n)]);await db.exec('set role authenticated');};
  const asSystem=async()=>{await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub','',false)");};
  const create=async(o={})=>(await db.query(`insert into logistics_requests(type_code,title_text,team_code,counterparty_text,want_date,ship_mode_code)
-  values ($1,$2,'global','예스스타일','2026-11-24',$3) returning *`,[o.type||'b2b',o.title||'예스스타일 Air',o.mode||'air'])).rows[0];
+  values ($1,$2,'global','데모거래처','2026-11-24',$3) returning *`,[o.type||'b2b',o.title||'데모거래처 Air',o.mode||'air'])).rows[0];
  return {db,login,asSystem,create};
 }
 

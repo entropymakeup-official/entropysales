@@ -14,7 +14,7 @@ test('customer retail prices are approval-only, validated, readable by company u
    create table customers(id uuid primary key default gen_random_uuid(),name text not null,biz text,supply_rate numeric);
    create table documents(id uuid primary key default gen_random_uuid(),name text,customer text,type text);
    create table tax_invoice_amounts(approval_number text primary key,buyer_business_number text not null,customer_id uuid references customers(id),supply_amount numeric not null,created_at timestamptz default now());
-   insert into customers values('${CR}','코마렉스',null,35),('${STC}','스타일앤코',null,32);
+   insert into customers values('${CR}','거래처A',null,30),('${STC}','거래처B',null,25);
    grant usage on schema public,auth to authenticated,anon;`);
   for(const table of ['invoices','invoice_items','products','stocks','schedules','tax_records','app_settings','product_details','invoice_drive_documents'])await db.exec(`create table ${table}(id uuid primary key default gen_random_uuid(),name text)`);
   const sql=name=>fs.readFileSync(path.join(__dirname,'../sql/'+name),'utf8');
@@ -24,7 +24,7 @@ test('customer retail prices are approval-only, validated, readable by company u
   const submit=async ops=>(await db.query('select submit_change_request($1::jsonb,$2,$3::uuid) r',[JSON.stringify(Array.isArray(ops)?ops:[ops]),'Contract price list',crypto.randomUUID()])).rows[0].r;
   const review=async id=>(await db.query('select review_change_request($1::uuid,$2,$3) r',[id,true,'Reviewed'])).rows[0].r;
   const rows=async()=>(await db.query('select * from customer_retail_prices order by barcode')).rows;
-  const insert=patch=>({table:'customer_retail_prices',action:'insert',values:{customer_id:CR,barcode:'8800000000001',retail_price:21000,note:'11/03 가격표',...patch}});
+  const insert=patch=>({table:'customer_retail_prices',action:'insert',values:{customer_id:CR,barcode:'8800000000001',retail_price:21000,note:'가격표',...patch}});
 
   await login(U);const unrelated=await submit({table:'customers',action:'insert',values:{name:'Unrelated pending'}});
   await db.exec('reset role');
@@ -52,7 +52,7 @@ test('customer retail prices are approval-only, validated, readable by company u
 
   await login(U);
   await assert.rejects(()=>submit(insert({})),/unique|duplicate/);
-  // Same barcode for a different customer is independent (스타일앤코 keeps RSP unless it gets its own row).
+  // Same barcode for a different customer is independent (거래처B keeps RSP unless it gets its own row).
   const other=await submit(insert({customer_id:STC,retail_price:18000,note:''}));
   const update={table:'customer_retail_prices',action:'update',key:{id:current[0].id},before:current[0],values:{retail_price:21500}};
   const first=await submit(update),stale=await submit({...update,values:{retail_price:22000}});

@@ -36,7 +36,7 @@ async function setup({secrets=true}={}){
  const flush=async()=>{await system();await db.query('select approval_private.logistics_slack_flush()');};
  const calls=async()=>{await system();return (await db.query('select * from net.calls order by id')).rows;};
  const respond=async(callId,obj,status=200)=>{await system();await db.query('insert into net._http_response(id,status_code,content) values ($1,$2,$3)',[callId,status,JSON.stringify(obj)]);};
- const create=async(title='예스스타일 <Air> & 11월')=>{await login(1);return (await db.query(`insert into logistics_requests(type_code,title_text,team_code,counterparty_text,want_date,ship_mode_code) values ('b2b',$1,'global','예스스타일','2026-11-24','air') returning *`,[title])).rows[0];};
+ const create=async(title='데모거래처 <Air> & 11월')=>{await login(1);return (await db.query(`insert into logistics_requests(type_code,title_text,team_code,counterparty_text,want_date,ship_mode_code) values ('b2b',$1,'global','데모거래처','2026-11-24','air') returning *`,[title])).rows[0];};
  return {db,login,system,flush,calls,respond,create};
 }
 
@@ -50,7 +50,7 @@ test('새 요청은 채널에 새 글로 보내고 ts를 저장한다',async()=>
   assert.equal(c.headers.Authorization,'Bearer xoxb-test');
   assert.equal(c.body.channel,'C08MUA6K4D6');
   assert.equal(c.body.thread_ts,undefined);
-  assert.match(c.body.text,/\[B2B출고\] 예스스타일 &lt;Air&gt; &amp; 11월/);
+  assert.match(c.body.text,/\[B2B출고\] 데모거래처 &lt;Air&gt; &amp; 11월/);
   assert.match(c.body.text,/희망 11\/24 · Air/);
   assert.match(c.body.text,/요청 <@UREQ0001> → <@UHND0001>/);
   // 주소를 그대로 보이지 않고 "요청 상세 보기" 문구 링크로 넣는다 (<url|문구>)

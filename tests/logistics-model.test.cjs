@@ -40,7 +40,7 @@ test('담당자 명단은 활성 상태이고 메일이 대소문자 무관하�
 });
 
 test('등록 검증: 필수 칸, 코드, 길이, 날짜 형식',()=>{
- const ok={type_code:'b2b',title_text:'예스스타일 Air',team_code:'global',counterparty_text:'예스스타일',want_date:'2026-11-24',ship_mode_code:'air',qty_summary_text:'',note_text:''};
+ const ok={type_code:'b2b',title_text:'데모거래처 Air',team_code:'global',counterparty_text:'데모거래처',want_date:'2026-11-24',ship_mode_code:'air',qty_summary_text:'',note_text:''};
  assert.deepEqual(M.validateDraft(ok),[]);
  assert.deepEqual(M.validateDraft({...ok,want_date:null}),[]);
  assert.deepEqual(M.validateDraft({...ok,title_text:'  '}),['제목을 1~80자로 적어 주세요.']);
