@@ -1,0 +1,16 @@
+# GitHub Pages(legacy Jekyll) 게시 범위. 사이트는 루트의 html·js·css만 쓴다.
+# 문서·테스트·SQL·도구는 사이트에 올리지 않는다. 레포 자체는 공개라 github.com에서는 여전히 보인다.
+# tests/public-repo-guard.test.cjs가 이 목록을 검사한다.
+exclude:
+  - "*.md"
+  - "*.txt"
+  - "*.cjs"
+  - "*.py"
+  - package.json
+  - package-lock.json
+  - docs
+  - tests
+  - sql
+  - tools
+  - outbound-sheet-sync
+  - node_modules
