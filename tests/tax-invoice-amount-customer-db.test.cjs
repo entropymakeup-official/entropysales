@@ -13,9 +13,9 @@ test('tax invoice amounts allow only approved customer relinks that match the bu
    create table storage.objects(id uuid primary key,bucket_id text,name text);alter table storage.objects enable row level security;
    create table customers(id uuid primary key default gen_random_uuid(),name text not null,biz text);
    create table documents(id uuid primary key default gen_random_uuid(),name text,customer text,type text);
-   insert into customers values('${WRONG}','에이엘케이','557-14-01180'),('${RIGHT}','스타일앤코(리셀러)','140-81-71331'),('${OTHER}','다른 거래처',null);
+   insert into customers values('${WRONG}','거래처A','100-00-00001'),('${RIGHT}','거래처B(리셀러)','100-00-00002'),('${OTHER}','다른 거래처',null);
    create table tax_invoice_amounts(approval_number text primary key,buyer_business_number text not null,customer_id uuid references customers(id),supply_amount numeric not null,created_at timestamptz default now());
-   insert into tax_invoice_amounts(approval_number,buyer_business_number,customer_id,supply_amount) values('T-1','1408171331','${WRONG}',5449500);
+   insert into tax_invoice_amounts(approval_number,buyer_business_number,customer_id,supply_amount) values('T-1','1000000002','${WRONG}',1000000);
    grant usage on schema public,auth to authenticated,anon;`);
   for(const table of ['invoices','invoice_items','products','stocks','schedules','tax_records','app_settings','product_details','invoice_drive_documents'])await db.exec(`create table ${table}(id uuid primary key default gen_random_uuid(),name text)`);
   const sql=name=>fs.readFileSync(path.join(__dirname,'../sql/'+name),'utf8');
@@ -44,7 +44,7 @@ test('tax invoice amounts allow only approved customer relinks that match the bu
   const request=await submit(relink({customer_id:RIGHT}));assert.equal(request.status,'pending');
   assert.equal((await row()).customer_id,WRONG);
   await login(A);assert.equal((await review(request.id)).status,'approved');
-  const after=await row();assert.equal(after.customer_id,RIGHT);assert.equal(Number(after.supply_amount),5449500);assert.equal(after.buyer_business_number,'1408171331');
+  const after=await row();assert.equal(after.customer_id,RIGHT);assert.equal(Number(after.supply_amount),1000000);assert.equal(after.buyer_business_number,'1000000002');
   await login(U);await assert.rejects(()=>submit(relink({customer_id:RIGHT})),/STALE_DATA/);
   // 다른 표의 기존 승인 흐름은 그대로 동작한다.
   const other=await submit({table:'customers',action:'insert',values:{name:'New customer'}});await login(A);assert.equal((await review(other.id)).status,'approved');
@@ -52,7 +52,7 @@ test('tax invoice amounts allow only approved customer relinks that match the bu
   await db.exec('reset role');
   await db.exec(`alter table customers disable trigger user;insert into customers values('10000000-0000-0000-0000-000000000004','빈 번호','');alter table customers enable trigger user;
    alter table tax_invoice_amounts disable trigger user;
-   insert into tax_invoice_amounts(approval_number,buyer_business_number,customer_id,supply_amount) values('T-3','557-14-01180','${RIGHT}',1),('T-4','-','${RIGHT}',1);
+   insert into tax_invoice_amounts(approval_number,buyer_business_number,customer_id,supply_amount) values('T-3','100-00-00001','${RIGHT}',1),('T-4','-','${RIGHT}',1);
    alter table tax_invoice_amounts enable trigger user;`);
   const rowOf=async n=>(await db.query('select to_jsonb(t) r from tax_invoice_amounts t where approval_number=$1',[n])).rows[0].r;
   const t3=await rowOf('T-3'),t4=await rowOf('T-4');

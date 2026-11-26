@@ -4,18 +4,19 @@ const vm=require('node:vm');
 const CP=require('../customer-prices.js');
 const {harness}=require('./helpers/approvals.cjs');
 
-const CR={id:'cr',name:'코마렉스',supply_rate:'35'},STC={id:'stc',name:'스타일앤코',supply_rate:'32'};
-const TINT={barcode:'8800000000001',name:'참 틴트',price:18000};
-const ROWS=[{id:'p1',customer_id:'cr',barcode:'8800000000001',retail_price:21000,note:'11/03 가격표'}];
+// Synthetic customers and rates only; real contract terms stay out of this public repository.
+const CR={id:'cr',name:'거래처A',supply_rate:'30'},STC={id:'stc',name:'거래처B',supply_rate:'25'};
+const TINT={barcode:'8800000000001',name:'Demo tint',price:10000};
+const ROWS=[{id:'p1',customer_id:'cr',barcode:'8800000000001',retail_price:12000,note:'가격표'}];
 
 test('supply price uses the customer base retail price when present, otherwise RSP',()=>{
- assert.deepEqual(CP.supplyPrice({customer:CR,product:TINT,barcode:' 8800000000001 ',rows:ROWS}),{price:7350,retail:21000,rate:35,source:'customer',note:'11/03 가격표',rsp:18000});
- assert.equal(CP.supplyPrice({customer:STC,product:TINT,barcode:TINT.barcode,rows:ROWS}).price,5760);
+ assert.deepEqual(CP.supplyPrice({customer:CR,product:TINT,barcode:' 8800000000001 ',rows:ROWS}),{price:3600,retail:12000,rate:30,source:'customer',note:'가격표',rsp:10000});
+ assert.equal(CP.supplyPrice({customer:STC,product:TINT,barcode:TINT.barcode,rows:ROWS}).price,2500);
  assert.equal(CP.supplyPrice({customer:CR,product:{barcode:'x',price:10000},barcode:'x',rows:ROWS}).source,'rsp');
  // No rate → no calculated price (keeps the previous behaviour).
  assert.equal(CP.supplyPrice({customer:{id:'cr'},product:TINT,barcode:TINT.barcode,rows:ROWS}).price,null);
  // Unmapped barcode can still be priced from the customer table.
- assert.equal(CP.supplyPrice({customer:CR,product:null,barcode:TINT.barcode,rows:ROWS}).price,7350);
+ assert.equal(CP.supplyPrice({customer:CR,product:null,barcode:TINT.barcode,rows:ROWS}).price,3600);
  assert.equal(CP.supplyPrice({customer:null,product:TINT,barcode:TINT.barcode,rows:undefined}).price,null);
 });
 
@@ -28,7 +29,7 @@ test('paste parser reads tab separated rows with thousands separators and skips 
 
 test('planChanges emits insert/update/delete only for real differences and validates rows',()=>{
  const before=[...ROWS,{id:'p2',customer_id:'cr',barcode:'8800000000002',retail_price:23000,note:''},{id:'x',customer_id:'stc',barcode:'8800000000001',retail_price:18000,note:''}];
- const unchanged=CP.planChanges({customerId:'cr',before,draft:[{id:'p1',barcode:'8800000000001',retail_price:'21000',note:'11/03 가격표'},{id:'p2',barcode:'8800000000002',retail_price:23000,note:''}]});
+ const unchanged=CP.planChanges({customerId:'cr',before,draft:[{id:'p1',barcode:'8800000000001',retail_price:'12000',note:'가격표'},{id:'p2',barcode:'8800000000002',retail_price:23000,note:''}]});
  assert.deepEqual(unchanged,{errors:[],changes:[]});
  const plan=CP.planChanges({customerId:'cr',before,draft:[{id:'p1',barcode:'8800000000001',retail_price:'21,500',note:'11/20 인상'},{barcode:'8800000000003',retail_price:19000,note:''},{barcode:'',retail_price:'',note:''}]});
  assert.deepEqual(plan.errors,[]);
@@ -56,20 +57,20 @@ test('order entry auto price uses the customer base retail price and labels the 
  h.load('customerSupplyPrice','supplyRateLabel','xgParseBarcode','xgCalcAmt');
  h.ctx._products=[TINT,{barcode:'8800000000009',name:'Other',price:10000}];h.ctx._customers=[CR,STC];
  h.ctx._customerRetailPrices=ROWS;
- h.element('rm-cust').value='코마렉스';
+ h.element('rm-cust').value='거래처A';
  let r=entryRow('8800000000001');h.ctx.xgParseBarcode(r.tr);
- assert.equal(r.cells['5'].value,7350);assert.equal(r.cells['2'].textContent,'21,000');assert.match(r.rate.textContent,/35% · 거래처 기준가/);
- r=entryRow('8800000000009');h.ctx.xgParseBarcode(r.tr);assert.equal(r.cells['5'].value,3500);assert.equal(r.rate.textContent,'(35%)');
- h.element('rm-cust').value='스타일앤코';
- r=entryRow('8800000000001');h.ctx.xgParseBarcode(r.tr);assert.equal(r.cells['5'].value,5760);assert.equal(r.cells['2'].textContent,'18,000');
+ assert.equal(r.cells['5'].value,3600);assert.equal(r.cells['2'].textContent,'12,000');assert.match(r.rate.textContent,/30% · 거래처 기준가/);
+ r=entryRow('8800000000009');h.ctx.xgParseBarcode(r.tr);assert.equal(r.cells['5'].value,3000);assert.equal(r.rate.textContent,'(30%)');
+ h.element('rm-cust').value='거래처B';
+ r=entryRow('8800000000001');h.ctx.xgParseBarcode(r.tr);assert.equal(r.cells['5'].value,2500);assert.equal(r.cells['2'].textContent,'10,000');
 });
 
 test('customer save bundles base retail price changes into one change request and skips an unchanged customer row',async()=>{
  const h=harness();h.ctx.CustomerPrices=CP;h.ctx.fmt=String;
  h.load('saveCust','renderCustRetailEditor','custRetailSet','custRetailAdd','custRetailChanges');
- const cust={id:'cr',name:'코마렉스',code:'CR',mgr:'liah',country:'',tax:'영세',biz:'',addr:'',ceo:'',contact:'',phone:'',email:'',biz_type:'',note:'',status:'거래중',supply_rate:35};
+ const cust={id:'cr',name:'거래처A',code:'CR',mgr:'liah',country:'',tax:'영세',biz:'',addr:'',ceo:'',contact:'',phone:'',email:'',biz_type:'',note:'',status:'거래중',supply_rate:30};
  h.ctx._customers=[cust];h.ctx._customerRetailPrices=ROWS;
- for(const [k,v] of Object.entries({name:'코마렉스',code:'CR',mgr:'liah',country:'',tax:'영세',biz:'',addr:'',ceo:'',contact:'',phone:'',email:'','biz-type':'',note:'',status:'거래중','supply-rate':'35'}))h.element('c-'+k).value=v;
+ for(const [k,v] of Object.entries({name:'거래처A',code:'CR',mgr:'liah',country:'',tax:'영세',biz:'',addr:'',ceo:'',contact:'',phone:'',email:'','biz-type':'',note:'',status:'거래중','supply-rate':'30'}))h.element('c-'+k).value=v;
  h.ctx._editCust=JSON.parse(JSON.stringify(cust));
  h.ctx.renderCustRetailEditor('cr');
  h.ctx.custRetailAdd();h.ctx.custRetailSet(1,'barcode','8800000000002');h.ctx.custRetailSet(1,'retail_price','23000');

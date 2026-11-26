@@ -16,7 +16,7 @@ test('editing a customer keeps a manager that is not in the dropdown and multi-l
  h.elements['c-mgr']=select(['liah','Grace']);
  h.load('setCustMgr','editCust','saveCust','renderCustRetailEditor','custRetailChanges');
  const note='첫 줄\n둘째 줄';
- const cust={id:'cr',name:'코마렉스',code:'CR',mgr:'정담당',country:'Myanmar',tax:'영세',biz:'',addr:'',ceo:'',contact:'',phone:'',email:'',biz_type:'',note,status:'거래중',supply_rate:35};
+ const cust={id:'cr',name:'거래처A',code:'CR',mgr:'정담당',country:'Myanmar',tax:'영세',biz:'',addr:'',ceo:'',contact:'',phone:'',email:'',biz_type:'',note,status:'거래중',supply_rate:35};
  h.ctx._customers=[cust];
  h.ctx.editCust('cr');
  assert.equal(h.elements['c-mgr'].value,'정담당');
