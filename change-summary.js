@@ -27,6 +27,14 @@
   function show(key,value,ctx){
     if(value===null||value===undefined||value==='')return '(빈칸)';
     if(key==='ref_invoice_id'){const no=ctx?.invoiceNo?.(value);return no?no:`목록에 없는 인보이스 (${String(value).slice(0,8)}…)`;}
+    // 거래명세서 공급자 정보(app_settings.supplier_profile)는 직인 이미지 원문 대신 읽을 수 있는 요약으로 보여 준다.
+    if(key==='value'&&typeof value==='string'&&value.includes('"stamp_png_base64"')){
+      try{
+        const p=JSON.parse(value),phones=Object.entries(p.manager_phones||{});
+        const kb=Math.max(1,Math.round(String(p.stamp_png_base64||'').length*3/4/1024));
+        return `공급자 정보: ${p.name||'(상호 없음)'} · ${p.addr||'(주소 없음)'} · 대표 ${p.ceo||'-'} · 업태 ${p.biz_type||'-'} · 기본 담당 ${p.default_contact||'-'} ${p.default_phone||''} · 담당자 연락처 ${phones.length}명(${phones.map(([k,v])=>`${k} ${v}`).join(', ')}) · 직인 이미지 ${p.stamp_png_base64?kb+'KB':'없음'}`;
+      }catch(e){}
+    }
     if(typeof value==='boolean')return value?'예':'아니요';
     if(typeof value==='object')return JSON.stringify(value);
     return String(value);

@@ -11,7 +11,7 @@ function setup(){
  getInvItems:id=>items.filter(i=>i.invoice_id===id),itemsRev:xs=>xs.reduce((a,x)=>a+x.qty*x.price,0),itemsByType:()=>0};
  vm.createContext(c);for(const f of ['invoice-amounts.js','dashboard-model.js','tax-ledger.js','consignment-settlement.js','dashboard-ui.js'])vm.runInContext(fs.readFileSync(path.join(root,f),'utf8'),c);
  const app=fs.readFileSync(path.join(root,'app.js'),'utf8'),start=app.indexOf('function renderDash(){'),end=app.indexOf('\nfunction ',start+1);
- vm.runInContext(app.slice(start,end),c);return {c,nodes};
+ c.parseSupplierProfile=()=>null;vm.runInContext(app.slice(start,end),c);return {c,nodes};
 }
 test('dashboard render and customer filter share supply totals and preserve source records',()=>{
  const {c,nodes}=setup(),before=JSON.stringify([c._invoices,c._items]);c.renderDash();
@@ -59,7 +59,7 @@ test('normal application data load reads the tax ledger through the real reader'
  range(from,to){return Promise.resolve({...result,data:result.data.slice(from,to+1),count:result.data.length});},
  then(resolve,reject){return Promise.resolve(result).then(resolve,reject);}};}};
  const app=fs.readFileSync(path.join(root,'app.js'),'utf8'),start=app.indexOf('let _loadAllPromise'),end=app.indexOf('\nasync function preloadAllInvFiles',start+1);
- vm.runInContext(app.slice(start,end),c);await c._loadAllInner();c.renderDash();
+ c.parseSupplierProfile=()=>null;vm.runInContext(app.slice(start,end),c);await c._loadAllInner();c.renderDash();
  assert.match(nodes.content.innerHTML,/id="dash-tax-ledger"/);assert.match(nodes.content.innerHTML,/₩700/);
  assert.equal(vm.runInContext('_taxLedgerState.status',c),'ready');
  assert.equal(vm.runInContext('_consignmentState.status',c),'ready');
@@ -76,7 +76,7 @@ test('logout during a load clears visible data and a new login loads independent
  c.TaxLedger.load=()=>new Promise(resolve=>pending.push(resolve));
  c.ConsignmentSettlement.load=async()=>({status:'ready',rows:[]});
  const app=fs.readFileSync(path.join(root,'app.js'),'utf8'),start=app.indexOf('let _loadAllPromise'),end=app.indexOf('\nasync function preloadAllInvFiles',start);
- vm.runInContext(app.slice(start,end),c);
+ c.parseSupplierProfile=()=>null;vm.runInContext(app.slice(start,end),c);
  nodes.content.innerHTML='<strong>Previous account amount</strong>';
  const oldRead=c.loadAll();
  assert.equal(typeof c.resetApplicationData,'function');c.resetApplicationData();

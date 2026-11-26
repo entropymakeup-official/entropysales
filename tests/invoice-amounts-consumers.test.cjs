@@ -5,7 +5,7 @@ function fixture(){
  h.ctx._invoices[0].order_date='2026-01-02';h.ctx._items=[{id:'item-a',invoice_id:'inv-a',barcode:'SYNTHETIC',name:'Synthetic item',sales_type:'Paid',qty:3,price:40,amount_override:91.25,amount_reference:'Proof'}];
  const sheets=[],printed=[];h.ctx.XLSX={utils:{book_new:()=>({}),aoa_to_sheet:rows=>{sheets.push(rows);return {};},book_append_sheet(){}}};h.ctx.xlsxDownload=()=>{};
  h.ctx.window.open=()=>({document:{write:html=>printed.push(html),close(){}},focus(){},print(){}});
- h.load('fmt','fmtExact','fmtN','itemsRev','itemsByType');return {...h,sheets,printed};
+ h.load('fmt','fmtExact','fmtN','itemsRev','itemsByType','supplierFor');h.ctx._supplierProfile={name:'Demo Supplier',stamp_png_base64:'AAAA'};return {...h,sheets,printed};
 }
 test('invoice details and both Excel exports use effective stored amounts with original qty and price',()=>{
  const h=fixture();h.load('viewInv','exportInvoices','renderRaw','exportRaw');h.ctx.viewInv('inv-a');assert.match(h.element('view-inv-items').innerHTML,/₩91\.25/);
