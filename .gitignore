@@ -1,2 +1,15 @@
 node_modules/
 .local/
+
+# 업무 자료(보고서·계약서·엑셀·PDF)는 공개 레포에 올리지 않는다.
+# 내부 문서는 Drive나 인수인계 폴더에 둔다. tests/public-repo-guard.test.cjs가 추적 파일도 검사한다.
+*_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*.md
+*-report.html
+*.docx
+*.doc
+*.hwp
+*.pdf
+*.xls
+*.xlsx
+*.csv
+!tests/fixtures/**/*.xlsx
