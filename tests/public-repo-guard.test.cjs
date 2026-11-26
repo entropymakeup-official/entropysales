@@ -50,6 +50,8 @@ test('tracked text files carry no real phone numbers, business numbers, outside 
 
 test('guard catches real-looking values and lets synthetic ones through',()=>{
  assert.equal(findings('x','010-0000-0000 010-1234-5678 01001234567 000-00-00000 100-00-00002 a@example.test sylee@entropymakeup.com').length,0);
- const hit=findings('x','010-2345-6789 01023456789 123-45-67890 dean@partner.kr iVBORw0KGgo'+'A'.repeat(200));
+ // Samples are assembled at run time so this file does not trip its own scan.
+ const j=(...p)=>p.join('');
+ const hit=findings('x',[j('010-','2345-6789'),j('010','23456789'),j('123-45-','67890'),j('dean@','partner.kr'),'iVBORw0KGgo'+'A'.repeat(200)].join(' '));
  assert.deepEqual(hit.map(h=>h.split(' ')[1]),['휴대폰','휴대폰','사업자번호','PNG','외부']);
 });
