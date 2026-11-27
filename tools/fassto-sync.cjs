@@ -106,7 +106,9 @@ async function run({dir=defaultDir(),fetch=globalThis.fetch,nowMs=Date.now(),dry
   try{
    stockList=await fx.stock();
    const {start,end}=C.dateRange(nowMs,num(config.lookbackDays,14),num(config.lookaheadDays,14));
-   raw=[...((await fx.deliveries(start,end,'2'))||[]),...((await fx.deliveries(start,end,'1'))||[])];
+   // 실제 응답(2026-11-27 확인)은 outDiv가 비어 온다. 부른 경로(2 차량, 1 택배)로 채운다.
+   const tag=(rows,div)=>(rows||[]).map(x=>({...x,outDiv:x.outDiv==null||String(x.outDiv).trim()===''?div:x.outDiv}));
+   raw=[...tag(await fx.deliveries(start,end,'2'),'2'),...tag(await fx.deliveries(start,end,'1'),'1')];
   }catch(e){
    if(e.code==='INVALID_ACCESS'){log('파스토가 이 IP를 거부함(사무실 밖에서 실행?) — 건너뜀');return {status:'ip-skip'};}
    throw e;

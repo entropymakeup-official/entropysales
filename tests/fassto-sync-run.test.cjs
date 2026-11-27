@@ -216,3 +216,20 @@ test('F1 미리보기는 상태별 건수와, 오늘 전 출고완료라 새로 
  assert.match(text,/상태별: ORDER 2 · DONE 4 · CANCEL 1/);
  assert.match(text,/오늘 전 주문의 출고완료 3건/);
 });
+
+test('실제 응답처럼 outDiv가 비어 와도 부른 경로(2=차량, 1=택배)로 구분한다',async()=>{
+ const dir=tmp();writeConfig(dir);
+ const f=fakeFetch([
+  [/\/api\/v1\/delivery\/C1\/[0-9-]+\/[0-9-]+\/ALL\/2/,()=>ok([{slipNo:'GG24OO261201000001',ordNo:'가짜 주문 1',ordDt:'20261201',outDiv:null,salChanel:null,shopNm:' 가짜 바이어',ordQty:30,wrkStat:'1',updTime:'202611261849',updUserNm:'가짜 요청자'}])],
+  [/\/api\/v1\/delivery\/C1\/[0-9-]+\/[0-9-]+\/ALL\/1/,()=>ok([{slipNo:'GG24OO261201000002',outDiv:null,salChanel:'가짜몰',wrkStat:'3',updTime:'t'},{slipNo:'GG24OO261201000003',outDiv:null,salChanel:'',ordDt:'20261201',ordQty:1,wrkStat:'1',updTime:'t'}])],
+  [/delivery\/detail\/C1\/GG24OO261201000003/,()=>ok([{goods:[{cstGodCd:'11111111111111',godNm:'가짜 상품',distTermDt:'20290101',ordQty:1}]}])],
+  ...baseRoutes()]);
+ const r=await S.run({dir,fetch:f.fetch,nowMs:NOW,dryRun:true,out:()=>{}});
+ assert.equal(r.status,'dry-run');assert.equal(r.mall,1);
+ const by=Object.fromEntries(r.deliveries.map(d=>[d.slip_no,d]));
+ assert.equal(by.GG24OO261201000001.out_div,'car');
+ assert.equal(by.GG24OO261201000001.order_date,'2026-12-01');
+ assert.equal(by.GG24OO261201000001.shop_name,'가짜 바이어');
+ assert.equal(by.GG24OO261201000003.out_div,'parcel');
+ assert.equal('GG24OO261201000002' in by,false);
+});
