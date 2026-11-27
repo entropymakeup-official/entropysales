@@ -344,3 +344,21 @@ test('ingest 새 요청 범위: 시작일 전 주문은 만들지 않고, 택배
   assert.deepEqual([b.created,b.skipped],[1,2]);
  }finally{await db.close();}
 });
+
+test('ingest: 사람이 만든 요청이라도 품목이 비어 있으면 파스토 품목으로 채우고 댓글은 남기지 않는다',async()=>{
+ const {db,ingest,create,req}=await setup();
+ try{
+  const mine=await create({title:'코마렉스 출고'});
+  await db.exec(`update logistics_requests set qty_summary_text='1,331개' where id='${mine.id}'`);
+  const res=await ingest([dlv({order_no:mine.fassto_order_no})]);
+  assert.equal(res.updated,1);
+  const it=(await db.query('select product_code,qty,expires_on::text exp from logistics_request_items where request_id=$1',[mine.id])).rows;
+  assert.deepEqual(it,[{product_code:'11111111111111',qty:30,exp:'2029-01-01'}]);
+  assert.equal((await db.query('select count(*)::int n from logistics_request_comments where request_id=$1',[mine.id])).rows[0].n,0);
+  assert.equal((await req('GG24OO261201000001')).qty_summary_text,'1,331개'); // 사람이 쓴 수량 요약은 그대로
+  // 이미 채워진 뒤 파스토 품목이 바뀌면(사람이 만든 요청) 덮지 않고 댓글
+  await ingest([dlv({order_no:mine.fassto_order_no,items:[{product_code:'11111111111111',product_name:'가짜 상품',expires_on:'2029-01-01',qty:40}]})]);
+  assert.equal((await db.query('select qty from logistics_request_items where request_id=$1',[mine.id])).rows[0].qty,30);
+  assert.equal((await db.query('select count(*)::int n from logistics_request_comments where request_id=$1',[mine.id])).rows[0].n,1);
+ }finally{await db.close();}
+});

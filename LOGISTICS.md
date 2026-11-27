@@ -67,6 +67,8 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 
 설계: `docs/superpowers/specs/2026-11-27-fassto-api-sync-design.md`. 파스토 API는 파스토에 등록한 사무실 회선 IP에서만 호출됩니다. 사무실에 상주하는 PC에서 돌립니다. 키·설정·로그는 저장소에 넣지 않습니다.
 
+Claude 데스크톱 앱 주의: 앱 안에서 Claude가 돌린 명령은 `%LOCALAPPDATA%`에 쓴 파일이 앱 전용 폴더(`%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Local\…`)로 바뀌어 저장됩니다. 작업 스케줄러는 진짜 `%LOCALAPPDATA%\entropy-fassto-sync`를 읽으므로, 설정 만들기·키 넣기·미리보기·실행·스케줄러 등록은 일반 PowerShell 창이나 앱의 터미널 패널에서 합니다(2026-11-27 첫 설치 때 설정이 두 곳으로 갈라져 한 번 합쳤습니다).
+
 새 요청을 만드는 범위(2026-11-27 사용자 결정): 차량 출고는 시작일(`create_from_date`) 이후 주문만, 택배는 파스토 주문번호가 대시보드 주문번호(invoices.no)나 `LG…`일 때만 만듭니다(CS 수작업 발송은 만들지 않음). 이미 연결된 요청은 범위와 상관없이 계속 갱신합니다.
 
 등록 규칙(2026-11-27 사용자 결정): 출고는 FMS에만 등록하고, 물류 요청은 동기화가 만듭니다. 같은 출고를 대시보드 "+ 새 요청"으로 따로 만들지 않습니다(두 번 생깁니다). FMS 주문번호 칸에는 대시보드 주문번호(예 `RE_20261126`)를 넣습니다. 그러면 동기화가 물류 요청을 그 주문에 자동으로 연결합니다(출고완료·취소 전 요청만). 대시보드에서 먼저 만든 요청은 "파스토 양식 내려받기" 엑셀(주문번호 `LG…`)로 FMS에 올리면 같은 요청에 이어집니다.
@@ -87,21 +89,21 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
    icacls "$env:LOCALAPPDATA\entropy-fassto-sync" /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F"
    ```
 
-4. 설정 파일에 사용자가 직접 넣습니다: `fassto.apiCd`, `fassto.apiKey`, `fassto.cstCd`(고객사 코드), `supabase.url`, `supabase.anonKey`(웹페이지가 쓰는 공개 키), `supabase.syncKey`(1단계 열쇠).
+4. 설정 파일에 사용자가 직접 넣습니다: `fassto.apiCd`, `fassto.apiKey`, `fassto.cstCd`(고객사 코드), `supabase.url`, `supabase.anonKey`(웹페이지가 쓰는 공개 키), `supabase.syncKey`(1단계 열쇠). 파스토 키는 `node tools/fassto-set-keys.cjs`로 넣으면 화면에 보이지 않게 입력받아 저장합니다(채팅에 붙이지 않음).
 5. 미리보기: `node tools/fassto-sync.cjs --dry-run`. DB에 쓰지 않고 동기화 대상 목록을 보여 줍니다. 확인할 것: 쇼핑몰 택배가 빠졌는지, 작업상태가 모두 읽혔는지("모르는 작업상태"가 없어야 함), 재고 상품코드가 지금 재고 표와 같은 체계(고객사상품코드)인지. "상태별: ORDER … · DONE …" 줄과 "오늘 전 주문의 출고완료 N건" 줄도 봅니다. 연결된 요청이 없는 출고완료 건 중 주문일이 오늘(KST) 전인 건은 이미 나간 출고로 보고 새로 만들지 않습니다(첫 실행 때 지난 출고가 한꺼번에 요청·슬랙 알림으로 쏟아지지 않게).
 6. 한 번 실제 실행: `node tools/fassto-sync.cjs`. 물류 요청 화면에 파스토 요청이 생기고, 상단에 "파스토 동기화: … 정상"이 보이는지 확인합니다.
-7. 작업 스케줄러 등록(평일 08:00~19:00, 10분마다, 로그온 중에만). PowerShell에서 저장소 폴더 기준으로:
+7. 작업 스케줄러 등록(평일 08:00부터 11시간, 10분마다, 로그온 중에만, 창 없이). PowerShell 스크립트 실행이 막힌 PC에서도 되도록 `schtasks`로 등록합니다(2026-11-27 등록). 일반 PowerShell 창에서 `<저장소 폴더>`를 실제 경로로 바꿔 한 줄로 실행합니다:
 
    ```powershell
-   $repo = (Get-Location).Path
-   $action = New-ScheduledTaskAction -Execute "node" -Argument "tools\fassto-sync.cjs" -WorkingDirectory $repo
-   $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At 08:00
-   $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At 08:00 -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Hours 11)).Repetition
-   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 9)
-   Register-ScheduledTask -TaskName "Entropy Fassto Sync" -Action $action -Trigger $trigger -Settings $settings
+   schtasks /Create /F /TN "Entropy Fassto Sync" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:00 /RI 10 /DU 11:00 /IT /TR "C:\Windows\System32\conhost.exe --headless \"C:\Program Files\nodejs\node.exe\" \"<저장소 폴더>\tools\fassto-sync.cjs\""
    ```
 
-8. 며칠 정상으로 돌면(사용자 확인 후) 브라우저 재고 갱신 예약 작업을 끕니다. 아래 "파스토 목록 갱신 (Claude, 브라우저)"는 API가 안 될 때 쓰는 예비 절차로 남깁니다.
+   - `conhost.exe --headless`는 10분마다 검은 창이 뜨지 않게 합니다. Node가 다른 곳에 있으면 `node -p "process.execPath"`로 확인해 바꿉니다.
+   - `/IT`는 로그온 중일 때만 돌게 합니다(사용자 계정, 비밀번호 저장 안 함).
+   - 확인: `schtasks /Query /TN "Entropy Fassto Sync" /V /FO LIST`. 바로 한 번 돌리기: `schtasks /Run /TN "Entropy Fassto Sync"`. 그 뒤 화면 상단 "파스토 동기화: … 정상" 시각이 바뀌었는지 봅니다.
+   - 멈추기: `schtasks /Change /TN "Entropy Fassto Sync" /DISABLE`. 지우기: `schtasks /Delete /TN "Entropy Fassto Sync" /F`.
+
+8. 브라우저 재고 갱신 예약 작업(`fassto-stock-sync`)은 2026-11-27 사용자 결정으로 껐습니다. 재고는 API 하나로 받습니다(LOT 번호 없이 유통기한별). 아래 "파스토 목록 갱신 (Claude, 브라우저)"는 API가 안 될 때 쓰는 예비 절차로 남깁니다.
 
 문제 해결: 로그는 `%LOCALAPPDATA%\entropy-fassto-sync\logs\<날짜>.log`(30일 보관). "IP를 거부함"은 사무실 밖에서 실행된 경우라 무시해도 됩니다. 실패는 화면 상단에 빨간 "파스토 동기화 오류"로 보입니다. 열쇠를 바꾸려면 1단계를 다시 하고 옛 열쇠는 `update approval_private.logistics_fassto_keys set is_active=false where label_text=…`로 끕니다. 쓰는 함수는 `public.logistics_fassto_ingest`, `public.logistics_fassto_report_error` 두 개뿐이고 anon만 실행할 수 있습니다.
 
