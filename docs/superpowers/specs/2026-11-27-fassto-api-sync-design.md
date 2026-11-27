@@ -186,9 +186,11 @@
 3. 재고 조회 → 행 변환(`product_code`=cstGodCd, `barcode`=godBarcd, `product_name`=godNm, `kind_text`=giftDiv 이름, `lot_text`='', `expires_on`=distTermDt, `available_qty`=canStockQty).
 4. 출고 목록 조회: 오늘(KST) − lookbackDays ~ 오늘 + lookaheadDays, outDiv 2와 1을 각각.
 5. 택배 중 `salChanel`이 비어 있지 않은 건은 버린다(쇼핑몰 연동 주문). 설정으로 끌 수 있다.
-6. `state.json`에 없거나 `updTime`이 바뀐 건만 상세 조회. 상세 조회가 실패한 건은 `items` 없이 넘기고 `state.json`을 갱신하지 않아 다음 실행에서 다시 조회한다.
-7. `logistics_fassto_ingest` 한 번 호출. 성공하면 `state.json` 갱신, 결과 한 줄을 로그에 남긴다.
-8. `--dry-run`: 6번까지 하고 DB 대신 "새로 만들 건 / 고칠 건 / 걸러낸 쇼핑몰 택배 수"를 화면에 출력한다. DB의 현재 연결 상태를 알 수 없으므로 "새로 만들 건"은 `state.json`에 없는 건 기준이다.
+6. `state.json`에 없거나 `updTime`이 바뀐 건만 상세 조회. 상세 조회가 실패한 건은 `items` 없이 넘기고 `state.json`을 갱신하지 않아 다음 실행에서 다시 조회한다. 상세 품목이 비었거나 품목 수량 합계가 목록의 `ordQty`(0보다 클 때)와 다르면 역시 `items` 없이 넘기고 `state.json`에 남기지 않으며, 출고요청번호와 이유를 로그에 한 줄 남긴다.
+7. `logistics_fassto_ingest`를 나눠 부른다(Supabase anon 문장 시간 제한 안에 들게): 먼저 재고만(`p_stock`=행, `p_deliveries`=null), 다음 출고를 30건씩(`p_stock`=null, `p_deliveries`=묶음). 출고가 0건이어도 `p_deliveries=[]`로 한 번 불러 동기화 행·안내 줄을 갱신한다. 묶음이 성공할 때마다 그 묶음의 건만 `state.json`에 남긴다. 중간에 실패하면 멈추고 report_error를 한 번 부르며 종료 코드 1. 결과는 호출들을 합쳐 한 줄로 로그에 남긴다.
+   - 모든 fetch(파스토·Supabase)에 30초 제한(`AbortSignal.timeout(30000)`)을 건다. `lookbackDays`·`lookaheadDays`는 숫자로 바꾸고, 숫자가 아니면 14.
+   - `token.json`·`state.json`이 깨져 있으면 기본값으로 다시 시작한다. `config.json`이 깨져 있으면 내용을 인용하지 않는 고정 문구 "설정 파일(config.json)을 읽지 못했어요. JSON 형식을 확인해 주세요."를 보이고 `config-invalid`, 종료 코드 1. JSON 해석 오류 문구는 로그·report_error에 넣지 않는다.
+8. `--dry-run`: 6번까지 하고 DB 대신 "새로 만들 건 / 고칠 건 / 걸러낸 쇼핑몰 택배 수"를 화면에 출력한다. DB의 현재 연결 상태를 알 수 없으므로 "새로 만들 건"은 `state.json`에 없는 건 기준이다. 작업상태별 건수(`상태별: ORDER 5 · WORKING 1 · DONE 12 · CANCEL 2`)와, 주문일이 오늘(KST) 전인 출고완료 건수(연결된 요청이 없으면 4.3 규칙으로 새로 만들지 않음)도 보여 준다.
 
 ### 5.3 실패 처리
 
@@ -196,7 +198,7 @@
 |---|---|
 | `INVALID_ACCESS`(IP 다름) | 로그만 남기고 끝낸다. 대시보드에 오류를 남기지 않는다 |
 | 파스토 그 밖의 오류, 네트워크 오류 | `logistics_fassto_report_error` 호출 후 끝낸다 |
-| ingest 오류 | 로그 + report_error. `state.json`은 그대로라 다음 실행에서 다시 보낸다 |
+| ingest 오류 | 로그 + report_error(한 번). 실패한 묶음부터는 `state.json`에 없으므로 다음 실행에서 다시 보낸다. `57014`(statement timeout)면 묶음 크기 상수를 줄인다 |
 | 재고 행 수 급감 | ingest가 재고만 건너뛰고 경고를 돌려준다. 로그에 남긴다 |
 
 ### 5.4 실행 일정
@@ -226,7 +228,7 @@
 ### 7.1 목록
 
 - `fassto_slip_no`가 있는 요청은 제목 옆에 `파스토` 표시와 파스토 작업상태 이름을 작게 붙인다.
-- 위 안내 줄: 재고 최신 행과 출고 동기화 최신 행을 읽어 `파스토 동기화: HH:MM 정상 · 재고 N종`. 최신 출고 동기화 행에 `error_text`가 있으면 `파스토 동기화 오류(HH:MM): …`를 빨간 글씨로. 출고 동기화 행이 하나도 없으면 지금처럼 재고 기준 문구.
+- 위 안내 줄: 재고 최신 행과 출고 동기화 최신 행을 읽어 `파스토 동기화: HH:MM 정상 · 재고 N종`. 최신 출고 동기화 행에 `error_text`가 있으면 `파스토 동기화 오류(HH:MM): …`를 빨간 글씨로. 오류는 없지만 30분보다 오래됐고 지금(KST)이 평일 08:30~19:00이면 `파스토 동기화: MM/DD HH:MM 이후 멈춤 · 사무실 PC를 확인해 주세요`를 경고 색으로(그 시간 밖이면 정상). 출고 동기화 행이 하나도 없으면 지금처럼 재고 기준 문구.
 
 ### 7.2 상세
 

@@ -993,3 +993,20 @@ test('운영 문서: 파스토 API 동기화 설치 절차와 재고 쿼리의 k
  const dev=fs.readFileSync(path.join(__dirname,'../DEVELOPMENT.md'),'utf8');
  assert.ok(dev.includes('sql/logistics-fassto.sql → sql/logistics-fassto-api.sql'));
 });
+
+test('F6 파스토 동기화: 평일 08:30~19:00(KST)에 30분 넘게 동기화가 없으면 멈춤 경고, 그 밖 시간은 정상',()=>{
+ const stock={rows:[],groups:[],error:'',sync:{synced_at:'2026-11-20T00:50:00Z'}};
+ const ds={synced_at:'2026-11-20T00:20:00Z',error_text:'',note_text:''}; // 11/20(금) 09:20 KST
+ const stopped=P.renderStockBanner({...stock,deliverySync:ds},NOW); // 금 10:00 KST, 40분 지남
+ assert.ok(stopped.includes('파스토 동기화: 11/20 09:20 이후 멈춤 · 사무실 PC를 확인해 주세요'));
+ assert.match(stopped,/class="lg-stock warn"[^>]*>파스토 동기화: 11\/20 09:20 이후 멈춤/);
+ assert.ok(!stopped.includes('정상'));
+ const prev={...ds,synced_at:'2026-11-19T09:00:00Z'}; // 11/19(목) 18:00 KST
+ const at=ms=>P.renderStockBanner({...stock,deliverySync:prev},ms);
+ assert.ok(at(Date.UTC(2026,10,19,23,30)).includes('11/19 18:00 이후 멈춤')); // 금 08:30
+ assert.ok(at(Date.UTC(2026,10,19,23,29)).includes('11/19 18:00 정상')); // 금 08:29
+ assert.ok(at(Date.UTC(2026,10,20,9,59)).includes('이후 멈춤')); // 금 18:59
+ assert.ok(at(Date.UTC(2026,10,20,10,0)).includes('11/19 18:00 정상')); // 금 19:00
+ assert.ok(at(Date.UTC(2026,10,21,1)).includes('11/19 18:00 정상')); // 토 10:00
+ assert.ok(P.renderStockBanner({...stock,deliverySync:{...ds,synced_at:'2026-11-20T00:31:00Z'}},NOW).includes('09:31 정상')); // 29분
+});

@@ -82,7 +82,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
    ```
 
 4. 설정 파일에 사용자가 직접 넣습니다: `fassto.apiCd`, `fassto.apiKey`, `fassto.cstCd`(고객사 코드), `supabase.url`, `supabase.anonKey`(웹페이지가 쓰는 공개 키), `supabase.syncKey`(1단계 열쇠).
-5. 미리보기: `node tools/fassto-sync.cjs --dry-run`. DB에 쓰지 않고 동기화 대상 목록을 보여 줍니다. 확인할 것: 쇼핑몰 택배가 빠졌는지, 작업상태가 모두 읽혔는지("모르는 작업상태"가 없어야 함), 재고 상품코드가 지금 재고 표와 같은 체계(고객사상품코드)인지.
+5. 미리보기: `node tools/fassto-sync.cjs --dry-run`. DB에 쓰지 않고 동기화 대상 목록을 보여 줍니다. 확인할 것: 쇼핑몰 택배가 빠졌는지, 작업상태가 모두 읽혔는지("모르는 작업상태"가 없어야 함), 재고 상품코드가 지금 재고 표와 같은 체계(고객사상품코드)인지. "상태별: ORDER … · DONE …" 줄과 "오늘 전 주문의 출고완료 N건" 줄도 봅니다. 연결된 요청이 없는 출고완료 건 중 주문일이 오늘(KST) 전인 건은 이미 나간 출고로 보고 새로 만들지 않습니다(첫 실행 때 지난 출고가 한꺼번에 요청·슬랙 알림으로 쏟아지지 않게).
 6. 한 번 실제 실행: `node tools/fassto-sync.cjs`. 물류 요청 화면에 파스토 요청이 생기고, 상단에 "파스토 동기화: … 정상"이 보이는지 확인합니다.
 7. 작업 스케줄러 등록(평일 08:00~19:00, 10분마다, 로그온 중에만). PowerShell에서 저장소 폴더 기준으로:
 
@@ -98,6 +98,12 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 8. 며칠 정상으로 돌면(사용자 확인 후) 브라우저 재고 갱신 예약 작업을 끕니다. 아래 "파스토 목록 갱신 (Claude, 브라우저)"는 API가 안 될 때 쓰는 예비 절차로 남깁니다.
 
 문제 해결: 로그는 `%LOCALAPPDATA%\entropy-fassto-sync\logs\<날짜>.log`(30일 보관). "IP를 거부함"은 사무실 밖에서 실행된 경우라 무시해도 됩니다. 실패는 화면 상단에 빨간 "파스토 동기화 오류"로 보입니다. 열쇠를 바꾸려면 1단계를 다시 하고 옛 열쇠는 `update approval_private.logistics_fassto_keys set is_active=false where label_text=…`로 끕니다. 쓰는 함수는 `public.logistics_fassto_ingest`, `public.logistics_fassto_report_error` 두 개뿐이고 anon만 실행할 수 있습니다.
+
+- 오류에 `57014` 또는 "canceling statement due to statement timeout"이 보이면 한 번에 보낸 출고 묶음이 너무 커서 Supabase 시간 제한에 걸린 것입니다. `tools/fassto-sync.cjs`의 `CHUNK`(한 번에 보내는 출고 건수, 기본 30)를 줄이고 다시 실행합니다. 성공한 묶음까지는 이미 반영돼 있고, 나머지는 다음 실행에서 다시 보냅니다.
+- 로그의 "품목 확인 필요 <출고요청번호>"는 파스토 상세에 품목이 없거나 품목 합계가 주문 수량과 다른 건입니다. 품목 없이 보내(저장된 품목은 그대로) 다음 실행에서 다시 불러옵니다. 계속 나오면 FMS에서 그 출고 건을 확인합니다.
+- "설정 파일(config.json)을 읽지 못했어요"는 설정 파일 JSON 형식이 깨진 경우입니다(쉼표·따옴표 확인). `token.json`·`state.json`이 깨지면 자동으로 새로 만듭니다.
+- 상단에 "파스토 동기화: … 이후 멈춤 · 사무실 PC를 확인해 주세요"가 보이면 평일 08:30~19:00인데 30분 넘게 동기화가 없었던 것입니다. 사무실 PC가 켜져 있고 로그온돼 있는지, 작업 스케줄러가 돌고 있는지 확인합니다.
+- 동기화는 동기화가 직접 만든 요청의 품목만 파스토 내용으로 바꿉니다. 대시보드에서 사람이 만든 요청(LG 주문번호로 연결된 요청)은 품목이 달라도 바꾸지 않고 "파스토에서 품목이 바뀌었어요" 댓글만 한 번 남깁니다.
 
 ### 파스토 목록 갱신 (Claude, 브라우저)
 

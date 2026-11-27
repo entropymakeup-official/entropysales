@@ -212,11 +212,18 @@ function renderPending(r,p,ctx){
 // ── 파스토 양식(받는 곳·품목) ──
 // 목록이 비었거나 못 불러왔으면 모든 줄이 "없는 상품"이 되므로 그 경고는 건너뛴다
 const itemWarn=(it,groups)=>F.qtyWarning(it,groups)||(!(groups||[]).length||groups.some(g=>g.product_code===String(it.product_code||'').trim())?'':'파스토 목록에 없는 상품이에요.');
+// 동기화가 도는 시간(평일 08:30~19:00 KST)인데 30분 넘게 소식이 없으면 멈춘 것으로 본다
+function syncStopped(syncedAt,nowMs){
+ const t=Date.parse(syncedAt);if(!Number.isFinite(t)||nowMs-t<=30*60000)return false;
+ const k=new Date(nowMs+KST),day=k.getUTCDay(),min=k.getUTCHours()*60+k.getUTCMinutes();
+ return day>=1&&day<=5&&min>=8*60+30&&min<19*60;
+}
 function renderStockBanner(stock,nowMs){
  if(!stock)return '';
  if(stock.error)return `<p class="lg-stock warn" role="status">파스토 목록을 불러오지 못했어요: ${esc(stock.error)}</p>`;
  const a=F.stockAge(stock.sync,stock.groups,nowMs),ds=stock.deliverySync;
  const sync=!ds?'':ds.error_text?`<p class="lg-stock warn" role="status">파스토 동기화 오류(${esc(kstTime(ds.synced_at))}): ${esc(ds.error_text)}</p>`
+  :syncStopped(ds.synced_at,nowMs)?`<p class="lg-stock warn" role="status">파스토 동기화: ${esc(kstTime(ds.synced_at))} 이후 멈춤 · 사무실 PC를 확인해 주세요</p>`
   :`<p class="lg-stock" role="status">파스토 동기화: ${esc(kstTime(ds.synced_at))} 정상</p>`;
  return `<p class="lg-stock${a.stale?' warn':''}" role="status">${esc(a.text)}</p>`+sync;
 }
