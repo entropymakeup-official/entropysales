@@ -93,3 +93,124 @@ test('열쇠·설정 표: anon·authenticated는 읽을 수 없다',async()=>{
   await asSystem();
  }finally{await db.close();}
 });
+
+test('ingest: 열쇠가 틀리거나 꺼졌으면 거부하고, 로그인한 구성원은 실행할 수 없다',async()=>{
+ const {db,login,ingest,asSystem}=await setup();
+ try{
+  await assert.rejects(()=>ingest([dlv()],null,'wrong-key-'+'1'.repeat(40)),/LOGISTICS_FASSTO_KEY/);
+  await db.exec(`update approval_private.logistics_fassto_keys set is_active=false`);
+  await assert.rejects(()=>ingest([dlv()]),/LOGISTICS_FASSTO_KEY/);
+  await db.exec(`update approval_private.logistics_fassto_keys set is_active=true`);
+  await login(3);
+  await assert.rejects(()=>db.query('select public.logistics_fassto_ingest($1,null,null)',[KEY]),/permission denied/);
+  await asSystem();
+  assert.equal((await db.query('select count(*)::int n from logistics_requests')).rows[0].n,0);
+ }finally{await db.close();}
+});
+
+test('ingest: 새 출고는 요청 한 건을 만들고(요청자 매핑·품목·슬랙 알림), 다시 보내도 늘지 않는다',async()=>{
+ const {db,ingest,req}=await setup();
+ try{
+  const res=await ingest([dlv()]);
+  assert.equal(res.created,1);
+  const r=await req('GG24OO261201000001');
+  assert.equal(r.type_code,'b2b');assert.equal(r.ship_mode_code,'direct');assert.equal(r.title_text,'가짜 바이어 · 가짜 주문 1');
+  assert.equal(r.counterparty_text,'가짜 바이어');assert.equal(r.requester_email,'req@entropymakeup.com');
+  assert.equal((await db.query('select want_date::text d from logistics_requests where id=$1',[r.id])).rows[0].d,'2026-12-01');
+  assert.equal(r.qty_summary_text,'품목 1종 · 총 30개');assert.equal(r.note_text,'[파스토 GG24OO261201000001] 가짜 비고');
+  assert.equal(r.fassto_status_code,'ORDER');assert.match(r.fassto_order_no,/^LG\d{8}_\d{3}$/);assert.equal(r.status_code,'requested');
+  const it=(await db.query('select product_code,qty,lot_text,expires_on::text exp from logistics_request_items where request_id=$1',[r.id])).rows;
+  assert.equal(it.length,1);assert.equal(it[0].lot_text,'2029-01-01');assert.equal(it[0].exp,'2029-01-01');
+  assert.equal((await db.query(`select count(*)::int n from logistics_slack_outbox where request_id=$1 and event_code='created'`,[r.id])).rows[0].n,1);
+  const again=await ingest([dlv()]);
+  assert.deepEqual([again.created,again.updated],[0,0]);
+  assert.equal((await db.query('select count(*)::int n from logistics_requests')).rows[0].n,1);
+  const unknown=await ingest([dlv({slip_no:'GG24OO261201000002',registered_by:'모르는 사람',out_div:'parcel',items:undefined})]);
+  assert.equal(unknown.created,1);
+  const u=await req('GG24OO261201000002');
+  assert.equal(u.requester_email,'handler@entropymakeup.com');assert.equal(u.ship_mode_code,'parcel');assert.equal(u.qty_summary_text,'총 30개');
+  const sync=(await db.query(`select row_count,note_text from logistics_fassto_sync where kind_code='delivery' order by id desc limit 1`)).rows[0];
+  assert.equal(sync.row_count,1);assert.match(sync.note_text,/새 1/);
+ }finally{await db.close();}
+});
+
+test('ingest: 대시보드에서 만든 요청은 LG 주문번호로 연결하고 새로 만들지 않는다',async()=>{
+ const {db,ingest,create,req}=await setup();
+ try{
+  const mine=await create();
+  const res=await ingest([dlv({order_no:mine.fassto_order_no})]);
+  assert.deepEqual([res.created,res.updated],[0,1]);
+  assert.equal((await req('GG24OO261201000001')).id,mine.id);
+ }finally{await db.close();}
+});
+
+test('ingest: 품목 변경은 요청·접수 상태에서만 반영하고, 준비중 이후는 댓글을 한 번만 남긴다',async()=>{
+ const {db,ingest,req,login,asSystem}=await setup();
+ try{
+  await ingest([dlv()]);
+  const r=await req('GG24OO261201000001');
+  const changed=dlv({items:[{product_code:'11111111111111',product_name:'가짜 상품',expires_on:'2029-01-01',qty:40}]});
+  assert.equal((await ingest([changed])).updated,1);
+  assert.equal((await db.query('select qty from logistics_request_items where request_id=$1',[r.id])).rows[0].qty,40);
+  assert.equal((await req('GG24OO261201000001')).qty_summary_text,'품목 1종 · 총 40개');
+  await login(3);await db.query(`update logistics_requests set status_code='preparing' where id=$1`,[r.id]);await asSystem();
+  const again=dlv({items:[{product_code:'11111111111111',product_name:'가짜 상품',expires_on:'2029-01-01',qty:50}]});
+  await ingest([again]);await ingest([again]);
+  assert.equal((await db.query('select qty from logistics_request_items where request_id=$1',[r.id])).rows[0].qty,40);
+  const c=(await db.query('select body_text,author_email from logistics_request_comments where request_id=$1',[r.id])).rows;
+  assert.equal(c.length,1);assert.equal(c[0].author_email,'fassto-sync');assert.match(c[0].body_text,/품목이 바뀌었어요/);
+ }finally{await db.close();}
+});
+
+test('ingest: 파스토 취소는 출고완료 전이면 요청을 취소하고, 출고완료면 댓글만, 없는 건은 건너뛴다',async()=>{
+ const {db,ingest,req,login,asSystem}=await setup();
+ try{
+  await ingest([dlv(),dlv({slip_no:'GG24OO261201000003'})]);
+  const res=await ingest([dlv({status_code:'CANCEL'}),dlv({slip_no:'GG24OO261201000099',status_code:'CANCEL'})]);
+  assert.deepEqual([res.canceled,res.skipped],[1,1]);
+  const a=await req('GG24OO261201000001');
+  assert.equal(a.status_code,'canceled');assert.equal(a.status_note_text,'파스토에서 출고요청 취소');assert.equal(a.fassto_status_code,'CANCEL');
+  const b=await req('GG24OO261201000003');
+  await login(3);await db.query(`update logistics_requests set status_code='shipped',result_text='차량 00가0000',shipped_on='2026-12-01' where id=$1`,[b.id]);await asSystem();
+  await ingest([dlv({slip_no:'GG24OO261201000003',status_code:'CANCEL'})]);
+  assert.equal((await req('GG24OO261201000003')).status_code,'shipped');
+  assert.equal((await db.query(`select count(*)::int n from logistics_request_comments where request_id=$1`,[b.id])).rows[0].n,1);
+ }finally{await db.close();}
+});
+
+test('ingest: 택배 송장은 결과 칸이 비어 있을 때만 채우고 상태는 바꾸지 않는다',async()=>{
+ const {db,ingest,req,login,asSystem}=await setup();
+ try{
+  await ingest([dlv({out_div:'parcel',status_code:'DONE',invoice_no:'000011112222',parcel_name:'가짜택배'})]);
+  const r=await req('GG24OO261201000001');
+  assert.equal(r.result_text,'가짜택배 000011112222');assert.equal(r.status_code,'requested');
+  await login(3);await db.query(`update logistics_requests set result_text='직접 적음' where id=$1`,[r.id]);await asSystem();
+  const res=await ingest([dlv({out_div:'parcel',status_code:'DONE',invoice_no:'999',parcel_name:'가짜택배'})]);
+  assert.equal(res.invoices,0);assert.equal((await req('GG24OO261201000001')).result_text,'직접 적음');
+ }finally{await db.close();}
+});
+
+test('ingest: 재고는 fassto-api로 바꾸고, 지난번 절반 미만이면 바꾸지 않고 경고한다',async()=>{
+ const {db,ingest}=await setup();
+ try{
+  const rows=n=>Array.from({length:n},(_,i)=>({product_code:String(11111111111110+i),barcode:'',product_name:'가짜 상품',kind_text:'본품',lot_text:'',expires_on:'2029-01-01',available_qty:5}));
+  const a=await ingest(null,rows(10));
+  assert.equal(a.stock_rows,10);
+  assert.equal((await db.query(`select source_text from logistics_fassto_sync where kind_code='stock' order by id desc limit 1`)).rows[0].source_text,'fassto-api');
+  const b=await ingest(null,rows(4));
+  assert.equal(b.stock_rows,null);assert.match(b.stock_warning,/재고 4행\(지난번 10행\)/);
+  assert.equal((await db.query('select count(*)::int n from logistics_fassto_stock')).rows[0].n,10);
+ }finally{await db.close();}
+});
+
+test('report_error: 열쇠 검사 후 delivery 실패 행을 남긴다',async()=>{
+ const {db,asAnon,asSystem}=await setup();
+ try{
+  await asAnon();
+  await assert.rejects(()=>db.query('select public.logistics_fassto_report_error($1,$2)',['x'.repeat(40),'e']),/LOGISTICS_FASSTO_KEY/);
+  await db.query('select public.logistics_fassto_report_error($1,$2)',[KEY,'파스토 응답 없음']);
+  await asSystem();
+  const s=(await db.query(`select kind_code,row_count,error_text from logistics_fassto_sync order by id desc limit 1`)).rows[0];
+  assert.deepEqual(s,{kind_code:'delivery',row_count:0,error_text:'파스토 응답 없음'});
+ }finally{await db.close();}
+});
