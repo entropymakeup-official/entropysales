@@ -230,6 +230,10 @@ begin
       perform public.logistics_replace_items(r.id, v_items);
       update public.logistics_requests set qty_summary_text = left(approval_private.logistics_fassto_qty_text(v_items, v_total),300) where id = r.id;
       v_upd := true;
+     elsif v_old_sig = '' and r.status_code not in ('shipped','canceled') then
+      -- 사람이 만든 요청이라도 품목이 비어 있으면 덮을 작업이 없으므로 채운다(수량 요약은 사람이 쓴 그대로 둔다)
+      perform public.logistics_replace_items(r.id, v_items);
+      v_upd := true;
      elsif r.status_code <> 'canceled' then
       perform approval_private.logistics_fassto_comment(r.id, '[파스토 동기화] 파스토에서 품목이 바뀌었어요: '||approval_private.logistics_fassto_qty_text(v_items, v_total));
      end if;
