@@ -2,6 +2,8 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 const read=f=>fs.readFileSync(path.join(__dirname,'../sql',f),'utf8');
 const id=n=>'00000000-0000-0000-0000-'+String(n).padStart(12,'0');
 const KEY='test-sync-key-'+'0'.repeat(40);
+// KST 날짜(오늘 기준 n일)
+const kday=n=>new Date(Date.now()+9*3600000+n*86400000).toISOString().slice(0,10);
 
 async function setup(){
  const db=new PGlite();
@@ -181,11 +183,12 @@ test('ingest: 파스토 취소는 출고완료 전이면 요청을 취소하고,
 test('ingest: 택배 송장은 결과 칸이 비어 있을 때만 채우고 상태는 바꾸지 않는다',async()=>{
  const {db,ingest,req,login,asSystem}=await setup();
  try{
-  await ingest([dlv({out_div:'parcel',status_code:'DONE',invoice_no:'000011112222',parcel_name:'가짜택배'})]);
+  // 출고완료라 주문일이 오늘(KST) 전이면 새로 만들지 않으므로(F1) 오늘 날짜로 보낸다
+  await ingest([dlv({out_div:'parcel',status_code:'DONE',order_date:kday(0),invoice_no:'000011112222',parcel_name:'가짜택배'})]);
   const r=await req('GG24OO261201000001');
   assert.equal(r.result_text,'가짜택배 000011112222');assert.equal(r.status_code,'requested');
   await login(3);await db.query(`update logistics_requests set result_text='직접 적음' where id=$1`,[r.id]);await asSystem();
-  const res=await ingest([dlv({out_div:'parcel',status_code:'DONE',invoice_no:'999',parcel_name:'가짜택배'})]);
+  const res=await ingest([dlv({out_div:'parcel',status_code:'DONE',order_date:kday(0),invoice_no:'999',parcel_name:'가짜택배'})]);
   assert.equal(res.invoices,0);assert.equal((await req('GG24OO261201000001')).result_text,'직접 적음');
  }finally{await db.close();}
 });
@@ -212,5 +215,83 @@ test('report_error: 열쇠 검사 후 delivery 실패 행을 남긴다',async()=
   await asSystem();
   const s=(await db.query(`select kind_code,row_count,error_text from logistics_fassto_sync order by id desc limit 1`)).rows[0];
   assert.deepEqual(s,{kind_code:'delivery',row_count:0,error_text:'파스토 응답 없음'});
+ }finally{await db.close();}
+});
+
+
+test('F1 ingest: 연결된 요청이 없는 출고완료 건은 오늘(KST) 전 주문이면 새로 만들지 않는다',async()=>{
+ const {db,ingest,create,req}=await setup();
+ try{
+  const res=await ingest([dlv({status_code:'DONE',order_date:kday(-1)}),dlv({slip_no:'GG24OO261201000002',status_code:'DONE',order_date:kday(0)}),
+   dlv({slip_no:'GG24OO261201000003',status_code:'DONE',order_date:''}),dlv({slip_no:'GG24OO261201000004',status_code:'ORDER',order_date:kday(-3)})]);
+  assert.deepEqual([res.created,res.skipped],[3,1]);
+  assert.equal(await req('GG24OO261201000001'),undefined);
+  // 이미 있는 요청은 출고완료·지난 주문이어도 계속 연결·갱신한다
+  const mine=await create();
+  const linked=await ingest([dlv({slip_no:'GG24OO261201000005',order_no:mine.fassto_order_no,status_code:'DONE',order_date:kday(-2)}),
+   dlv({slip_no:'GG24OO261201000004',status_code:'DONE',order_date:kday(-3)})]);
+  assert.deepEqual([linked.created,linked.skipped],[0,0]);
+  assert.equal((await req('GG24OO261201000005')).id,mine.id);
+  assert.equal((await req('GG24OO261201000004')).fassto_status_code,'DONE');
+ }finally{await db.close();}
+});
+
+test('F2 fassto_created: 구성원은 넣거나 바꿀 수 없고, 동기화가 만든 요청만 true',async()=>{
+ const {db,login,asSystem,ingest,req}=await setup();
+ try{
+  await login(1);
+  const r=(await db.query(`insert into logistics_requests(type_code,title_text,team_code,counterparty_text,ship_mode_code,fassto_created)
+   values ('b2b','t','global','c','direct',true) returning *`)).rows[0];
+  assert.equal(r.fassto_created,false);
+  await login(3);
+  await db.query(`update logistics_requests set fassto_created=true where id=$1`,[r.id]);
+  await asSystem();
+  assert.equal((await db.query('select fassto_created from logistics_requests where id=$1',[r.id])).rows[0].fassto_created,false);
+  await ingest([dlv()]);
+  assert.equal((await req('GG24OO261201000001')).fassto_created,true);
+ }finally{await db.close();}
+});
+
+test('F2 ingest: 사람이 만든 요청의 품목은 바꾸지 않고 댓글을 한 번만 남긴다',async()=>{
+ const {db,ingest,create,login,asSystem}=await setup();
+ try{
+  const mine=await create();
+  await login(1);
+  await db.query(`select public.logistics_replace_items($1,$2::jsonb)`,[mine.id,JSON.stringify([{product_code:'22222222222222',product_name_text:'직접 넣은 상품',qty:7,lot_text:'L1',expires_on:''}])]);
+  await asSystem();
+  const d=dlv({order_no:mine.fassto_order_no});
+  await ingest([d]);await ingest([d]);
+  const it=(await db.query('select product_code,qty,lot_text from logistics_request_items where request_id=$1',[mine.id])).rows;
+  assert.deepEqual(it,[{product_code:'22222222222222',qty:7,lot_text:'L1'}]);
+  const c=(await db.query('select body_text from logistics_request_comments where request_id=$1',[mine.id])).rows;
+  assert.equal(c.length,1);assert.match(c[0].body_text,/품목이 바뀌었어요/);
+ }finally{await db.close();}
+});
+
+test('F2 ingest: 품목 비교는 줄 순서와 상관없다',async()=>{
+ const {db,ingest}=await setup();
+ try{
+  const a={product_code:'11111111111111',product_name:'가짜 상품',expires_on:'2029-01-01',qty:30},b={product_code:'11111111111112',product_name:'가짜 상품 2',expires_on:'',qty:5};
+  await ingest([dlv({items:[a,b],qty_total:35})]);
+  const res=await ingest([dlv({items:[b,a],qty_total:35})]);
+  assert.equal(res.updated,0);
+ }finally{await db.close();}
+});
+
+test('F3 ingest: 정리하면 빈 품목 목록은 "품목 없음"으로 보고, 수량 100만 초과 줄은 버린다',async()=>{
+ const {db,ingest,req}=await setup();
+ try{
+  await ingest([dlv()]);
+  const r=await req('GG24OO261201000001');
+  const res=await ingest([dlv({items:[{product_code:'',qty:'x'},{product_code:'11111111111111',qty:0}]})]);
+  assert.equal(res.updated,0);
+  assert.equal((await db.query('select qty from logistics_request_items where request_id=$1',[r.id])).rows[0].qty,30);
+  await ingest([dlv({slip_no:'GG24OO261201000002',items:[{product_code:'11111111111111',qty:'abc'}]})]);
+  const n=await req('GG24OO261201000002');
+  assert.equal(n.qty_summary_text,'총 30개');
+  assert.equal((await db.query('select count(*)::int n from logistics_request_items where request_id=$1',[n.id])).rows[0].n,0);
+  await ingest([dlv({slip_no:'GG24OO261201000003',items:[{product_code:'11111111111111',qty:5},{product_code:'11111111111112',qty:2000000}]})]);
+  const m=await req('GG24OO261201000003');
+  assert.deepEqual((await db.query('select product_code,qty from logistics_request_items where request_id=$1',[m.id])).rows,[{product_code:'11111111111111',qty:5}]);
  }finally{await db.close();}
 });

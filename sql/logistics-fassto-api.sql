@@ -7,6 +7,8 @@ begin;
 alter table public.logistics_requests add column if not exists fassto_slip_no text;
 alter table public.logistics_requests add column if not exists fassto_status_code text;
 alter table public.logistics_requests add column if not exists fassto_synced_at timestamptz;
+-- 동기화가 직접 만든 요청만 true. 이런 요청만 품목을 파스토 내용으로 바꾼다(사람이 넣은 품목은 덮지 않음).
+alter table public.logistics_requests add column if not exists fassto_created boolean not null default false;
 alter table public.logistics_requests drop constraint if exists logistics_requests_fassto_slip_no_check;
 alter table public.logistics_requests add constraint logistics_requests_fassto_slip_no_check
  check (fassto_slip_no is null or fassto_slip_no ~ '^[A-Za-z0-9_-]{1,40}$');
@@ -20,9 +22,10 @@ language plpgsql security definer set search_path='' as $$
 begin
  if (select auth.uid()) is null then return new; end if;
  if tg_op = 'INSERT' then
-  new.fassto_slip_no := null; new.fassto_status_code := null; new.fassto_synced_at := null;
+  new.fassto_slip_no := null; new.fassto_status_code := null; new.fassto_synced_at := null; new.fassto_created := false;
  else
   new.fassto_slip_no := old.fassto_slip_no; new.fassto_status_code := old.fassto_status_code; new.fassto_synced_at := old.fassto_synced_at;
+  new.fassto_created := old.fassto_created;
  end if;
  return new;
 end $$;
@@ -89,23 +92,26 @@ language sql stable security definer set search_path='' as $$
 $$;
 
 -- 동기화 품목 → logistics_replace_items 형식. 로트가 비면 유통기한이 지워지므로 유통기한을 로트 칸에도 넣는다. 최대 50줄.
+-- 수량은 1~1000000(logistics_request_items.qty 검사와 같음). 형식 검사 뒤에만 정수로 바꾼다(case로 순서 보장).
 create or replace function approval_private.logistics_fassto_items(p_items jsonb) returns jsonb
 language sql immutable security definer set search_path='' as $$
  select coalesce(jsonb_agg(jsonb_build_object('product_code',x.code,'product_name_text',x.name,'qty',x.qty,'lot_text',x.exp,'expires_on',x.exp) order by x.ord),'[]'::jsonb)
  from (
-  select e.ord, btrim(e.v->>'product_code') code, left(btrim(coalesce(e.v->>'product_name','')),200) name, (e.v->>'qty')::integer qty,
+  select e.ord, btrim(e.v->>'product_code') code, left(btrim(coalesce(e.v->>'product_name','')),200) name,
+   case when coalesce(e.v->>'qty','') ~ '^[0-9]{1,7}$' then (e.v->>'qty')::integer end qty,
    case when coalesce(e.v->>'expires_on','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then e.v->>'expires_on' else '' end exp
   from jsonb_array_elements(case when jsonb_typeof(p_items)='array' then p_items else '[]'::jsonb end) with ordinality e(v,ord)
   where jsonb_typeof(e.v->'product_code')='string' and length(btrim(e.v->>'product_code')) between 1 and 60
-    and coalesce(e.v->>'qty','') ~ '^[0-9]{1,7}$' and (e.v->>'qty')::integer >= 1
+    and (case when coalesce(e.v->>'qty','') ~ '^[0-9]{1,7}$' then (e.v->>'qty')::integer end) between 1 and 1000000
   order by e.ord limit 50) x;
 $$;
 
--- 품목 비교용 서명(상품코드|유통기한|수량, 줄 순서대로)
+-- 품목 비교용 서명(상품코드|유통기한|수량). 줄 순서와 상관없도록 상품코드·유통기한·수량 순으로 정렬한다.
 create or replace function approval_private.logistics_fassto_sig(p_items jsonb) returns text
 language sql immutable security definer set search_path='' as $$
- select coalesce(string_agg(concat_ws('|',e.v->>'product_code',e.v->>'expires_on',e.v->>'qty'),';' order by e.ord),'')
- from jsonb_array_elements(p_items) with ordinality e(v,ord);
+ select coalesce(string_agg(concat_ws('|',e.v->>'product_code',coalesce(e.v->>'expires_on',''),e.v->>'qty'),';'
+  order by e.v->>'product_code', coalesce(e.v->>'expires_on',''), (e.v->>'qty')::integer),'')
+ from jsonb_array_elements(p_items) e(v);
 $$;
 
 create or replace function approval_private.logistics_fassto_qty_text(p_items jsonb, p_total integer) returns text
@@ -160,8 +166,10 @@ begin
      or v_div is null or v_div not in ('car','parcel') then
    n_skipped := n_skipped + 1; continue;
   end if;
-  v_has_items := jsonb_typeof(d->'items') = 'array';
-  v_items := case when v_has_items then approval_private.logistics_fassto_items(d->'items') end;
+  -- 정리하고 남은 줄이 없으면 "품목 없음"으로 본다(저장된 품목을 지우지 않음)
+  v_items := case when jsonb_typeof(d->'items') = 'array' then approval_private.logistics_fassto_items(d->'items') end;
+  if v_items is not null and jsonb_array_length(v_items) = 0 then v_items := null; end if;
+  v_has_items := v_items is not null;
   v_raw_n := case when v_has_items then jsonb_array_length(d->'items') else 0 end;
   v_total := case when coalesce(d->>'qty_total','') ~ '^[0-9]{1,9}$' then (d->>'qty_total')::integer end;
   v_shop := left(btrim(coalesce(d->>'shop_name','')),120);
@@ -176,6 +184,11 @@ begin
 
   if not v_found then
    if v_status = 'CANCEL' then n_skipped := n_skipped + 1; continue; end if;
+   -- 첫 동기화 때 지난 출고완료 건이 한꺼번에 요청으로 쏟아지지 않게: 오늘(KST) 전 주문의 출고완료는 새로 만들지 않는다
+   if v_status = 'DONE' and coalesce(d->>'order_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+      and (d->>'order_date')::date < ((now() at time zone 'UTC') + interval '9 hours')::date then
+    n_skipped := n_skipped + 1; continue;
+   end if;
    v_email := null;
    select lower(x.email) into v_email from (
     select p.email, 1 o from public.logistics_people p where p.display_name = btrim(coalesce(d->>'registered_by',''))
@@ -187,22 +200,23 @@ begin
    v_note := btrim('[파스토 ' || v_slip || '] ' || btrim(coalesce(d->>'remark','')));
    if v_raw_n > 50 then v_note := v_note || format(' (품목 %s줄 중 50줄만 표시)', v_raw_n); end if;
    insert into public.logistics_requests(type_code, title_text, team_code, requester_email, counterparty_text, want_date, ship_mode_code,
-    qty_summary_text, note_text, fassto_slip_no, fassto_status_code, fassto_synced_at)
+    qty_summary_text, note_text, fassto_slip_no, fassto_status_code, fassto_synced_at, fassto_created)
    values ('b2b', v_title, 'global', coalesce(v_email, v_default), coalesce(nullif(v_shop,''),'파스토 출고'),
     case when coalesce(d->>'order_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then (d->>'order_date')::date end,
     case v_div when 'car' then 'direct' else 'parcel' end,
     left(approval_private.logistics_fassto_qty_text(coalesce(v_items,'[]'::jsonb), v_total),300), left(v_note,1000),
-    v_slip, v_status, now())
+    v_slip, v_status, now(), true)
    returning * into r;
    if v_has_items then perform public.logistics_replace_items(r.id, v_items); end if;
    n_created := n_created + 1;
   else
-   -- 품목: 요청·접수 상태에서만 바꾸고, 그 뒤에는 댓글로 알린다
+   -- 품목: 동기화가 만든 요청이고 요청·접수 상태일 때만 바꾼다. 그 밖(사람이 만든 요청, 준비중 이후)에는 댓글로 알린다.
    if v_has_items then
-    select coalesce(string_agg(concat_ws('|',i.product_code,coalesce(i.expires_on::text,''),i.qty::text),';' order by i.line_no),'')
+    select coalesce(string_agg(concat_ws('|',i.product_code,coalesce(i.expires_on::text,''),i.qty::text),';'
+      order by i.product_code, coalesce(i.expires_on::text,''), i.qty),'')
      into v_old_sig from public.logistics_request_items i where i.request_id = r.id;
     if approval_private.logistics_fassto_sig(v_items) <> v_old_sig then
-     if r.status_code in ('requested','accepted') then
+     if r.fassto_created and r.status_code in ('requested','accepted') then
       perform public.logistics_replace_items(r.id, v_items);
       update public.logistics_requests set qty_summary_text = left(approval_private.logistics_fassto_qty_text(v_items, v_total),300) where id = r.id;
       v_upd := true;

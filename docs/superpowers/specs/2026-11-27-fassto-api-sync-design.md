@@ -43,8 +43,9 @@
 | `fassto_slip_no` | text, 유일(값이 있을 때) | FMS 출고요청번호. 영문·숫자·`-_` 1~40자 |
 | `fassto_status_code` | text | ORDER·WORKING·DONE·CANCEL·SHORTAGE 중 하나 또는 null (2장 숫자 코드 변환) |
 | `fassto_synced_at` | timestamptz | 이 요청을 동기화가 마지막으로 본 시각 |
+| `fassto_created` | boolean, 기본 false | 동기화가 직접 만든 요청이면 true. 이런 요청만 파스토 품목으로 바꾼다(4.3) |
 
-세 칸은 동기화 함수만 쓴다. 회사 구성원의 update에서 이 값을 바꾸려 하면 트리거가 옛 값으로 되돌린다(`fassto_order_no`와 같은 방식). 기존 `fassto_order_no`(`LG날짜_순번`)는 그대로 둔다. 파스토에서 들어온 요청도 등록 때 `LG…`를 받는다.
+네 칸은 동기화 함수만 쓴다. 회사 구성원의 insert에서는 비우거나(`fassto_created`는 false) update에서 이 값을 바꾸려 하면 트리거가 옛 값으로 되돌린다(`fassto_order_no`와 같은 방식). 기존 `fassto_order_no`(`LG날짜_순번`)는 그대로 둔다. 파스토에서 들어온 요청도 등록 때 `LG…`를 받는다.
 
 ### 3.2 기사 정보 `logistics_request_drivers` (요청당 0~1행)
 
@@ -115,7 +116,7 @@
 }
 ```
 
-`items`가 없으면(상세를 이번에 조회하지 않은 건) 품목은 건드리지 않는다.
+`items`가 없으면(상세를 이번에 조회하지 않은 건) 품목은 건드리지 않는다. `items`가 배열이어도 정리(상품코드 1~60자, 수량 1~1000000 정수, 최대 50줄)하고 남은 줄이 없으면 "품목 없음"과 같게 본다: 저장된 품목을 지우지 않고, 새 요청에는 품목을 넣지 않는다.
 
 ### 4.3 건별 규칙
 
@@ -123,6 +124,7 @@
 1. `fassto_slip_no = slip_no`인 요청 → 그 요청.
 2. 없고 `order_no`가 `LG날짜_순번` 형식이며 `fassto_order_no = order_no`이고 `fassto_slip_no`가 비어 있는 요청 → 그 요청에 `fassto_slip_no`를 연결.
 3. 둘 다 없고 상태가 CANCEL이 아니면 → 새 요청. CANCEL인데 요청이 없으면 건너뛴다.
+   - 상태가 DONE(출고완료)이고 요청일자가 오늘(KST, `((now() at time zone 'UTC') + interval '9 hours')::date`)보다 앞이면 이미 나간 출고로 보고 새로 만들지 않는다(건너뜀으로 센다). 첫 동기화 때 지난 14일치 출고완료 건이 한꺼번에 요청·슬랙 알림으로 쏟아지지 않게 하려는 것이다. 요청일자가 오늘 이후거나 비어 있으면 만든다. 1·2번으로 찾은 요청의 연결·갱신에는 이 규칙을 쓰지 않는다.
 
 새 요청 값:
 - `type_code='b2b'`, `team_code='global'`
@@ -140,7 +142,7 @@
 
 | 파스토 변화 | 처리 |
 |---|---|
-| 품목·수량이 다름 | 요청이 `requested`·`accepted`면 품목과 `qty_summary_text`를 바꾼다. 그 밖의 상태면 바꾸지 않고 댓글 "파스토에서 품목이 바뀌었어요: …"를 한 번 남긴다(같은 내용 댓글이 이미 있으면 다시 안 남김) |
+| 품목·수량이 다름 | 동기화가 만든 요청(`fassto_created`)이고 `requested`·`accepted`면 품목과 `qty_summary_text`를 바꾼다. 사람이 만든 요청(LG 연결 등)이거나 그 밖의 상태면 바꾸지 않고 댓글 "파스토에서 품목이 바뀌었어요: …"를 한 번 남긴다(같은 내용 댓글이 이미 있으면 다시 안 남김). 비교는 줄 순서와 상관없다(상품코드·유통기한·수량 순으로 정렬해 비교) |
 | 상태 CANCEL | 요청이 `shipped`·`canceled`가 아니면 `canceled`로 바꾸고 `status_note_text`="파스토에서 출고요청 취소". 출고완료된 요청이면 댓글만 남긴다 |
 | 택배 송장번호가 생김 | `result_text`가 비어 있으면 `<택배사> <송장번호>`로 채운다. 상태는 바꾸지 않는다 |
 | 그 밖 | `fassto_status_code`, `fassto_synced_at`만 갱신 |
@@ -153,7 +155,7 @@
 
 ### 4.5 기존 표 트리거
 
-기존 트리거는 고치지 않는다(3.6). 새로 더하는 트리거는 하나다: `logistics_requests`에 before insert/update 트리거를 두어, `auth.uid()`가 있는 호출(회사 구성원)이면 insert 때 파스토 연결 세 칸을 비우고 update 때 옛 값으로 되돌린다.
+기존 트리거는 고치지 않는다(3.6). 새로 더하는 트리거는 하나다: `logistics_requests`에 before insert/update 트리거를 두어, `auth.uid()`가 있는 호출(회사 구성원)이면 insert 때 파스토 연결 칸을 비우고(`fassto_created`는 false) update 때 네 칸을 옛 값으로 되돌린다.
 
 ## 5. 동기화 프로그램 (`tools/fassto-sync.cjs`)
 
