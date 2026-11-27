@@ -1,9 +1,9 @@
 (function(root,factory){const api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;else root.LogisticsStandalone=api;})(typeof globalThis!=='undefined'?globalThis:this,function(root){
 'use strict';
-// 전사용 물류 요청 단독 페이지(logistics.html)의 로그인과 화면 연결. 화면 자체는 대시보드 탭과 같은 LogisticsPage.mountTab을 쓴다.
+// 전사용 단독 페이지(logistics.html, support.html)의 로그인과 화면 연결. 화면 자체는 대시보드 탭과 같은 mountTab을 쓴다(title로 제목만 바꾼다).
 const DOMAIN='entropymakeup.com';
 
-function boot({document,client,mountTab,location=root.location,history=root.history,onMessage=()=>{},domain=DOMAIN}){
+function boot({document,client,mountTab,location=root.location,history=root.history,onMessage=()=>{},domain=DOMAIN,title='물류 요청'}){
  const $=id=>document.getElementById(id);
  let page=null,open=false;
  const setError=msg=>{const e=$('lg-login-error');if(!e)return;e.textContent=msg||'';e.hidden=!msg;};
@@ -31,7 +31,7 @@ function boot({document,client,mountTab,location=root.location,history=root.hist
   open=true;
   $('lg-login').hidden=true;$('lg-shell').hidden=false;setError('');
   $('lg-user').textContent=email;
-  $('page-title').textContent='물류 요청';
+  $('page-title').textContent=title;
   if(!page)page=mountTab({document,client,onMessage});
   const id=takeId();
   await page.show();

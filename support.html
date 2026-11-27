@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>경영지원 | Entropy Makeup</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%231a6bbf'/%3E%3Cellipse cx='32' cy='32' rx='13' ry='30' fill='none' stroke='%2363b3ff' stroke-width='1.5'/%3E%3Cellipse cx='32' cy='32' rx='30' ry='11' fill='none' stroke='%2363b3ff' stroke-width='1.5'/%3E%3Cline x1='2' y1='32' x2='62' y2='32' stroke='%2363b3ff' stroke-width='1.5'/%3E%3Cline x1='32' y1='2' x2='32' y2='62' stroke='%2363b3ff' stroke-width='1.5'/%3E%3Cpath d='M8 18 Q18 22 24 18 Q30 14 36 18 Q42 22 56 18' fill='none' stroke='%2363b3ff' stroke-width='1.2'/%3E%3Cpath d='M8 46 Q18 42 24 46 Q30 50 36 46 Q42 42 56 46' fill='none' stroke='%2363b3ff' stroke-width='1.2'/%3E%3Ccircle cx='32' cy='32' r='30' fill='none' stroke='%231558a8' stroke-width='2'/%3E%3C/svg%3E"/>
+<meta property="og:title" content="경영지원 | Entropy Makeup"/>
+<meta property="og:description" content="세금계산서 · 구매확인서 등 경영지원 서류 요청"/>
+<!-- 전사용 경영지원 요청 페이지. 화면은 해외영업 대시보드(index.html)의 경영지원 탭과 같은 코드(support.js)를 쓰고, 영업 데이터는 불러오지 않는다.
+     슬랙 알림의 '요청 상세 보기' 링크(support.html?id=…)가 여기로 온다. 로그인 화면은 logistics-standalone.js를 같이 쓴다. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="style.css?v=20261109-consign-4"/>
+<link rel="stylesheet" href="logistics.css?v=20261127-support-1">
+</head>
+<body>
+<!-- 로그인 화면 -->
+<div id="lg-login" class="lg-login" hidden>
+  <div class="lg-login-head">
+    <h1>Entropy Makeup</h1>
+    <p>경영지원</p>
+  </div>
+  <div class="lg-login-card">
+    <p class="lg-login-help">@entropymakeup.com 계정으로 로그인하세요</p>
+    <button type="button" id="lg-login-btn" class="lg-login-btn">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 6.293C4.672 4.166 6.656 3.58 9 3.58z"/></svg>
+      Google로 로그인
+    </button>
+    <p id="lg-login-error" class="lg-login-error" role="alert" hidden></p>
+  </div>
+  <p class="lg-login-foot">Entropy Makeup 임직원 전용</p>
+</div>
+
+<!-- 경영지원 화면 -->
+<div id="lg-shell" class="lg-page" hidden>
+  <header class="lg-page-head">
+    <div class="lg-page-brand"><i class="ti ti-briefcase"></i><span><b>Entropy Makeup</b> 경영지원</span></div>
+    <div class="lg-page-user">
+      <a class="lg-page-link" href="index.html" title="해외영업 대시보드"><i class="ti ti-layout-dashboard"></i><span>해외영업 대시보드</span></a>
+      <span id="lg-user" class="lg-page-email"></span>
+      <button type="button" id="lg-logout" class="lg-page-out" title="로그아웃" aria-label="로그아웃"><i class="ti ti-logout"></i></button>
+    </div>
+  </header>
+  <div class="main">
+    <div class="topbar"><div class="topbar-title" id="page-title">경영지원</div><div class="topbar-actions" id="topbar-actions"></div></div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="support-model.js?v=20261127-support-1"></script>
+<script src="support.js?v=20261127-support-1"></script>
+<script src="logistics-standalone.js?v=20261127-support-1"></script>
+<script>
+(function(){
+  var sb=supabase.createClient('https://qqmhxnwmasamkqsbnrvw.supabase.co','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFxbWh4bndtYXNhbWtxc2JucnZ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNzEyMTgsImV4cCI6MjA5Njc0NzIxOH0.Un7Q3tOIIjalgaSFOyrgjMa-MuZ6GXhtt6DsVnE3Vy8');
+  var toastEl=document.getElementById('toast'),timer=null;
+  function toast(m){toastEl.textContent=m;toastEl.classList.add('show');clearTimeout(timer);timer=setTimeout(function(){toastEl.classList.remove('show');},2500);}
+  LogisticsStandalone.boot({document:document,client:sb,mountTab:SupportPage.mountTab,onMessage:toast,title:'경영지원'});
+})();
+</script>
+</body>
+</html>
