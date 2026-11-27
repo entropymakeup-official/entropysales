@@ -986,7 +986,7 @@ test('운영 문서: 파스토 API 동기화 설치 절차와 재고 쿼리의 k
  const doc=fs.readFileSync(path.join(__dirname,'../LOGISTICS.md'),'utf8');
  assert.ok(doc.includes('5. `sql/logistics-fassto-api.sql`'));
  assert.ok(doc.includes('### 파스토 API 동기화 (사무실 PC)'));
- for(const s of ['node tools/fassto-sync.cjs --new-key','node tools/fassto-sync.cjs --dry-run','Register-ScheduledTask','icacls','logistics_fassto_settings'])assert.ok(doc.includes(s),s);
+ for(const s of ['node tools/fassto-sync.cjs --new-key','node tools/fassto-sync.cjs --dry-run','schtasks /Create /F /TN "Entropy Fassto Sync"','conhost.exe --headless','node tools/fassto-set-keys.cjs','icacls','logistics_fassto_settings'])assert.ok(doc.includes(s),s);
  const routine=fs.readFileSync(path.join(__dirname,'../tools/fassto-sync-routine.txt'),'utf8');
  assert.ok(routine.includes("where kind_code='stock'"));
  assert.ok(doc.includes("where kind_code='stock'"));
