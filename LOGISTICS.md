@@ -25,7 +25,8 @@
    - 설치 후 확인: anon·authenticated 역할이 net.http_request_queue와 net._http_response를 읽을 수 없는지(봇 토큰이 요청 헤더에 잠시 남음), postgres가 vault.decrypted_secrets와 cron을 쓸 수 있는지 확인합니다.
 4. `sql/logistics-fassto.sql` (**브랜치를 머지하기 전에 운영에 먼저 적용합니다. 머지가 곧 GitHub Pages 배포라, 순서가 바뀌면 새 화면이 없는 표·함수를 부릅니다.** 파스토 양식: 상품 목록·받는 곳·품목·주문번호. 앞의 세 파일 다음에 설치합니다. 설치 전 요청에도 주문번호를 채웁니다)
    - 기존 요청의 주문번호를 채우면서 그 요청의 `updated_at`이 바뀌고 `updated_by_text`가 `system`이 됩니다(변경 이력 행과 슬랙 알림은 생기지 않습니다).
-5. 명단 넣기(실제 값은 저장소에 넣지 않습니다)
+5. `sql/logistics-fassto-api.sql` (파스토 API 동기화. **머지 전에 운영에 먼저 적용합니다.** 앞 파일 다음에 설치합니다. 적용 후 아래 "파스토 API 동기화 (사무실 PC)"의 1~2단계로 열쇠와 기본 요청자를 넣습니다)
+6. 명단 넣기(실제 값은 저장소에 넣지 않습니다)
 
 ```sql
 insert into public.logistics_handlers(email, display_name) values ('name@entropymakeup.com', '이름');
@@ -44,9 +45,9 @@ update public.logistics_handlers set mention_on_new = false where email = 'name@
 update public.logistics_handlers set is_active = false where email = 'name@entropymakeup.com';
 ```
 
-6. 첫 파스토 목록 갱신 (사용자 승인 후): 아래 "파스토 목록 갱신" 절차. 이 첫 수동 갱신이 성공하고 결과(5단계 확인)까지 맞는 것을 보기 전에는 8번 예약 작업을 등록하지 않습니다.
-7. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, fassto-forms.js, logistics-standalone.js, logistics.css, logistics.html(전사용 단독 페이지). 바꾼 파일은 index.html과 logistics.html 두 곳의 버전 쿼리를 함께 올립니다. (사용자 승인 후)
-8. 예약 작업 등록(6번의 첫 수동 갱신이 성공·확인된 뒤에만. 평일 08:30·11:30·14:30 KST, 하루 한 번만 갱신, 지시문은 `tools/fassto-sync-routine.txt`) (사용자 승인 후)
+7. 첫 파스토 목록 갱신 (사용자 승인 후): 아래 "파스토 목록 갱신" 절차. 이 첫 수동 갱신이 성공하고 결과(5단계 확인)까지 맞는 것을 보기 전에는 9번 예약 작업을 등록하지 않습니다.
+8. 정적 파일 배포: index.html, app.js, logistics.js, logistics-model.js, fassto-forms.js, logistics-standalone.js, logistics.css, logistics.html(전사용 단독 페이지). 바꾼 파일은 index.html과 logistics.html 두 곳의 버전 쿼리를 함께 올립니다. (사용자 승인 후)
+9. 예약 작업 등록(7번의 첫 수동 갱신이 성공·확인된 뒤에만. 평일 08:30·11:30·14:30 KST, 하루 한 번만 갱신, 지시문은 `tools/fassto-sync-routine.txt`) (사용자 승인 후)
 
 ## 파스토 양식 (2026-11-20)
 
@@ -61,6 +62,54 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 - 파스토는 주문번호를 다시 쓰지 못합니다. 이미 올린 파일을 고쳐 다시 올려야 하면 주문번호를 재사용하지 말고 물류 담당자에게 FMS에서 어떻게 처리할지 먼저 물어봅니다.
 - 해외택배신청 양식에는 로트·유통기한 칸이 없어 해외 발송에서는 고른 로트가 파일에 실리지 않습니다. 택배·차량배송 양식은 로트를 골랐는데 유통기한이 없으면 내려받기 전에 막습니다.
 - 해외 발송인 기본값은 `fassto-forms.js`의 `SENDER`입니다. 회사 정보로 정했습니다(전화 +82-70-8095-5682 회사 대표 번호, 이메일 info@entropymakeup.com 회사 공용 메일, 2026-11-23). 바꾸면 index.html과 logistics.html의 `fassto-forms.js` 버전 쿼리를 올려 배포합니다.
+
+### 파스토 API 동기화 (사무실 PC)
+
+설계: `docs/superpowers/specs/2026-11-27-fassto-api-sync-design.md`. 파스토 API는 파스토에 등록한 사무실 회선 IP에서만 호출됩니다. 사무실에 상주하는 PC에서 돌립니다. 키·설정·로그는 저장소에 넣지 않습니다.
+
+새 요청을 만드는 범위(2026-11-27 사용자 결정): 차량 출고는 시작일(`create_from_date`) 이후 주문만, 택배는 파스토 주문번호가 대시보드 주문번호(invoices.no)나 `LG…`일 때만 만듭니다(CS 수작업 발송은 만들지 않음). 이미 연결된 요청은 범위와 상관없이 계속 갱신합니다.
+
+등록 규칙(2026-11-27 사용자 결정): 출고는 FMS에만 등록하고, 물류 요청은 동기화가 만듭니다. 같은 출고를 대시보드 "+ 새 요청"으로 따로 만들지 않습니다(두 번 생깁니다). FMS 주문번호 칸에는 대시보드 주문번호(예 `RE_20261126`)를 넣습니다. 그러면 동기화가 물류 요청을 그 주문에 자동으로 연결합니다(출고완료·취소 전 요청만). 대시보드에서 먼저 만든 요청은 "파스토 양식 내려받기" 엑셀(주문번호 `LG…`)로 FMS에 올리면 같은 요청에 이어집니다.
+
+1. 열쇠 만들기(저장소 폴더에서): `node tools/fassto-sync.cjs --new-key`. 화면의 열쇠(64자)는 4단계 설정 파일에만 넣고, 함께 나온 `insert into approval_private.logistics_fassto_keys …` 문장을 Supabase SQL 편집기에서 실행합니다(해시만 들어 있습니다). 열쇠를 채팅이나 저장소에 붙이지 않습니다.
+2. 기본 요청자(파스토 등록자를 명단에서 못 찾을 때) 넣기:
+
+   ```sql
+   insert into approval_private.logistics_fassto_settings(id, default_requester_email) values (1, 'name@entropymakeup.com')
+    on conflict (id) do update set default_requester_email = excluded.default_requester_email;
+   ```
+
+   켜는 날 시작일도 넣습니다(그 전 주문의 출고는 새 요청으로 만들지 않음): `update approval_private.logistics_fassto_settings set create_from_date = '<켜는 날 YYYY-MM-DD>' where id = 1;`
+
+3. `node tools/fassto-sync.cjs`를 한 번 실행하면 `%LOCALAPPDATA%\entropy-fassto-sync\config.json` 빈 양식이 생깁니다. 파일을 현재 사용자만 읽게 잠급니다:
+
+   ```powershell
+   icacls "$env:LOCALAPPDATA\entropy-fassto-sync" /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F"
+   ```
+
+4. 설정 파일에 사용자가 직접 넣습니다: `fassto.apiCd`, `fassto.apiKey`, `fassto.cstCd`(고객사 코드), `supabase.url`, `supabase.anonKey`(웹페이지가 쓰는 공개 키), `supabase.syncKey`(1단계 열쇠).
+5. 미리보기: `node tools/fassto-sync.cjs --dry-run`. DB에 쓰지 않고 동기화 대상 목록을 보여 줍니다. 확인할 것: 쇼핑몰 택배가 빠졌는지, 작업상태가 모두 읽혔는지("모르는 작업상태"가 없어야 함), 재고 상품코드가 지금 재고 표와 같은 체계(고객사상품코드)인지. "상태별: ORDER … · DONE …" 줄과 "오늘 전 주문의 출고완료 N건" 줄도 봅니다. 연결된 요청이 없는 출고완료 건 중 주문일이 오늘(KST) 전인 건은 이미 나간 출고로 보고 새로 만들지 않습니다(첫 실행 때 지난 출고가 한꺼번에 요청·슬랙 알림으로 쏟아지지 않게).
+6. 한 번 실제 실행: `node tools/fassto-sync.cjs`. 물류 요청 화면에 파스토 요청이 생기고, 상단에 "파스토 동기화: … 정상"이 보이는지 확인합니다.
+7. 작업 스케줄러 등록(평일 08:00~19:00, 10분마다, 로그온 중에만). PowerShell에서 저장소 폴더 기준으로:
+
+   ```powershell
+   $repo = (Get-Location).Path
+   $action = New-ScheduledTaskAction -Execute "node" -Argument "tools\fassto-sync.cjs" -WorkingDirectory $repo
+   $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At 08:00
+   $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At 08:00 -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Hours 11)).Repetition
+   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 9)
+   Register-ScheduledTask -TaskName "Entropy Fassto Sync" -Action $action -Trigger $trigger -Settings $settings
+   ```
+
+8. 며칠 정상으로 돌면(사용자 확인 후) 브라우저 재고 갱신 예약 작업을 끕니다. 아래 "파스토 목록 갱신 (Claude, 브라우저)"는 API가 안 될 때 쓰는 예비 절차로 남깁니다.
+
+문제 해결: 로그는 `%LOCALAPPDATA%\entropy-fassto-sync\logs\<날짜>.log`(30일 보관). "IP를 거부함"은 사무실 밖에서 실행된 경우라 무시해도 됩니다. 실패는 화면 상단에 빨간 "파스토 동기화 오류"로 보입니다. 열쇠를 바꾸려면 1단계를 다시 하고 옛 열쇠는 `update approval_private.logistics_fassto_keys set is_active=false where label_text=…`로 끕니다. 쓰는 함수는 `public.logistics_fassto_ingest`, `public.logistics_fassto_report_error` 두 개뿐이고 anon만 실행할 수 있습니다.
+
+- 오류에 `57014` 또는 "canceling statement due to statement timeout"이 보이면 한 번에 보낸 출고 묶음이 너무 커서 Supabase 시간 제한에 걸린 것입니다. `tools/fassto-sync.cjs`의 `CHUNK`(한 번에 보내는 출고 건수, 기본 30)를 줄이고 다시 실행합니다. 성공한 묶음까지는 이미 반영돼 있고, 나머지는 다음 실행에서 다시 보냅니다.
+- 로그의 "품목 확인 필요 <출고요청번호>"는 파스토 상세에 품목이 없거나 품목 합계가 주문 수량과 다른 건입니다. 품목 없이 보내(저장된 품목은 그대로) 다음 실행에서 다시 불러옵니다. 계속 나오면 FMS에서 그 출고 건을 확인합니다.
+- "설정 파일(config.json)을 읽지 못했어요"는 설정 파일 JSON 형식이 깨진 경우입니다(쉼표·따옴표 확인). `token.json`·`state.json`이 깨지면 자동으로 새로 만듭니다.
+- 상단에 "파스토 동기화: … 이후 멈춤 · 사무실 PC를 확인해 주세요"가 보이면 평일 08:30~19:00인데 30분 넘게 동기화가 없었던 것입니다. 사무실 PC가 켜져 있고 로그온돼 있는지, 작업 스케줄러가 돌고 있는지 확인합니다.
+- 동기화는 동기화가 직접 만든 요청의 품목만 파스토 내용으로 바꿉니다. 대시보드에서 사람이 만든 요청(LG 주문번호로 연결된 요청)은 품목이 달라도 바꾸지 않고 "파스토에서 품목이 바뀌었어요" 댓글만 한 번 남깁니다.
 
 ### 파스토 목록 갱신 (Claude, 브라우저)
 
@@ -80,7 +129,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 3. 실행 전 확인(비우기 전에 합니다). 운영 Supabase에서 지난번 행 수를 읽습니다.
 
    ```sql
-   select row_count from public.logistics_fassto_sync order by synced_at desc limit 1;
+   select row_count from public.logistics_fassto_sync where kind_code='stock' order by synced_at desc limit 1;
    ```
 
    변환기가 화면에 낸 "로트 행 N개"의 N이 지난번 `row_count`의 절반보다 적으면 아무것도 실행하지 않고 두 숫자를 사용자에게 알린 채 끝냅니다(이 함수는 실행하면 기존 목록을 먼저 비웁니다). 지난 행이 없는 첫 갱신은 이 확인을 건너뜁니다.
@@ -88,7 +137,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 5. 확인합니다. `row_count`가 변환기가 낸 N과 다르면 자동으로 다시 실행하지 말고 두 숫자를 사용자에게 알립니다.
 
    ```sql
-   select synced_at, source_text, row_count from public.logistics_fassto_sync order by synced_at desc limit 1;
+   select synced_at, source_text, row_count from public.logistics_fassto_sync where kind_code='stock' order by synced_at desc limit 1;
    select count(*) as lots, count(distinct product_code) as products from public.logistics_fassto_stock;
    ```
 
