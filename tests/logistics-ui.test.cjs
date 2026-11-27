@@ -980,3 +980,16 @@ test('mountTab: 직납 출고완료는 기사 정보를 먼저 저장하고, 결
  const i=t.calls.findIndex(c=>c.table==='logistics_request_drivers'&&c.ops[0][0]==='upsert'),j=t.calls.indexOf(t.updates[0]);
  assert.ok(i>=0&&i<j);
 });
+
+test('운영 문서: 파스토 API 동기화 설치 절차와 재고 쿼리의 kind_code 조건',()=>{
+ const fs=require('node:fs'),path=require('node:path');
+ const doc=fs.readFileSync(path.join(__dirname,'../LOGISTICS.md'),'utf8');
+ assert.ok(doc.includes('5. `sql/logistics-fassto-api.sql`'));
+ assert.ok(doc.includes('### 파스토 API 동기화 (사무실 PC)'));
+ for(const s of ['node tools/fassto-sync.cjs --new-key','node tools/fassto-sync.cjs --dry-run','Register-ScheduledTask','icacls','logistics_fassto_settings'])assert.ok(doc.includes(s),s);
+ const routine=fs.readFileSync(path.join(__dirname,'../tools/fassto-sync-routine.txt'),'utf8');
+ assert.ok(routine.includes("where kind_code='stock'"));
+ assert.ok(doc.includes("where kind_code='stock'"));
+ const dev=fs.readFileSync(path.join(__dirname,'../DEVELOPMENT.md'),'utf8');
+ assert.ok(dev.includes('sql/logistics-fassto.sql → sql/logistics-fassto-api.sql'));
+});

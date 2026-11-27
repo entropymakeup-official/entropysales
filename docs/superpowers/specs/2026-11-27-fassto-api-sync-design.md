@@ -207,12 +207,11 @@
 2. SQL 편집기에서 사용자가 열쇠 해시와 기본 요청자를 넣는다.
 
    ```sql
-   insert into approval_private.logistics_fassto_keys(key_hash,label_text) values (encode(sha256(convert_to('<열쇠 원문>','UTF8')),'hex'),'사무실 PC');
    insert into approval_private.logistics_fassto_settings(id,default_requester_email) values (1,'name@entropymakeup.com')
     on conflict (id) do update set default_requester_email=excluded.default_requester_email;
    ```
 
-   열쇠 원문은 `node tools/fassto-sync.cjs --new-key`가 만들어 화면에 한 번만 보여 준다. 채팅이나 저장소에 붙이지 않는다.
+   열쇠 해시 넣는 문장은 `node tools/fassto-sync.cjs --new-key`가 해시를 채워 만들어 준다(원문을 SQL에 넣지 않는다).
 3. 사용자가 설정 파일에 파스토 키·열쇠 원문을 넣는다.
 4. `--dry-run`으로 실제 데이터를 보고, 쇼핑몰 택배 거르기·작업상태 코드·재고 행 수를 확인한다.
 5. 한 번 실제 실행 → 대시보드에 요청이 생기는지 확인.

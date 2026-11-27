@@ -18,11 +18,11 @@ node_modules/xlsx가 없으면 먼저 npm ci 를 실행한다.
    - 상품코드·바코드가 숫자 칸이거나 수량·날짜가 잘못됐다며 거부하면 아무것도 바꾸지 말고 그 문구를 사용자에게 알린다.
    - 화면(stderr)의 "로트 행 N개, 상품 M종"에서 N과 M을 적어 둔다.
 3. 실행 전 확인(비우기 전에 한다). Supabase MCP execute_sql로 아래 하나만 실행한다.
-   select row_count from public.logistics_fassto_sync order by synced_at desc limit 1;
+   select row_count from public.logistics_fassto_sync where kind_code='stock' order by synced_at desc limit 1;
    - N이 돌려받은 row_count의 절반보다 적으면 아무것도 실행하지 않고 두 숫자를 사용자에게 알린 뒤 끝낸다(4단계로 가지 않는다).
    - 돌려받은 행이 없으면(첫 갱신) 이 확인을 건너뛴다.
 4. 그 sql 파일을 읽어 select 문 하나만 실행한다(Supabase MCP execute_sql, postgres 권한, 쿼리 하나로. anon·authenticated는 실행할 수 없다). 다른 SQL은 실행하지 않는다.
-5. select synced_at, row_count from public.logistics_fassto_sync order by synced_at desc limit 1; 로 row_count가 N과 같은지 확인한다.
+5. select synced_at, row_count from public.logistics_fassto_sync where kind_code='stock' order by synced_at desc limit 1; 로 row_count가 N과 같은지 확인한다.
    N과 다르면 자동으로 다시 실행하지 말고 두 숫자(N, row_count)를 사용자에게 알린다.
    같으면 "파스토 목록 갱신: 로트 N행, 상품 M종"을 한 줄로 남긴다(M은 2단계 화면에서 가져온다).
 6. 내려받은 파일과 SQL 파일을 지운다(5단계에서 숫자가 달랐어도 지운다). 저장소에는 아무것도 커밋하지 않는다.
