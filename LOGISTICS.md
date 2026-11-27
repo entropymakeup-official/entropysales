@@ -101,7 +101,7 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
    Register-ScheduledTask -TaskName "Entropy Fassto Sync" -Action $action -Trigger $trigger -Settings $settings
    ```
 
-8. 며칠 정상으로 돌면(사용자 확인 후) 브라우저 재고 갱신 예약 작업을 끕니다. 아래 "파스토 목록 갱신 (Claude, 브라우저)"는 API가 안 될 때 쓰는 예비 절차로 남깁니다.
+8. 브라우저 재고 갱신 예약 작업(`fassto-stock-sync`)은 2026-11-27 사용자 결정으로 껐습니다. 재고는 API 하나로 받습니다(LOT 번호 없이 유통기한별). 아래 "파스토 목록 갱신 (Claude, 브라우저)"는 API가 안 될 때 쓰는 예비 절차로 남깁니다.
 
 문제 해결: 로그는 `%LOCALAPPDATA%\entropy-fassto-sync\logs\<날짜>.log`(30일 보관). "IP를 거부함"은 사무실 밖에서 실행된 경우라 무시해도 됩니다. 실패는 화면 상단에 빨간 "파스토 동기화 오류"로 보입니다. 열쇠를 바꾸려면 1단계를 다시 하고 옛 열쇠는 `update approval_private.logistics_fassto_keys set is_active=false where label_text=…`로 끕니다. 쓰는 함수는 `public.logistics_fassto_ingest`, `public.logistics_fassto_report_error` 두 개뿐이고 anon만 실행할 수 있습니다.
 
