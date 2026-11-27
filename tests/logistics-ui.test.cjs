@@ -486,7 +486,7 @@ test('대시보드: 메뉴는 go(\'logistics\') 탭이고, 스크립트·스타�
  assert.ok(index.includes(`<div class="ni" onclick="go('logistics')" id="nav-logistics"><i class="ti ti-truck"></i>물류 요청</div>`));
  assert.ok(!index.includes('href="logistics.html"'));
  assert.ok(index.includes('<link rel="stylesheet" href="logistics.css?v=20261123-standalone-1">'));
- const iModel=index.indexOf('<script src="logistics-model.js?v=20261123-standalone-1"></script>'),iForms=index.indexOf('<script src="fassto-forms.js?v=20261123-standalone-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261123-standalone-1"></script>');
+ const iModel=index.indexOf('<script src="logistics-model.js?v=20261123-standalone-1"></script>'),iForms=index.indexOf('<script src="fassto-forms.js?v=20261123-standalone-1"></script>'),iPage=index.indexOf('<script src="logistics.js?v=20261127-fassto-api-1"></script>');
  const iXlsx=index.indexOf('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>');
  const iApp=index.indexOf('<script src="app.js?v='),iMount=index.indexOf("globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m),pageUrl:'logistics.html'});");
  assert.ok(iXlsx>0&&iXlsx<iModel&&iModel<iForms&&iForms<iPage&&iPage<iApp&&iApp<iMount);
@@ -916,4 +916,67 @@ test('mountTab: 요약은 저장됐는데 받는 곳·품목 저장이 실패하
  assert.ok(t.d.els['lg-list'].innerHTML.includes('새 제목 r1')); // 지난 요약이 아니라 저장된 요약
  assert.ok(t.d.els['lg-detail'].innerHTML.includes('새 제목 r1'));
  assert.ok(t.page.state.editTarget&&t.page.state.form); // 창과 입력은 그대로(닫지 않음)
+});
+
+test('파스토 동기화: 목록에 파스토 표시와 작업상태, 상태 줄은 정상·오류를 나눈다',()=>{
+ const html=P.renderList([R('r1',{fassto_slip_no:'GG24OO261201000001',fassto_status_code:'WORKING'}),R('r2')],{nowMs:NOW,view:'todo'});
+ assert.ok(html.includes('파스토 · 출고작업중'));
+ assert.equal(html.split('lg-fassto-tag').length-1,1);
+ const stock={rows:[],groups:[],error:'',sync:{synced_at:'2026-11-20T00:50:00Z'}};
+ assert.ok(P.renderStockBanner({...stock,deliverySync:{synced_at:'2026-11-20T00:55:00Z',error_text:'',note_text:'새 1'}},NOW).includes('파스토 동기화: 11/20 09:55 정상'));
+ const bad=P.renderStockBanner({...stock,deliverySync:{synced_at:'2026-11-20T00:55:00Z',error_text:'SERVER: 점검 중',note_text:''}},NOW);
+ assert.ok(bad.includes('파스토 동기화 오류(11/20 09:55): SERVER: 점검 중')&&bad.includes('warn'));
+ assert.ok(!P.renderStockBanner(stock,NOW).includes('파스토 동기화'));
+});
+
+test('파스토 동기화: 상세에 출고요청번호·작업상태, 기사 정보는 볼 수 있는 사람에게, 동기화 작성자 이름',()=>{
+ const r=R('r1',{type_code:'b2b',ship_mode_code:'direct',fassto_slip_no:'GG24OO261201000001',fassto_status_code:'ORDER',fassto_synced_at:'2026-11-20T00:55:00Z'});
+ const base={isHandler:true,email:'handler@entropymakeup.com',nowMs:NOW,fassto:{loaded:true,items:[],recipient:null}};
+ const html=P.renderDetail(r,{...base,driver:{driver_name_text:'가짜 기사',driver_phone_text:'010-0000-0000',vehicle_no_text:'00가0000'},
+  comments:[{id:'c1',author_email:'fassto-sync',body_text:'[파스토 동기화] x',created_at:'2026-11-20T00:00:00Z'}],history:[]});
+ assert.ok(html.includes('파스토 출고요청 GG24OO261201000001 · 출고요청'));
+ assert.ok(html.includes('가짜 기사 · 010-0000-0000 · 00가0000'));
+ assert.ok(html.includes('<b>파스토 동기화</b>'));
+ const other=P.renderDetail(r,{...base,isHandler:false,email:'other@entropymakeup.com',driver:null,comments:[],history:[]});
+ assert.ok(!other.includes('기사 정보'));
+});
+
+test('파스토 동기화: 직납 출고완료 폼에 기사 칸이 나오고, 택배는 동기화가 채운 송장이 결과 칸에 들어간다',()=>{
+ const base={isHandler:true,email:'handler@entropymakeup.com',nowMs:NOW,fassto:{loaded:true,items:[],recipient:null},comments:[],history:[],pending:{kind:'status',to:'shipped'}};
+ const car=P.renderDetail(R('r1',{type_code:'b2b',ship_mode_code:'direct',status_code:'preparing'}),{...base,driver:{driver_name_text:'가짜 기사',driver_phone_text:'',vehicle_no_text:'00가0000'}});
+ assert.ok(car.includes('name="vehicle_no_text" value="00가0000"')&&car.includes('name="driver_name_text"')&&car.includes('name="driver_phone_text"'));
+ assert.ok(!/name="result_text"[^>]*required/.test(car)); // 차량번호로 결과를 채울 수 있어 필수 표시를 하지 않는다
+ const parcel=P.renderDetail(R('r2',{type_code:'b2b',ship_mode_code:'parcel',status_code:'preparing',result_text:'가짜택배 000011112222'}),base);
+ assert.ok(parcel.includes('가짜택배 000011112222</textarea>')&&!parcel.includes('name="vehicle_no_text"'));
+});
+
+test('api: 재고·출고 동기화 기록을 따로 읽고, 기사 정보는 upsert로 저장한다',async()=>{
+ const {client,calls}=fakeClient(q=>{
+  if(q.table==='logistics_fassto_stock')return {data:[],error:null};
+  if(q.table==='logistics_fassto_sync'){const k=q.ops.find(o=>o[0]==='eq'&&o[1]==='kind_code')[2];return {data:[{synced_at:'x',kind_code:k,error_text:''}],error:null};}
+  if(q.table==='logistics_request_drivers')return {data:[{request_id:'r1',vehicle_no_text:'00가0000'}],error:null};
+  return {data:null,error:null};});
+ const api=P.createApi(client,{uuid:()=>'u'});
+ const s=await api.loadStock();
+ assert.equal(s.sync.kind_code,'stock');assert.equal(s.deliverySync.kind_code,'delivery');
+ assert.ok(calls.some(c=>c.table==='logistics_fassto_sync'&&c.ops.some(o=>o[0]==='eq'&&o[1]==='error_text'&&o[2]==='')));
+ assert.equal((await api.loadDriver('r1')).vehicle_no_text,'00가0000');
+ await api.saveDriver('r1',{driver_name_text:'가짜 기사',driver_phone_text:'',vehicle_no_text:'00가0000'});
+ const up=calls.find(c=>c.table==='logistics_request_drivers'&&c.ops[0][0]==='upsert');
+ assert.deepEqual(up.ops[0][1],{driver_name_text:'가짜 기사',driver_phone_text:'',vehicle_no_text:'00가0000',request_id:'r1'});
+ assert.deepEqual(up.ops[0][2],{onConflict:'request_id'});
+});
+
+test('mountTab: 직납 출고완료는 기사 정보를 먼저 저장하고, 결과가 비면 "차량 <번호>"로 채운다',async()=>{
+ const drivers=[];
+ const t=setup({rows:[R('r1',{type_code:'b2b',ship_mode_code:'direct',status_code:'preparing'})],handler:q=>{
+  if(q.table==='logistics_request_drivers'&&q.ops[0][0]==='upsert'){drivers.push(q.ops[0][1]);return {data:[q.ops[0][1]],error:null};}
+  if(q.table==='logistics_request_drivers')return {data:[],error:null};}});
+ await t.page.show();await t.page.openDetail('r1');
+ click(t.d,{to:'shipped'});
+ await submit(t.d,{result_text:'',shipped_on:'2026-11-20',driver_name_text:'가짜 기사',driver_phone_text:'010-0000-0000',vehicle_no_text:'00가0000'},'status');
+ assert.deepEqual(drivers,[{driver_name_text:'가짜 기사',driver_phone_text:'010-0000-0000',vehicle_no_text:'00가0000',request_id:'r1'}]);
+ assert.deepEqual(t.updates[0].ops[0][1],{status_code:'shipped',result_text:'차량 00가0000',shipped_on:'2026-11-20'});
+ const i=t.calls.findIndex(c=>c.table==='logistics_request_drivers'&&c.ops[0][0]==='upsert'),j=t.calls.indexOf(t.updates[0]);
+ assert.ok(i>=0&&i<j);
 });

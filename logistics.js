@@ -6,7 +6,9 @@ const F=root.FasstoForms||(typeof require==='function'?require('./fassto-forms.j
 const {esc}=M;
 const BUCKET='logistics-docs',T='logistics_requests';
 const opt=(map,sel)=>Object.entries(map).map(([k,v])=>`<option value="${esc(k)}"${k===sel?' selected':''}>${esc(v)}</option>`).join('');
-const nameOf=(email,people)=>(people||[]).find(p=>p.email===String(email||'').toLowerCase())?.display_name||String(email||'').split('@')[0];
+const SPECIAL_NAMES={'fassto-sync':'파스토 동기화',system:'시스템'};
+const nameOf=(email,people)=>SPECIAL_NAMES[String(email||'')]||(people||[]).find(p=>p.email===String(email||'').toLowerCase())?.display_name||String(email||'').split('@')[0];
+const FASSTO_STATUS={ORDER:'출고요청',WORKING:'출고작업중',DONE:'출고완료',CANCEL:'출고요청취소',SHORTAGE:'재고부족결품'};
 const storageName=n=>M.safeFileName(n).replace(/[^A-Za-z0-9._-]/g,'_');
 const fmtDay=d=>d?String(d).slice(5).replace('-','/'):'미정';
 
@@ -82,8 +84,19 @@ function createApi(client,{uuid,now=()=>Date.now()}={}){
     const page=(await need(client.from('logistics_fassto_stock').select('product_code,barcode,product_name,kind_text,lot_text,expires_on,available_qty').order('id').range(from,from+999)))||[];
     rows.push(...page);if(page.length<1000)break;
    }
-   const sync=await need(client.from('logistics_fassto_sync').select('synced_at,source_text,row_count').order('synced_at',{ascending:false}).limit(1));
-   return {rows,sync:Array.isArray(sync)?sync[0]||null:null};
+   const [sync,deliverySync]=await Promise.all([
+    need(client.from('logistics_fassto_sync').select('synced_at,source_text,row_count,kind_code,error_text').eq('kind_code','stock').eq('error_text','').order('synced_at',{ascending:false}).limit(1)),
+    need(client.from('logistics_fassto_sync').select('synced_at,source_text,row_count,kind_code,error_text,note_text').eq('kind_code','delivery').order('synced_at',{ascending:false}).limit(1))]);
+   return {rows,sync:Array.isArray(sync)?sync[0]||null:null,deliverySync:Array.isArray(deliverySync)?deliverySync[0]||null:null};
+  },
+  // 기사 정보: 요청자·담당자만 읽힌다(RLS). 쓰기는 담당자만.
+  async loadDriver(id){
+   const rows=await need(client.from('logistics_request_drivers').select('*').eq('request_id',id));
+   return Array.isArray(rows)?rows[0]||null:null;
+  },
+  async saveDriver(id,row){
+   const rows=await need(client.from('logistics_request_drivers').upsert({...row,request_id:id},{onConflict:'request_id'}).select());
+   if(!Array.isArray(rows)||rows.length!==1)throw new Error('UNCONFIRMED');return rows[0];
   },
   // 볼 권한이 없으면 RLS가 빈 결과를 준다(null). 볼 수 없음과 입력 안 됨은 화면이 요청자·담당자 여부로 나눈다.
   async loadRecipient(id){
@@ -163,7 +176,7 @@ function renderList(rows,ctx){
  return `<div class="tw"><table class="lg-table"><thead><tr><th>유형</th><th>제목</th><th>거래처·수신처</th><th>희망일</th><th>요청자</th><th>상태</th></tr></thead><tbody>${rows.map(r=>{
   const late=M.isLate(r,ctx.nowMs),n=fileCount(r.id);
   return `<tr class="lg-row${late?' late':''}" data-open="${esc(r.id)}"><td class="lg-nowrap">${esc(M.TYPES[r.type_code]||r.type_code)}</td>`
-   +`<td class="lg-title-cell"><button type="button" class="lg-link" data-open="${esc(r.id)}">${esc(r.title_text)}</button>${n?` <span class="lg-muted" title="첨부 ${n}개"><i class="ti ti-paperclip"></i>${n}</span>`:''}${r.slack_state_code==='failed'?' <span class="badge bg-red lg-warn" title="슬랙 알림을 보내지 못했어요">알림 실패</span>':''}</td>`
+   +`<td class="lg-title-cell"><button type="button" class="lg-link" data-open="${esc(r.id)}">${esc(r.title_text)}</button>${r.fassto_slip_no?` <span class="badge bg-gray lg-fassto-tag" title="파스토 ${esc(r.fassto_slip_no)}">파스토${r.fassto_status_code?' · '+esc(FASSTO_STATUS[r.fassto_status_code]||r.fassto_status_code):''}</span>`:''}${n?` <span class="lg-muted" title="첨부 ${n}개"><i class="ti ti-paperclip"></i>${n}</span>`:''}${r.slack_state_code==='failed'?' <span class="badge bg-red lg-warn" title="슬랙 알림을 보내지 못했어요">알림 실패</span>':''}</td>`
    +`<td>${esc(r.counterparty_text)}</td><td class="lg-nowrap${late?' lg-late':''}">${esc(fmtDay(r.want_date))}${late?' · 지남':''}</td>`
    +`<td class="lg-nowrap">${esc(nameOf(r.requester_email,people))}</td><td>${badge(r.status_code)}</td></tr>`;}).join('')}</tbody></table></div>`;
 }
@@ -182,8 +195,13 @@ function renderPending(r,p,ctx){
     +`<div class="fg"><label for="lg-p-packing_code">패킹리스트</label><select id="lg-p-packing_code" name="packing_code">${opt({'':'-',...M.PACKING},v('packing_code',r.packing_code||''))}</select></div>`:'');
  }else{
   const to=p.to;title=`${M.STATUSES[to]}(으)로 바꾸기`;body='';
-  if(to==='shipped')body+=ta('result_text','결과(송장·배차·BL) <small>필수 · 슬랙 채널에 그대로 보여요</small>',r.result_text||'',M.LIMITS.result,' required data-autofocus')
-   +`<div class="fg"><label for="lg-p-shipped_on">출고일 <small>필수</small></label><input type="date" id="lg-p-shipped_on" name="shipped_on" value="${esc(v('shipped_on',r.shipped_on||today))}" required></div>`;
+  if(to==='shipped'){
+   const car=r.ship_mode_code==='direct',dv=ctx.driver||{};
+   const inp=(name,label,val,max)=>`<div class="fg"><label for="lg-p-${name}">${label}</label><input id="lg-p-${name}" name="${name}" value="${esc(v(name,val||''))}" maxlength="${max}"></div>`;
+   body+=ta('result_text',`결과(송장·배차·BL) <small>${car?'차량번호를 적으면 비워 둬도 돼요':'필수'} · 슬랙 채널에 그대로 보여요</small>`,r.result_text||'',M.LIMITS.result,car?' data-autofocus':' required data-autofocus')
+    +`<div class="fg"><label for="lg-p-shipped_on">출고일 <small>필수</small></label><input type="date" id="lg-p-shipped_on" name="shipped_on" value="${esc(v('shipped_on',r.shipped_on||today))}" required></div>`
+    +(car?inp('vehicle_no_text','차량번호',dv.vehicle_no_text,20)+inp('driver_name_text','기사 이름 <small>슬랙에 안 보여요</small>',dv.driver_name_text,40)+inp('driver_phone_text','기사 연락처 <small>슬랙에 안 보여요</small>',dv.driver_phone_text,40):'');
+  }
   if(needsNote(r.status_code,to))body+=ta('status_note_text','사유 <small>필수</small>','',M.LIMITS.statusNote,' required data-autofocus');
   else if(to==='canceled')body+=ta('status_note_text','취소 사유 <small>선택</small>','',M.LIMITS.statusNote,' data-autofocus');
  }
@@ -197,8 +215,10 @@ const itemWarn=(it,groups)=>F.qtyWarning(it,groups)||(!(groups||[]).length||grou
 function renderStockBanner(stock,nowMs){
  if(!stock)return '';
  if(stock.error)return `<p class="lg-stock warn" role="status">파스토 목록을 불러오지 못했어요: ${esc(stock.error)}</p>`;
- const a=F.stockAge(stock.sync,stock.groups,nowMs);
- return `<p class="lg-stock${a.stale?' warn':''}" role="status">${esc(a.text)}</p>`;
+ const a=F.stockAge(stock.sync,stock.groups,nowMs),ds=stock.deliverySync;
+ const sync=!ds?'':ds.error_text?`<p class="lg-stock warn" role="status">파스토 동기화 오류(${esc(kstTime(ds.synced_at))}): ${esc(ds.error_text)}</p>`
+  :`<p class="lg-stock" role="status">파스토 동기화: ${esc(kstTime(ds.synced_at))} 정상</p>`;
+ return `<p class="lg-stock${a.stale?' warn':''}" role="status">${esc(a.text)}</p>`+sync;
 }
 function renderStockResults(list,q){
  if(!String(q||'').trim())return '';
@@ -248,7 +268,7 @@ function renderFasstoFields(mode,fx,ctx){
 // 상세 창의 파스토 칸: 받는 곳(권한), 품목 표, 내려받기 버튼, 검사 결과
 function renderFasstoSection(r,ctx){
  const form=F.formFor(r.ship_mode_code),fx=ctx.fassto||{},items=fx.items||[];
- if(!form&&!items.length)return '';
+ if(!form&&!items.length&&!r.fassto_slip_no)return '';
  const owner=String(ctx.email||'').toLowerCase()===String(r.requester_email||'').toLowerCase(),canSee=Boolean(ctx.isHandler||owner);
  const groups=ctx.groups||[],wait=!fx.loaded&&!fx.error; // 아직 못 불러온 것은 "입력 안 됨"이 아니라 불러오는 중
  const f=(l,v,c='')=>`<div class="lg-f${c}"><dt>${esc(l)}</dt><dd>${esc(v||'-')}</dd></div>`;
@@ -275,6 +295,7 @@ function renderFasstoSection(r,ctx){
  const canDownload=Boolean(form&&canSee&&fx.loaded);
  const errs=ctx.fasstoErrors||[];
  return `<section class="lg-sec lg-fassto"><h3>파스토 양식${r.fassto_order_no?` <span class="lg-muted">주문번호 ${esc(r.fassto_order_no)}</span>`:''}</h3><p class="lg-hint">${esc(F.formHint(form))}</p>`
+  +(r.fassto_slip_no?`<p class="lg-muted">파스토 출고요청 ${esc(r.fassto_slip_no)} · ${esc(FASSTO_STATUS[r.fassto_status_code]||'-')}${r.fassto_synced_at?` · 확인 ${esc(kstTime(r.fassto_synced_at))}`:''}</p>`:'')
   +(fx.error?`<p class="lg-error">${esc(fx.error)}</p>`:'')+rec+`<h4>품목 <span class="lg-count">${items.length}</span></h4>${list}`
   +(canDownload?`<div class="lg-actions"><button type="button" class="btn" data-act="fassto-download"><i class="ti ti-download"></i> 파스토 양식 내려받기</button></div>`:'')
   +(errs.length?`<div class="lg-error" role="alert"><p>내려받지 않았어요. 아래 칸을 채워 주세요.</p><ul>${errs.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'')
@@ -302,6 +323,7 @@ function renderDetail(r,ctx){
  +`${field('희망 출고일',fmtDay(r.want_date)+(late?' (지남)':''),late?' lg-late':'')}${field('운송',M.SHIP_MODES[r.ship_mode_code])}${field('수량',r.qty_summary_text)}`
  +`${field('연결 주문',inv?`${inv.no} ${inv.customer||''}`:(r.invoice_id?'불러오는 중…':''))}${field('특이사항',r.note_text,' lg-wide')}`
  +(overseas?field('패킹리스트',M.PACKING[r.packing_code]||'')+field('ETD',r.etd_on)+field('포워더',r.forwarder_text):'')
+ +(r.ship_mode_code==='direct'&&(ctx.isHandler||owner)&&ctx.driver?field('기사 정보',[ctx.driver.driver_name_text,ctx.driver.driver_phone_text,ctx.driver.vehicle_no_text].filter(Boolean).join(' · '),' lg-wide'):'')
  +`${field('결과(송장·배차·BL)',r.result_text,' lg-wide')}${field('출고일',r.shipped_on)}${r.quick_fee_krw!=null?field('퀵비',won(r.quick_fee_krw)):''}${r.status_note_text?field('사유',r.status_note_text,' lg-wide'):''}</dl>`
  +renderFasstoSection(r,ctx)
  +((next.length||canEdit||canResult)?`<section class="lg-sec"><h3>처리</h3><div class="lg-actions">${next.map(to=>`<button type="button" class="btn${pendingTo===to?' btn-primary':''}" data-to="${esc(to)}">${esc(M.STATUSES[to])}</button>`).join('')}`
@@ -391,7 +413,7 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   const d=$('lg-detail'),r=current();if(!d||!r)return;
   captureInputs();
   const ae=document.activeElement,fid=ae&&ae.id&&d.contains?.(ae)?ae.id:'',sel=fid?[ae.selectionStart,ae.selectionEnd]:null;
-  d.innerHTML=renderDetail(r,{...ctx(),...state.detail,loading:state.detailLoading,pending:state.pending,error:state.detailError,note:state.detailNote,commentDraft:state.commentDraft,fassto:state.fassto,fasstoErrors:state.fasstoErrors});
+  d.innerHTML=renderDetail(r,{...ctx(),...state.detail,loading:state.detailLoading,pending:state.pending,error:state.detailError,note:state.detailNote,commentDraft:state.commentDraft,fassto:state.fassto,fasstoErrors:state.fasstoErrors,driver:state.driver});
   state.renderedId=r.id;
   if(state.busy)setBusy(true);
   if(fid){try{const el=$(fid);el?.focus?.();if(sel&&sel[0]!=null)el?.setSelectionRange?.(sel[0],sel[1]);}catch(_){}}
@@ -407,7 +429,7 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   if(!keep||!same){captureInputs();state.pending=null;state.detailError='';state.detailNote='';state.commentDraft='';state.renderedId=null;state.fasstoErrors=[];}
   const r0=current();
   if(!r0){closeDetail();say('요청을 찾지 못했어요. 닫힌 지 180일이 지났거나 지워진 요청일 수 있어요.');return;}
-  state.detail={comments:[],history:[]};state.detailLoading=true;state.fassto={...NO_FASSTO(),loading:true};
+  state.detail={comments:[],history:[]};state.detailLoading=true;state.fassto={...NO_FASSTO(),loading:true};state.driver=null;
   const g=generation;
   drawDetail();dlgOpen($('lg-detail'));
   if(r0.invoice_id&&!state.data.invoices.some(i=>i.id===r0.invoice_id)){
@@ -416,12 +438,13 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
   }
   // 받는 곳은 요청자·담당자만 부른다(다른 사람은 RLS가 0행). 품목은 운송 방식이 바뀌었을 때도 보이게 늘 부른다.
   const canSee=state.isHandler||state.email===String(r0.requester_email||'').toLowerCase();
-  const [det,rec,its]=await Promise.allSettled([api.loadDetail(id),canSee?api.loadRecipient(id):Promise.resolve(null),api.loadItems(id)]);
+  const [det,rec,its,drv]=await Promise.allSettled([api.loadDetail(id),canSee?api.loadRecipient(id):Promise.resolve(null),api.loadItems(id),canSee&&r0.ship_mode_code==='direct'?api.loadDriver(id):Promise.resolve(null)]);
   if(g!==generation||state.selected!==id)return;
   if(det.status==='fulfilled')state.detail=det.value;else state.detailError='댓글과 이력을 불러오지 못했어요: '+(det.reason?.message||det.reason);
   state.fasstoErrors=[]; // 받는 곳·품목을 다시 불러왔으니 지난 내려받기 오류는 낡았다
   if(rec.status==='fulfilled'&&its.status==='fulfilled')state.fassto={loaded:true,loading:false,recipient:rec.value,items:its.value||[],error:''};
   else{const e=rec.status==='rejected'?rec.reason:its.reason;state.fassto={...NO_FASSTO(),error:'받는 곳과 품목을 불러오지 못했어요: '+(e?.message||e)};}
+  state.driver=drv.status==='fulfilled'?drv.value:null;
   state.detailLoading=false;drawDetail();
  }
 
@@ -471,13 +494,25 @@ function mountTab({document,client,onMessage=()=>{},now=()=>Date.now(),confirm=m
  }
  function readForm(form){const d={};for(const el of form.querySelectorAll('[name]'))if(el.type!=='file')d[el.name]=el.value;return d;}
  const fail=msg=>{state.detailError=msg;drawDetail();};
+ async function saveDriverThenStatus(r,drv,fields){
+  if(state.busy)return;
+  setBusy(true);
+  try{await api.saveDriver(r.id,drv);state.driver={request_id:r.id,...drv};}
+  catch(e){setBusy(false);return detailFail(e);}
+  setBusy(false);
+  return saveStatus(r,'shipped',fields);
+ }
  function submitStatus(form){
   const r=current(),p=state.pending;if(!r||!p||p.kind!=='status'||state.busy)return;
   const v=readForm(form),fields={};p.values=v;
   if(p.to==='shipped'){
    fields.result_text=String(v.result_text||'').trim();fields.shipped_on=String(v.shipped_on||'').trim();
+   const car=r.ship_mode_code==='direct';
+   const drv=car?{driver_name_text:String(v.driver_name_text||'').trim(),driver_phone_text:String(v.driver_phone_text||'').trim(),vehicle_no_text:String(v.vehicle_no_text||'').trim()}:null;
+   if(!fields.result_text&&drv?.vehicle_no_text)fields.result_text='차량 '+drv.vehicle_no_text;
    if(!fields.result_text)return fail('결과(송장·배차·BL)를 적어 주세요.');
    if(!M.isDate(fields.shipped_on))return fail('출고일을 골라 주세요.');
+   if(drv&&(drv.driver_name_text||drv.driver_phone_text||drv.vehicle_no_text))return saveDriverThenStatus(r,drv,fields);
   }
   if(needsNote(r.status_code,p.to)||p.to==='canceled')fields.status_note_text=String(v.status_note_text||'').trim();
   return saveStatus(r,p.to,fields);
