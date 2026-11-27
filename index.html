@@ -109,6 +109,7 @@
     <div class="ns">업무</div>
     <div class="ni" onclick="go('tasks')" id="nav-tasks"><i class="ti ti-list-check"></i>업무 목록</div>
     <div class="ni" onclick="go('logistics')" id="nav-logistics"><i class="ti ti-truck"></i>물류 요청</div>
+    <div class="ni" onclick="go('support')" id="nav-support"><i class="ti ti-briefcase"></i>경영지원</div>
     <div class="ns">거래처</div>
     <div class="ni" onclick="go('customers')" id="nav-customers"><i class="ti ti-building-store"></i>거래처 마스터</div>
     <div class="ni" onclick="go('contacts')" id="nav-contacts"><i class="ti ti-address-book"></i>거래처 연락처</div>
@@ -701,11 +702,14 @@
 <script src="logistics-model.js?v=20261123-standalone-1"></script>
 <script src="fassto-forms.js?v=20261123-standalone-1"></script>
 <script src="logistics.js?v=20261127-fassto-api-1"></script>
+<script src="support-model.js?v=20261127-support-1"></script>
+<script src="support.js?v=20261127-support-1"></script>
 <link rel="stylesheet" href="product-master.css?v=20260929-2">
 <script src="product-master.js?v=20260929-2"></script>
-  <script src="app.js?v=b0a225241c67"></script>
+  <script src="app.js?v=990c903f353f"></script>
 <script>globalThis.productMaster=ProductMaster.mount({document,client:sb});</script>
 <script>globalThis.teamTasks=TeamTasks.mount({document,sb,onMessage:message=>toast(message),collectorUrl:'https://claude.ai/artifact/2gimm24MrCNiNVf8cFXLss',routineUrl:'team-tasks-routine.txt?v=20261020-team-tasks-14'});</script>
 <script>globalThis.logistics=LogisticsPage.mountTab({document,client:sb,onMessage:m=>toast(m),pageUrl:'logistics.html'});</script>
+<script>globalThis.supportRequests=SupportPage.mountTab({document,client:sb,onMessage:m=>toast(m),pageUrl:'support.html'});</script>
 </body>
 </html>

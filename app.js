@@ -264,6 +264,7 @@ function go(page){
   if(page!=='contracts')globalThis.contractRegister?.hide();
   if(page!=='tasks')globalThis.teamTasks?.hide();
   if(page!=='logistics')globalThis.logistics?.hide();
+  if(page!=='support')globalThis.supportRequests?.hide();
   globalThis.invoiceSheetStatus?.show(page);
   if(page==='inventory'){
     globalThis.inventoryHistory?.hide();
@@ -279,6 +280,7 @@ function go(page){
   if(page==='productmaster'){globalThis.productMaster?.show();return;}
   if(page==='tasks'){document.getElementById('page-title').textContent='업무 목록';globalThis.teamTasks?.show();return;}
   if(page==='logistics'){document.getElementById('page-title').textContent='물류 요청';globalThis.logistics?.show();return;}
+  if(page==='support'){document.getElementById('page-title').textContent='경영지원';globalThis.supportRequests?.show();return;}
   ({dash:renderDash,upload:renderUpload,invoices:renderInvoices,raw:renderRaw,monthly:renderMonthly,forecast:renderForecast,tax:renderTax,consign:renderConsignPage,customers:renderCustomers,contacts:()=>globalThis.contactRegister?.show(),contracts:renderContracts,docs:renderDocs,products:renderProducts,calendar:renderCalendar,custanalysis:renderCustAnalysis,productanalysis:renderProductAnalysis})[page]?.();
 }
 let _contractCustomer='';
