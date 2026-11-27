@@ -4,11 +4,18 @@ begin;
 insert into storage.buckets(id,name,public,file_size_limit) values ('support-docs','support-docs',false,20971520)
  on conflict (id) do update set public=false, file_size_limit=20971520;
 
+-- 경로 첫 칸을 uuid로 바꾸지 않고 글자로 비교한다(이상한 이름이 형 변환 오류로 다른 버킷 조회까지 막지 않게).
+create or replace function approval_private.support_can_see_path(p_name text) returns boolean
+language sql stable security definer set search_path='' as $$
+ select (select approval_private.is_company_member()) and ((select approval_private.support_is_handler()) or exists(
+  select 1 from public.support_requests r where r.id::text=split_part(p_name,'/',1) and r.requester_email=(select approval_private.current_email())));
+$$;
+revoke all on function approval_private.support_can_see_path(text) from public,anon;
+grant execute on function approval_private.support_can_see_path(text) to authenticated;
+
 drop policy if exists support_docs_select on storage.objects;
 create policy support_docs_select on storage.objects as restrictive for select to authenticated
- using (bucket_id <> 'support-docs' or (
-  name ~ '^[0-9a-f-]{36}/[0-9a-f-]{36}-[^/]{1,120}$'
-  and (select approval_private.support_can_see_files(split_part(name,'/',1)::uuid))));
+ using (bucket_id <> 'support-docs' or approval_private.support_can_see_path(name));
 
 drop policy if exists support_docs_insert on storage.objects;
 create policy support_docs_insert on storage.objects as restrictive for insert to authenticated
