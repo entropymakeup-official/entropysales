@@ -82,6 +82,8 @@ create table if not exists approval_private.logistics_fassto_settings (
  id integer primary key check (id = 1),
  default_requester_email text not null check (default_requester_email ~ '^[a-z0-9._%+-]+@entropymakeup\.com$')
 );
+-- 이 날짜(KST 주문일) 전 출고는 새 요청으로 만들지 않는다(켜기 전의 오래된 출고요청이 쌓이지 않게). 비우면 제한 없음.
+alter table approval_private.logistics_fassto_settings add column if not exists create_from_date date;
 
 -- 5) 동기화 함수. 사무실 PC가 anon 키 + 전용 열쇠로 부른다(한 트랜잭션).
 create or replace function approval_private.logistics_fassto_key_ok(p_key text) returns boolean
@@ -137,11 +139,11 @@ declare
  v_slip text; v_order text; v_status text; v_div text; v_shop text; v_has_items boolean; v_items jsonb; v_raw_n integer; v_total integer;
  v_email text; v_default text; v_title text; v_note text; v_old_sig text; v_invoice text; v_upd boolean;
  n_created integer := 0; n_updated integer := 0; n_canceled integer := 0; n_invoices integer := 0; n_skipped integer := 0;
- v_stock_rows integer; v_stock_warning text := ''; v_last integer; v_inv uuid;
+ v_stock_rows integer; v_stock_warning text := ''; v_last integer; v_inv uuid; v_from date; v_day date;
 begin
  if not approval_private.logistics_fassto_key_ok(p_key) then raise exception 'LOGISTICS_FASSTO_KEY'; end if;
  if (select auth.uid()) is not null then raise exception 'LOGISTICS_FORBIDDEN'; end if;
- select s.default_requester_email into v_default from approval_private.logistics_fassto_settings s where s.id = 1;
+ select s.default_requester_email, s.create_from_date into v_default, v_from from approval_private.logistics_fassto_settings s where s.id = 1;
  if v_default is null then raise exception 'LOGISTICS_FASSTO_SETTINGS'; end if;
  if (p_stock is not null and jsonb_typeof(p_stock) <> 'array') or (p_deliveries is not null and jsonb_typeof(p_deliveries) <> 'array') then
   raise exception 'LOGISTICS_FASSTO_BAD';
@@ -187,6 +189,14 @@ begin
    -- 첫 동기화 때 지난 출고완료 건이 한꺼번에 요청으로 쏟아지지 않게: 오늘(KST) 전 주문의 출고완료는 새로 만들지 않는다
    if v_status = 'DONE' and coalesce(d->>'order_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
       and (d->>'order_date')::date < ((now() at time zone 'UTC') + interval '9 hours')::date then
+    n_skipped := n_skipped + 1; continue;
+   end if;
+   -- 시작일 전 주문은 새로 만들지 않는다
+   v_day := case when coalesce(d->>'order_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then (d->>'order_date')::date end;
+   if v_from is not null and v_day is not null and v_day < v_from then n_skipped := n_skipped + 1; continue; end if;
+   -- 택배는 대시보드 주문번호(invoices.no)나 LG 주문번호일 때만 새로 만든다(CS 수작업 발송은 쌓지 않음)
+   if v_div = 'parcel' and not (v_order ~ '^LG[0-9]{8}_[0-9]{3,}$'
+      or (v_order <> '' and exists(select 1 from public.invoices i where i.no = v_order))) then
     n_skipped := n_skipped + 1; continue;
    end if;
    v_email := null;

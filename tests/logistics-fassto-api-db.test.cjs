@@ -127,7 +127,7 @@ test('ingest: 새 출고는 요청 한 건을 만들고(요청자 매핑·품목
   const again=await ingest([dlv()]);
   assert.deepEqual([again.created,again.updated],[0,0]);
   assert.equal((await db.query('select count(*)::int n from logistics_requests')).rows[0].n,1);
-  const unknown=await ingest([dlv({slip_no:'GG24OO261201000002',registered_by:'모르는 사람',out_div:'parcel',items:undefined})]);
+  const unknown=await ingest([dlv({slip_no:'GG24OO261201000002',registered_by:'모르는 사람',out_div:'parcel',order_no:'LG20261201_901',items:undefined})]);
   assert.equal(unknown.created,1);
   const u=await req('GG24OO261201000002');
   assert.equal(u.requester_email,'handler@entropymakeup.com');assert.equal(u.ship_mode_code,'parcel');assert.equal(u.qty_summary_text,'총 30개');
@@ -184,11 +184,11 @@ test('ingest: 택배 송장은 결과 칸이 비어 있을 때만 채우고 상�
  const {db,ingest,req,login,asSystem}=await setup();
  try{
   // 출고완료라 주문일이 오늘(KST) 전이면 새로 만들지 않으므로(F1) 오늘 날짜로 보낸다
-  await ingest([dlv({out_div:'parcel',status_code:'DONE',order_date:kday(0),invoice_no:'000011112222',parcel_name:'가짜택배'})]);
+  await ingest([dlv({out_div:'parcel',order_no:'LG20261201_902',status_code:'DONE',order_date:kday(0),invoice_no:'000011112222',parcel_name:'가짜택배'})]);
   const r=await req('GG24OO261201000001');
   assert.equal(r.result_text,'가짜택배 000011112222');assert.equal(r.status_code,'requested');
   await login(3);await db.query(`update logistics_requests set result_text='직접 적음' where id=$1`,[r.id]);await asSystem();
-  const res=await ingest([dlv({out_div:'parcel',status_code:'DONE',order_date:kday(0),invoice_no:'999',parcel_name:'가짜택배'})]);
+  const res=await ingest([dlv({out_div:'parcel',order_no:'LG20261201_902',status_code:'DONE',order_date:kday(0),invoice_no:'999',parcel_name:'가짜택배'})]);
   assert.equal(res.invoices,0);assert.equal((await req('GG24OO261201000001')).result_text,'직접 적음');
  }finally{await db.close();}
 });
@@ -321,5 +321,26 @@ test('ingest: 파스토 주문번호가 대시보드 주문번호와 같으면 �
   await db.query(`insert into public.invoices(no) values ('')`);
   await ingest([dlv({slip_no:'GG24OO261201000004',order_no:''})]);
   assert.equal((await req('GG24OO261201000004')).invoice_id,null);
+ }finally{await db.close();}
+});
+
+test('ingest 새 요청 범위: 시작일 전 주문은 만들지 않고, 택배는 대시보드 주문번호·LG 주문번호일 때만 만든다',async()=>{
+ const {db,ingest,req}=await setup();
+ try{
+  await db.exec(`update approval_private.logistics_fassto_settings set create_from_date='2026-12-01' where id=1`);
+  const a=await ingest([dlv({slip_no:'GG24OO261201000011',order_date:'2026-11-30'}),dlv({slip_no:'GG24OO261201000012',order_date:'2026-12-01'})]);
+  assert.equal(await req('GG24OO261201000011'),undefined);
+  assert.ok(await req('GG24OO261201000012'));
+  assert.deepEqual([a.created,a.skipped],[1,1]);
+  await db.exec(`update approval_private.logistics_fassto_settings set create_from_date=null where id=1`);
+  await db.query(`insert into public.invoices(no) values ('HC_20261124')`);
+  const b=await ingest([
+   dlv({slip_no:'GG24OO261201000021',out_div:'parcel',order_no:'20261126-0001'}),
+   dlv({slip_no:'GG24OO261201000022',out_div:'parcel',order_no:'HC_20261124'}),
+   dlv({slip_no:'GG24OO261201000023',out_div:'parcel',order_no:''})]);
+  assert.equal(await req('GG24OO261201000021'),undefined);
+  assert.ok(await req('GG24OO261201000022'));
+  assert.equal(await req('GG24OO261201000023'),undefined);
+  assert.deepEqual([b.created,b.skipped],[1,2]);
  }finally{await db.close();}
 });

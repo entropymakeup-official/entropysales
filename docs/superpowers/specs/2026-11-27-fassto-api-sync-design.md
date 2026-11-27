@@ -138,6 +138,8 @@
 - 품목은 `logistics_request_items`에 넣는다(최대 50줄, 넘으면 50줄까지만 넣고 `note_text`에 "품목 N줄 중 50줄만 표시"를 붙인다)
 - 새 요청 insert라 기존 트리거가 이력·슬랙 "새 요청" 알림을 만든다.
 
+새 요청 범위(2026-11-27 추가): 새로 만들 때만 적용한다. `approval_private.logistics_fassto_settings.create_from_date`가 있으면 그 전 주문일의 출고는 건너뛴다. 택배(`out_div='parcel'`)는 `order_no`가 `LG날짜_순번`이거나 같은 `invoices.no`가 있을 때만 만든다.
+
 주문 연결(2026-11-27 추가): 새로 만들었거나 이미 있는 요청이 아직 주문에 연결되지 않았고 출고완료·취소 전이면, `order_no`와 같은 `invoices.no`를 찾아 `invoice_id`를 넣는다. 그래서 FMS 주문번호 칸에는 대시보드 주문번호(예 `RE_20261126`)를 넣는다. 기존 트리거가 변경 이력(`invoice`)을 남긴다.
 
 이미 있는 요청 갱신(물류 담당자 작업을 덮어쓰지 않는다):
