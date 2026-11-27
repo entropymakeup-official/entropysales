@@ -295,3 +295,31 @@ test('F3 ingest: 정리하면 빈 품목 목록은 "품목 없음"으로 보고,
   assert.deepEqual((await db.query('select product_code,qty from logistics_request_items where request_id=$1',[m.id])).rows,[{product_code:'11111111111111',qty:5}]);
  }finally{await db.close();}
 });
+
+test('ingest: 파스토 주문번호가 대시보드 주문번호와 같으면 주문에 연결하고, 출고완료·취소된 요청은 건드리지 않는다',async()=>{
+ const {db,ingest,req,login,asSystem}=await setup();
+ try{
+  const inv=(await db.query(`insert into public.invoices(no) values ('RE_20261126') returning id`)).rows[0].id;
+  await ingest([dlv({order_no:'RE_20261126'})]);
+  const r=await req('GG24OO261201000001');
+  assert.equal(r.invoice_id,inv);
+  assert.equal((await db.query(`select count(*)::int n from logistics_request_history where request_id=$1 and field_code='invoice'`,[r.id])).rows[0].n,1);
+  // 주문이 나중에 생겨도 다음 동기화에서 잇는다
+  await ingest([dlv({slip_no:'GG24OO261201000002',order_no:'CR_20261123'})]);
+  assert.equal((await req('GG24OO261201000002')).invoice_id,null);
+  const inv2=(await db.query(`insert into public.invoices(no) values ('CR_20261123') returning id`)).rows[0].id;
+  await ingest([dlv({slip_no:'GG24OO261201000002',order_no:'CR_20261123'})]);
+  assert.equal((await req('GG24OO261201000002')).invoice_id,inv2);
+  // 출고완료된 요청은 주문 칸을 바꾸지 않는다(요약이 닫혀 있음)
+  await ingest([dlv({slip_no:'GG24OO261201000003',order_no:'HC_20261124'})]);
+  const c=await req('GG24OO261201000003');
+  await login(3);await db.query(`update logistics_requests set status_code='shipped',result_text='차량 00가0000',shipped_on='2026-12-01' where id=$1`,[c.id]);await asSystem();
+  await db.query(`insert into public.invoices(no) values ('HC_20261124')`);
+  await ingest([dlv({slip_no:'GG24OO261201000003',order_no:'HC_20261124'})]);
+  assert.equal((await req('GG24OO261201000003')).invoice_id,null);
+  // 주문번호가 비어 있으면 연결하지 않는다
+  await db.query(`insert into public.invoices(no) values ('')`);
+  await ingest([dlv({slip_no:'GG24OO261201000004',order_no:''})]);
+  assert.equal((await req('GG24OO261201000004')).invoice_id,null);
+ }finally{await db.close();}
+});

@@ -67,6 +67,8 @@ update public.logistics_handlers set is_active = false where email = 'name@entro
 
 설계: `docs/superpowers/specs/2026-11-27-fassto-api-sync-design.md`. 파스토 API는 파스토에 등록한 사무실 회선 IP에서만 호출됩니다. 사무실에 상주하는 PC에서 돌립니다. 키·설정·로그는 저장소에 넣지 않습니다.
 
+등록 규칙(2026-11-27 사용자 결정): 출고는 FMS에만 등록하고, 물류 요청은 동기화가 만듭니다. 같은 출고를 대시보드 "+ 새 요청"으로 따로 만들지 않습니다(두 번 생깁니다). FMS 주문번호 칸에는 대시보드 주문번호(예 `RE_20261126`)를 넣습니다. 그러면 동기화가 물류 요청을 그 주문에 자동으로 연결합니다(출고완료·취소 전 요청만). 대시보드에서 먼저 만든 요청은 "파스토 양식 내려받기" 엑셀(주문번호 `LG…`)로 FMS에 올리면 같은 요청에 이어집니다.
+
 1. 열쇠 만들기(저장소 폴더에서): `node tools/fassto-sync.cjs --new-key`. 화면의 열쇠(64자)는 4단계 설정 파일에만 넣고, 함께 나온 `insert into approval_private.logistics_fassto_keys …` 문장을 Supabase SQL 편집기에서 실행합니다(해시만 들어 있습니다). 열쇠를 채팅이나 저장소에 붙이지 않습니다.
 2. 기본 요청자(파스토 등록자를 명단에서 못 찾을 때) 넣기:
 

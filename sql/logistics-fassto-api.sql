@@ -137,7 +137,7 @@ declare
  v_slip text; v_order text; v_status text; v_div text; v_shop text; v_has_items boolean; v_items jsonb; v_raw_n integer; v_total integer;
  v_email text; v_default text; v_title text; v_note text; v_old_sig text; v_invoice text; v_upd boolean;
  n_created integer := 0; n_updated integer := 0; n_canceled integer := 0; n_invoices integer := 0; n_skipped integer := 0;
- v_stock_rows integer; v_stock_warning text := ''; v_last integer;
+ v_stock_rows integer; v_stock_warning text := ''; v_last integer; v_inv uuid;
 begin
  if not approval_private.logistics_fassto_key_ok(p_key) then raise exception 'LOGISTICS_FASSTO_KEY'; end if;
  if (select auth.uid()) is not null then raise exception 'LOGISTICS_FORBIDDEN'; end if;
@@ -240,6 +240,13 @@ begin
    if v_upd then n_updated := n_updated + 1; end if;
   end if;
 
+  select * into r from public.logistics_requests q where q.id = r.id;
+  -- 주문 연결: 파스토 주문번호가 대시보드 주문번호(invoices.no)와 같고 아직 연결이 없으면 잇는다.
+  -- 출고완료·취소된 요청은 요약이 닫혀 있으므로 건드리지 않는다.
+  if r.invoice_id is null and v_order <> '' and r.status_code not in ('shipped','canceled') then
+   select i.id into v_inv from public.invoices i where i.no = v_order order by i.id limit 1;
+   if v_inv is not null then update public.logistics_requests set invoice_id = v_inv where id = r.id; end if;
+  end if;
   -- 택배 송장: 결과 칸이 비어 있을 때만. 상태는 바꾸지 않는다.
   select * into r from public.logistics_requests q where q.id = r.id;
   v_invoice := left(btrim(concat_ws(' ', nullif(btrim(coalesce(d->>'parcel_name','')),''), nullif(btrim(coalesce(d->>'invoice_no','')),''))),500);
