@@ -10,17 +10,25 @@ const TEMPLATE={fassto:{baseUrl:'https://fmsapi.fassto.ai',apiCd:'',apiKey:'',cs
  supabase:{url:'',anonKey:'',syncKey:''},parcelSalesChannelEmptyOnly:true,lookbackDays:14,lookaheadDays:14};
 const REQUIRED=['fassto.apiCd','fassto.apiKey','fassto.cstCd','supabase.url','supabase.anonKey','supabase.syncKey'];
 const LOCK_MS=15*60000;
+// 한 번에 ingest로 보내는 출고 건수. Supabase anon 문장 시간 제한(57014)에 걸리면 줄인다.
+const CHUNK=30;
+const FETCH_MS=30000; // 파스토·Supabase 요청마다 30초 제한
+const CONFIG_BAD='설정 파일(config.json)을 읽지 못했어요. JSON 형식을 확인해 주세요.';
+const num=(v,def)=>{const n=Number(v);return Number.isFinite(n)?n:def;};
 
 class FasstoError extends Error{constructor(code,msg){super(`${code}: ${msg}`);this.code=code;}}
 
 const defaultDir=(env=process.env)=>env.FASSTO_SYNC_DIR||path.join(env.LOCALAPPDATA||path.join(os.homedir(),'AppData','Local'),'entropy-fassto-sync');
-function readJson(p,def){try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch(e){if(e.code==='ENOENT')return def;throw e;}}
+// token.json·state.json용: 없거나 깨졌으면 기본값으로 다시 시작한다(내용은 어디에도 남기지 않음)
+function readJson(p,def){try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch(e){if(e.code==='ENOENT'||e instanceof SyntaxError)return def;throw e;}}
 function writeJson(p,v){const t=p+'.tmp';fs.writeFileSync(t,JSON.stringify(v,null,1));fs.renameSync(t,p);}
 
 function loadConfig(dir){
  const p=path.join(dir,'config.json');
  if(!fs.existsSync(p)){fs.mkdirSync(dir,{recursive:true});writeJson(p,TEMPLATE);return {created:p};}
- const c=readJson(p,{});
+ let c;
+ try{c=JSON.parse(fs.readFileSync(p,'utf8'));}catch(e){if(e instanceof SyntaxError)return {invalid:true};throw e;}
+ if(!c||typeof c!=='object'||Array.isArray(c))return {invalid:true};
  const config={...TEMPLATE,...c,fassto:{...TEMPLATE.fassto,...c.fassto},supabase:{...TEMPLATE.supabase,...c.supabase}};
  const missing=REQUIRED.filter(k=>!String(k.split('.').reduce((o,x)=>o?.[x],config)||'').trim());
  return {config,missing};
@@ -47,7 +55,7 @@ function fasstoClient({config,fetch,dir,nowMs}){
  const base=config.fassto.baseUrl.replace(/\/+$/,''),cst=encodeURIComponent(config.fassto.cstCd),tokenPath=path.join(dir,'token.json');
  let token=readJson(tokenPath,null);
  async function call(method,url,headers={}){
-  const res=await fetch(url,{method,headers:{Accept:'application/json',...headers}});
+  const res=await fetch(url,{method,headers:{Accept:'application/json',...headers},signal:AbortSignal.timeout(FETCH_MS)});
   let body;try{body=await res.json();}catch(_){throw new FasstoError('BAD_RESPONSE',`HTTP ${res.status}`);}
   const err=body&&body.errorInfo;
   if(err&&err.errorCode)throw new FasstoError(err.errorCode,err.errorMessage||'');
@@ -74,43 +82,55 @@ function fasstoClient({config,fetch,dir,nowMs}){
 
 async function rpc(config,fetch,fn,args){
  const res=await fetch(`${config.supabase.url.replace(/\/+$/,'')}/rest/v1/rpc/${fn}`,{method:'POST',
-  headers:{apikey:config.supabase.anonKey,Authorization:`Bearer ${config.supabase.anonKey}`,'Content-Type':'application/json'},body:JSON.stringify(args)});
+  headers:{apikey:config.supabase.anonKey,Authorization:`Bearer ${config.supabase.anonKey}`,'Content-Type':'application/json'},body:JSON.stringify(args),
+  signal:AbortSignal.timeout(FETCH_MS)});
  const text=await res.text();
  if(!res.ok)throw new Error(`DB ${res.status}: ${String(text).slice(0,200)}`);
- return text?JSON.parse(text):null;
+ try{return text?JSON.parse(text):null;}catch(_){throw new Error(`DB ${res.status}: 응답을 읽지 못했어요`);}
 }
 
 async function run({dir=defaultDir(),fetch=globalThis.fetch,nowMs=Date.now(),dryRun=false,out=console.log}={}){
  const cfg=loadConfig(dir);
  if(cfg.created){out(`설정 파일을 만들었어요: ${cfg.created}\n값을 채운 뒤 다시 실행하세요.`);return {status:'config-created'};}
+ if(cfg.invalid){out(CONFIG_BAD);process.exitCode=1;return {status:'config-invalid',exitCode:1};}
  if(cfg.missing.length){out('설정 파일에 빈 값이 있어요: '+cfg.missing.join(', '));return {status:'config-missing'};}
  const config=cfg.config,log=logger(dir,nowMs);
  const release=takeLock(dir);
  if(!release){log('이전 실행이 아직 끝나지 않아 건너뜀');return {status:'locked'};}
  try{
   const fx=fasstoClient({config,fetch,dir,nowMs});
-  const statePath=path.join(dir,'state.json'),state=readJson(statePath,{slips:{}});
+  const statePath=path.join(dir,'state.json');
+  let state=readJson(statePath,{slips:{}});
+  if(!state||typeof state.slips!=='object'||!state.slips)state={slips:{}};
   let stockList,raw;
   try{
    stockList=await fx.stock();
-   const {start,end}=C.dateRange(nowMs,config.lookbackDays,config.lookaheadDays);
+   const {start,end}=C.dateRange(nowMs,num(config.lookbackDays,14),num(config.lookaheadDays,14));
    raw=[...((await fx.deliveries(start,end,'2'))||[]),...((await fx.deliveries(start,end,'1'))||[])];
   }catch(e){
    if(e.code==='INVALID_ACCESS'){log('파스토가 이 IP를 거부함(사무실 밖에서 실행?) — 건너뜀');return {status:'ip-skip'};}
    throw e;
   }
   const kept=raw.filter(x=>C.keepDelivery(x,config)),mall=raw.length-kept.length;
-  const deliveries=[],slips={},unknown=[];
+  // entries: 보낼 출고 건과, 성공하면 state.json에 남길 updTime(undefined면 남기지 않아 다음 실행에서 상세를 다시 부른다)
+  const entries=[],unknown=[];
   for(const x of kept){
    const slip=String(x.slipNo||'').trim();if(!slip)continue;
    if(!C.statusOf(x)){unknown.push(`${slip}:${x.wrkStat}`);continue;}
-   let items=null;
+   let items=null,upd;
    if(C.needsDetail(x,state)){
-    try{items=C.toItems(await fx.detail(slip));slips[slip]=String(x.updTime||'');}
-    catch(e){log(`상세 조회 실패 ${slip}: ${e.message}`);} // slips에 안 넣어 다음 실행에서 다시 부른다
-   }else slips[slip]=state.slips[slip];
-   deliveries.push(C.toDelivery(x,items));
+    try{
+     const got=C.toItems(await fx.detail(slip));
+     const sum=got.reduce((a,g)=>a+g.qty,0),ord=Number(x.ordQty)||0;
+     // 품목이 비었거나 합계가 주문 수량과 다르면 품목 없이 보내고(저장된 품목 유지) 다음 실행에서 다시 부른다
+     if(!got.length)log(`품목 확인 필요 ${slip}: 상세에 품목이 없어요 — 품목 없이 보내고 다음에 다시 불러요`);
+     else if(ord>0&&sum!==ord)log(`품목 확인 필요 ${slip}: 품목 합계 ${sum}개가 주문 수량 ${ord}개와 달라요 — 품목 없이 보내고 다음에 다시 불러요`);
+     else{items=got;upd=String(x.updTime||'');}
+    }catch(e){log(`상세 조회 실패 ${slip}: ${e.message}`);}
+   }else upd=state.slips[slip];
+   entries.push({slip,upd,delivery:C.toDelivery(x,items)});
   }
+  const deliveries=entries.map(e=>e.delivery);
   if(unknown.length)log('모르는 작업상태라 건너뜀: '+unknown.join(', '));
   const stock=C.toStockRows(stockList);
   if(dryRun){
@@ -119,15 +139,31 @@ async function run({dir=defaultDir(),fetch=globalThis.fetch,nowMs=Date.now(),dry
     +(d.items?` | 품목 ${d.items.length}줄`:'')+(d.invoice_no?` | 송장 ${d.parcel_name} ${d.invoice_no}`:''));
    out('재고 상품코드 예시: '+stock.slice(0,5).map(r=>r.product_code).join(', '));
    if(unknown.length)out('모르는 작업상태: '+unknown.join(', '));
+   const count={};for(const d of deliveries)count[d.status_code]=(count[d.status_code]||0)+1;
+   out('상태별: '+(['ORDER','WORKING','DONE','CANCEL','SHORTAGE'].filter(k=>count[k]).map(k=>`${k} ${count[k]}`).join(' · ')||'없음'));
+   const today=C.kstDay(nowMs),oldDone=deliveries.filter(d=>d.status_code==='DONE'&&d.order_date&&d.order_date<today).length;
+   out(`오늘 전 주문의 출고완료 ${oldDone}건은 연결된 요청이 없으면 이미 나간 출고로 보고 새로 만들지 않아요`);
    return {status:'dry-run',stock,deliveries,mall};
   }
-  const res=await rpc(config,fetch,'logistics_fassto_ingest',{p_key:config.supabase.syncKey,p_stock:stock,p_deliveries:deliveries});
-  writeJson(statePath,{slips});
+  // 재고는 따로 한 번, 출고는 CHUNK건씩. 출고가 없어도 빈 배열로 한 번 보내 동기화 기록을 남긴다.
+  const ingest=(p_stock,p_deliveries)=>rpc(config,fetch,'logistics_fassto_ingest',{p_key:config.supabase.syncKey,p_stock,p_deliveries});
+  const s0=await ingest(stock,null)||{};
+  const res={stock_rows:s0.stock_rows??null,stock_warning:s0.stock_warning||'',created:0,updated:0,canceled:0,invoices:0,skipped:0};
+  const chunks=[];for(let i=0;i<entries.length;i+=CHUNK)chunks.push(entries.slice(i,i+CHUNK));
+  if(!chunks.length)chunks.push([]);
+  const slips={};
+  for(const ch of chunks){
+   const r=await ingest(null,ch.map(e=>e.delivery))||{};
+   for(const k of ['created','updated','canceled','invoices','skipped'])res[k]+=Number(r[k])||0;
+   for(const e of ch)if(e.upd!==undefined)slips[e.slip]=e.upd;
+   writeJson(statePath,{slips}); // 성공한 묶음까지만 남긴다
+  }
   const line=C.summary(res,{mall});log(line);out(line);
   return {status:'ok',result:res};
  }catch(e){
-  log('실패: '+e.message);out('실패: '+e.message);
-  if(!dryRun){try{await rpc(config,fetch,'logistics_fassto_report_error',{p_key:config.supabase.syncKey,p_error:String(e.message).slice(0,300)});}
+  const msg=e instanceof SyntaxError?'응답을 읽지 못했어요':String(e.message); // JSON.parse 문구(내용 일부)는 내보내지 않는다
+  log('실패: '+msg);out('실패: '+msg);
+  if(!dryRun){try{await rpc(config,fetch,'logistics_fassto_report_error',{p_key:config.supabase.syncKey,p_error:msg.slice(0,300)});}
    catch(e2){log('오류 기록 실패: '+e2.message);}}
   process.exitCode=1;
   return {status:'error',error:e};
@@ -146,6 +182,6 @@ function newKey(out=console.log){
 if(require.main===module){
  const args=process.argv.slice(2);
  if(args.includes('--new-key'))newKey();
- else run({dryRun:args.includes('--dry-run')});
+ else run({dryRun:args.includes('--dry-run')}).catch(e=>{console.error('실패: '+e.message);process.exitCode=1;});
 }
 module.exports={run,newKey,loadConfig,defaultDir,TEMPLATE};
