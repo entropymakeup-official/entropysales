@@ -28,7 +28,9 @@
 | 출고 목록 | `GET /api/v1/delivery/{cstCd}/{start}/{end}/ALL/{outDiv}` (outDiv 1 택배, 2 차량) | slipNo, ordNo, ordDt, shopNm, cstShopCd, outDiv, ordQty, sku, wrkStat, wrkStatNm, invoiceNo, parcelNm, salChanel, remark, updTime, updUserNm |
 | 출고 상세(품목) | `GET /api/v1/delivery/detail/{cstCd}/{slipNo}` | 상품코드, 상품명, 유통기한, 수량 |
 
-작업상태 코드(`status` 경로값 기준): ORDER 출고요청, WORKING 출고작업중, DONE 출고완료, PARTDONE 부분출고, CANCEL 출고요청취소, SHORTAGE 재고부족결품. 목록 응답의 `wrkStat` 값이 이 코드와 같은 체계인지는 첫 미리보기 실행에서 확인하고, 다르면 변환 표를 맞춘다.
+작업상태: 조회 경로값은 ALL·ORDER·WORKING·DONE·PARTDONE·CANCEL·SHORTAGE이고, 응답의 `wrkStat`은 숫자 코드다(1 출고요청, 2 출고작업중, 3 출고완료·부분출고완료, 8 출고요청취소, 9 재고부족결품; FMS 화면에서도 `wrkStat:"1"` 확인). 동기화는 숫자를 ORDER·WORKING·DONE·CANCEL·SHORTAGE로 바꿔 저장한다. 모르는 값이면 그 건을 건너뛰고 로그에 남긴다.
+
+상품코드: 대시보드 `product_code`는 고객사상품코드(`cstGodCd`, 예 14자리 바코드형)다. FMS 내부 상품코드(`godCd`, 고객사코드가 앞에 붙음)는 쓰지 않는다. 첫 미리보기에서 지금 재고 표의 상품코드와 같은 체계인지 확인한다.
 
 재고 응답에는 LOT 번호가 없다. `lot_text`는 빈 값으로 넣고, 화면과 양식은 유통기한으로 로트를 구분한다(지금 FMS 엑셀도 대부분 같음). 첫 실행에서 FMS 엑셀 갱신 결과와 행 수·수량을 비교한다.
 
@@ -39,7 +41,7 @@
 | 칸 | 형식 | 설명 |
 |---|---|---|
 | `fassto_slip_no` | text, 유일(값이 있을 때) | FMS 출고요청번호. 영문·숫자·`-_` 1~40자 |
-| `fassto_status_code` | text | ORDER·WORKING·DONE·PARTDONE·CANCEL·SHORTAGE 중 하나 또는 null |
+| `fassto_status_code` | text | ORDER·WORKING·DONE·CANCEL·SHORTAGE 중 하나 또는 null (2장 숫자 코드 변환) |
 | `fassto_synced_at` | timestamptz | 이 요청을 동기화가 마지막으로 본 시각 |
 
 세 칸은 동기화 함수만 쓴다. 회사 구성원의 update에서 이 값을 바꾸려 하면 트리거가 옛 값으로 되돌린다(`fassto_order_no`와 같은 방식). 기존 `fassto_order_no`(`LG날짜_순번`)는 그대로 둔다. 파스토에서 들어온 요청도 등록 때 `LG…`를 받는다.
@@ -54,7 +56,7 @@
 | `vehicle_no_text` | 차량번호(0~20자) |
 | `updated_at`, `updated_by_text` | 트리거가 채움 |
 
-읽기·쓰기 권한은 받는 곳 표(`logistics_request_recipients`)와 같다: 요청자 본인과 활성 물류 담당자. 슬랙 알림에는 실리지 않는다. 출고완료 처리에서 차량번호를 넣으면 화면이 결과 칸에 `차량 <차량번호>`를 넣는다(기사 이름·연락처는 결과 칸에 넣지 않는다).
+읽기는 받는 곳 표(`logistics_request_recipients`)와 같다: 요청자 본인과 활성 물류 담당자. 쓰기는 활성 물류 담당자만 하고, 취소된 요청에는 쓸 수 없다(출고완료 뒤 고치는 것은 된다). 슬랙 알림에는 실리지 않는다. 출고완료 처리에서 차량번호를 넣으면 화면이 결과 칸에 `차량 <차량번호>`를 넣는다(기사 이름·연락처는 결과 칸에 넣지 않는다).
 
 ### 3.3 동기화 상태 `logistics_fassto_sync` 확장
 
@@ -82,9 +84,12 @@
 
 설치 때 사용자가 SQL 편집기에서 넣는다(6장). 행이 없으면 ingest가 `LOGISTICS_FASSTO_SETTINGS` 오류를 낸다.
 
-### 3.6 댓글 작성자
+### 3.6 행위자 표시
 
-동기화가 남기는 댓글의 `author_email`은 `fassto-sync`다. 지금 댓글 표에 작성자 형식 검사가 있으면 이 값만 예외로 허용하고, 화면은 이름을 `파스토 동기화`로 보인다.
+동기화 함수는 로그인 없이(anon) 불리므로 기존 트리거가 이미 "시스템"(`auth.uid()`가 null) 경로로 처리한다: 권한 검사는 건너뛰고 상태 전이 규칙은 지킨다. 그래서 기존 트리거는 고치지 않는다.
+- 요청의 `updated_by_text`와 변경 이력 행위자: `system`(기존 동작).
+- 동기화가 남기는 댓글: `author_email`에 `fassto-sync`를 넣는다. 댓글 트리거가 `coalesce(current_email(), author_email, 'system')`이라 그대로 남는다.
+- 화면은 `fassto-sync`를 `파스토 동기화`, `system`을 `시스템`으로 보인다.
 
 ## 4. 동기화 함수
 
@@ -96,7 +101,7 @@
 - `p_stock`이 null이면 재고는 건드리지 않는다. 배열이면 지난 재고 행 수의 절반 미만일 때 재고를 바꾸지 않고 결과에 경고를 넣는다(첫 갱신은 검사하지 않음). 통과하면 기존 `approval_private.logistics_replace_fassto_stock(rows,'fassto-api')`를 부른다. 그 함수의 `auth.uid() is not null` 검사는 anon 호출에서 통과한다(uid가 null).
 - `p_deliveries`는 출고 건 배열(4.2 형식). 건마다 4.3 규칙을 적용한다.
 - 돌려주는 값: `{stock_rows, stock_warning, created, updated, canceled, invoices, skipped}`.
-- 요청·품목·댓글을 쓰는 동안 행위자는 `fassto-sync`다. 함수가 `set_config('app.logistics_actor','fassto-sync',true)`로 켜고, 트리거가 이 값을 읽는다(4.5). 이력·`updated_by_text`·댓글 작성자에 `fassto-sync`가 남는다.
+- 행위자는 3.6과 같다(요청·이력은 `system`, 댓글은 `fassto-sync`).
 
 ### 4.2 출고 건 형식 (동기화 프로그램이 만든다)
 
@@ -146,11 +151,9 @@
 
 열쇠 검사 후 `logistics_fassto_sync`에 `kind_code='delivery'`, `row_count=0`, `error_text`(300자에서 자름) 행을 넣는다. anon만 실행.
 
-### 4.5 기존 표 트리거 변경
+### 4.5 기존 표 트리거
 
-- `logistics_requests` stamp 트리거: 세션 설정 `app.logistics_actor`가 있고 `auth.uid()`가 null이면 그 값을 행위자로 쓴다. 동기화 함수만 이 설정을 `set_config(…, true)`(트랜잭션 한정)로 켠다. 이 행위자에게는 상태 전이 검사(`logistics_transition_ok`)를 그대로 적용하고, 요청자·담당자 권한 검사는 건너뛴다.
-- `fassto_slip_no`·`fassto_status_code`·`fassto_synced_at`는 행위자가 동기화일 때만 바뀐다.
-- 품목 쓰기 검사(`logistics_request_write_check`)도 같은 행위자를 허용한다.
+기존 트리거는 고치지 않는다(3.6). 새로 더하는 트리거는 하나다: `logistics_requests`에 before insert/update 트리거를 두어, `auth.uid()`가 있는 호출(회사 구성원)이면 insert 때 파스토 연결 세 칸을 비우고 update 때 옛 값으로 되돌린다.
 
 ## 5. 동기화 프로그램 (`tools/fassto-sync.cjs`)
 
@@ -227,7 +230,7 @@
 ### 7.2 상세
 
 - 파스토 칸(`renderFasstoSection`)에 출고요청번호, 작업상태, 마지막 확인 시각을 더한다.
-- 패킹리스트 상태(대기·완료)를 해외 요청뿐 아니라 `type_code='b2b'` 전체에 보인다.
+- 패킹리스트 상태(대기·완료)는 지금도 `type_code='b2b'` 요청에 보인다(`needsOverseas`가 b2b를 포함). 바꾸지 않는다.
 - 출고완료 처리 폼: 운송이 `direct`면 기사 이름·연락처·차량번호 칸을 보이고, 저장 때 `logistics_request_drivers`를 upsert한 뒤 결과 칸이 비어 있으면 `차량 <차량번호>`를 넣는다. 차량번호가 없으면 결과 칸을 직접 적어야 한다(지금 규칙 유지).
 - 운송이 `parcel`이고 결과 칸이 채워져 있으면 출고완료 폼에 그 값을 미리 넣고 출고일 기본값을 오늘(KST)로 한다.
 - 기사 정보는 볼 권한이 있는 사람에게 상세의 필드 목록에 보인다.
@@ -240,7 +243,7 @@
 
 - DB(PGlite, `tests/logistics-fassto-api-db.test.cjs`): 열쇠 거부·비활성 열쇠, 새 요청 생성(요청자 매핑·기본 요청자), `LG` 주문번호 연결, 같은 출고 두 번 보내도 한 건, 품목 변경(요청·접수 상태만), 준비중 이후 댓글, CANCEL 처리, 송장 채우기(결과 칸 비었을 때만), 재고 급감 경고, 회사 구성원이 동기화 칸을 못 바꿈, 기사 정보 RLS, anon이 다른 표·함수를 못 씀.
 - 변환(`tests/fassto-sync-core.test.cjs`): 재고 변환, 출고 변환, 쇼핑몰 택배 거르기, 바뀐 건 고르기, 토큰 만료 판단, KST 날짜 범위.
-- 화면(`tests/logistics-ui.test.cjs` 확장): 파스토 표시, 동기화 상태 줄(정상·오류·없음), 기사 정보 칸, 택배 송장 미리 채우기, 패킹리스트 상태 표시 범위.
+- 화면(`tests/logistics-ui.test.cjs` 확장): 파스토 표시, 동기화 상태 줄(정상·오류·없음), 기사 정보 칸, 택배 송장 미리 채우기(동기화가 채운 결과 칸이 출고완료 폼에 들어감), 행위자 이름 표시.
 - 모든 테스트 데이터는 예시값이다. 저장소는 공개라 실제 응답·키·연락처를 넣지 않는다(`repo-guard` 검사).
 
 ## 9. 문서
